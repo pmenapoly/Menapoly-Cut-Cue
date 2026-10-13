@@ -67,7 +67,8 @@ class Settings:
 
 def load_settings() -> Settings:
     _load_dotenv(ROOT / ".env")
-    data_dir = Path(os.environ.get("CUTCUE_DATA_DIR", str(ROOT / "data"))).expanduser().resolve()
+    data_dir = Path(os.environ.get("CUTCUE_DATA_DIR", "data")).expanduser()
+    data_dir = (data_dir if data_dir.is_absolute() else ROOT / data_dir).resolve()
     return Settings(
         data_dir=data_dir,
         host=os.environ.get("CUTCUE_HOST", "127.0.0.1"),

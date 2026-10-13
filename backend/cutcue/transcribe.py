@@ -50,7 +50,9 @@ def transcribe_faster_whisper(wav: Path, duration: float | None, *, model: str, 
     except TranscriptionUnavailable:
         raise
     except Exception as exc:  # model download / load failures
-        raise TranscriptionUnavailable(f"Could not load Whisper model '{model}': {exc}") from exc
+        raise TranscriptionUnavailable(
+            f"Could not load Whisper model '{model}': {exc}. The first run downloads it from Hugging Face; "
+            "check your internet connection or run 'make whisper-model', then Retry.") from exc
     segments_iter, _info = whisper.transcribe(
         str(wav), language=language or None, word_timestamps=True, vad_filter=True,
         beam_size=1, condition_on_previous_text=False,

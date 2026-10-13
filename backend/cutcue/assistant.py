@@ -177,9 +177,9 @@ class Assistant:
                              [project_id])
         return [{"role": r["role"], "content": loads(r["content_json"])} for r in rows]
 
-    def _save(self, project_id: str, role: str, content: Any, display: str | None) -> None:
+    def _save(self, project_id: str, role: str, content: Any, display: str | None, at: float | None = None) -> None:
         self.s.db.insert("chat_messages", {"project_id": project_id, "role": role, "content_json": dumps(content),
-                                           "display": display, "created_at": now()})
+                                           "display": display, "created_at": at or now()})
 
     def clear(self, project_id: str) -> None:
         self.s.db.execute("DELETE FROM chat_messages WHERE project_id = ?", [project_id])
@@ -294,6 +294,7 @@ class Assistant:
         import anthropic
 
         settings = self.s.settings
+        started = now()
         history = self._api_messages(project_id)
         new: list[dict] = [{"role": "user", "content": [
             {"type": "text", "text": self.project_state(project_id)},
@@ -350,7 +351,7 @@ class Assistant:
                 display = reply
             else:
                 display = None
-            self._save(project_id, msg["role"], msg["content"], display)
+            self._save(project_id, msg["role"], msg["content"], display, at=started if i == 0 else None)
         return {"mode": "claude", "reply": reply, "proposal_ids": created, "cost_usd": round(cost, 4)}
 
     def _error_turn(self, project_id: str, text: str, message: str, cost: float) -> dict:
