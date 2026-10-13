@@ -301,6 +301,8 @@ class Assistant:
             {"type": "text", "text": text}]}]
         created: list[str] = []
         cost = 0.0
+        usage = {"api_calls": 0, "input_tokens": 0, "output_tokens": 0,
+                 "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
         reply_parts: list[str] = []
         extra: dict = {}
         if settings.claude_fallbacks:
@@ -312,6 +314,9 @@ class Assistant:
                     messages=history + new, output_config={"effort": settings.claude_effort},
                     cache_control={"type": "ephemeral"}, **extra)
                 cost += self._cost(response)
+                usage["api_calls"] += 1
+                for key in ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"):
+                    usage[key] += getattr(getattr(response, "usage", None), key, 0) or 0
                 if response.stop_reason == "refusal":
                     return self._error_turn(project_id, text, "Claude declined this request. Try rephrasing it.", cost)
                 content = [b.to_dict() for b in response.content]
@@ -352,7 +357,7 @@ class Assistant:
             else:
                 display = None
             self._save(project_id, msg["role"], msg["content"], display, at=started if i == 0 else None)
-        return {"mode": "claude", "reply": reply, "proposal_ids": created, "cost_usd": round(cost, 4)}
+        return {"mode": "claude", "reply": reply, "proposal_ids": created, "cost_usd": round(cost, 4), "usage": usage}
 
     def _error_turn(self, project_id: str, text: str, message: str, cost: float) -> dict:
         self.s.add_spend(project_id, cost)

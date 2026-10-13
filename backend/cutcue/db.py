@@ -149,6 +149,11 @@ MIGRATIONS: list[str] = [
         created_at REAL NOT NULL
     );
     """,
+    # 2: wall-clock timing for jobs (measured transcription/render times)
+    """
+    ALTER TABLE jobs ADD COLUMN started_at REAL;
+    ALTER TABLE jobs ADD COLUMN finished_at REAL;
+    """,
 ]
 
 

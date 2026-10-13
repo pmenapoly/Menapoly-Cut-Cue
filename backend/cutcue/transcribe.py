@@ -36,10 +36,21 @@ def _whisper_model(name: str, compute_type: str, cpu_threads: int):
                 from faster_whisper import WhisperModel
             except ImportError as exc:  # pragma: no cover - depends on install
                 raise TranscriptionUnavailable("faster-whisper is not installed (pip install -r backend/requirements.txt)") from exc
-            threads = cpu_threads or max(1, (os.cpu_count() or 4))
+            threads = cpu_threads or default_threads()
             _model_cache.clear()  # keep only one model resident: 16 GB machines
             _model_cache[key] = WhisperModel(name, device="cpu", compute_type=compute_type, cpu_threads=threads)
         return _model_cache[key]
+
+
+def default_threads() -> int:
+    """Physical cores: on Intel CPUs hyper-threads add little to CTranslate2 matrix math."""
+    try:
+        import psutil
+
+        physical = psutil.cpu_count(logical=False)
+    except ImportError:
+        physical = None
+    return max(1, physical or (os.cpu_count() or 4) // 2)
 
 
 def transcribe_faster_whisper(wav: Path, duration: float | None, *, model: str, compute_type: str,

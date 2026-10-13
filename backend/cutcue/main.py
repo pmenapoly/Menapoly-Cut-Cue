@@ -336,6 +336,19 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
             raise BadRequest(str(exc)) from exc
         return {"ok": True}
 
+    # --- validation (scripts/validate.py): Chrome reports real playback results here ----------------------
+    app.state.playback_reports = []
+
+    @app.post("/api/validation/playback")
+    def playback_report(body: dict):
+        app.state.playback_reports.append(body)
+        del app.state.playback_reports[:-50]
+        return {"ok": True}
+
+    @app.get("/api/validation/playback")
+    def playback_reports():
+        return app.state.playback_reports
+
     # --- built frontend (make start) ----------------------------------------------------------------------
     static_dir = ROOT / "frontend" / "out"
     if static_dir.is_dir():

@@ -1,7 +1,7 @@
 """Generate a synthetic test interview for Menapoly Cut Cue.
 
 Produces, in the output directory:
-  market-mocha-interview.mp4   1280x720 test-pattern video with synthesized speech (FFmpeg flite)
+  market-mocha-interview.mp4   1280x720 test-pattern video with synthesized speech (FFmpeg flite, or macOS `say`)
   market-mocha-brief.txt       a creative brief
   <sha256>.transcript.json     ground-truth sentence timings for the fixture transcriber
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -46,6 +47,25 @@ def duration(path: Path) -> float:
     return float(json.loads(out)["format"]["duration"])
 
 
+def has_flite() -> bool:
+    filters = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True).stdout
+    return " flite " in filters
+
+
+def synthesize(text_file: Path, dest: Path, tmp: Path) -> None:
+    """Speech for one sentence: FFmpeg's flite filter (Linux builds) or macOS `say` (Homebrew FFmpeg lacks flite)."""
+    if has_flite():
+        # Relative textfile path (cwd=tmp) avoids filtergraph escaping of absolute paths.
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"flite=textfile={text_file.name}:voice=slt",
+                        "-ar", "48000", "-ac", "1", str(dest)], check=True, capture_output=True, cwd=tmp)
+    elif shutil.which("say"):
+        aiff = dest.with_suffix(".aiff")
+        subprocess.run(["say", "-o", str(aiff), "-f", str(text_file)], check=True, capture_output=True)
+        subprocess.run(["ffmpeg", "-y", "-i", str(aiff), "-ar", "48000", "-ac", "1", str(dest)], check=True, capture_output=True)
+    else:
+        raise SystemExit("Need FFmpeg built with libflite, or macOS `say`, to synthesize test speech.")
+
+
 def main(out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp_name:
@@ -58,9 +78,7 @@ def main(out_dir: Path) -> Path:
             text_file = tmp / f"s{i}.txt"
             text_file.write_text(sentence)
             speech = tmp / f"s{i}.wav"
-            # Relative textfile path (cwd=tmp) avoids filtergraph escaping of absolute paths.
-            subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"flite=textfile={text_file.name}:voice=slt",
-                            "-ar", "48000", "-ac", "1", str(speech)], check=True, capture_output=True, cwd=tmp)
+            synthesize(text_file, speech, tmp)
             length = duration(speech)
             words = sentence.split()
             step = length / len(words)

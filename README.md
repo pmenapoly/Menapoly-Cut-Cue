@@ -80,24 +80,36 @@ docs/                architecture.md, cloud-worker.md, original briefs (docs/bri
 edit_engine.py       original FFmpeg starter, kept for reference (superseded by backend/cutcue/render.py)
 ```
 
-## Status (MVP milestone 1)
+## Real-world validation (run this on your Mac first)
 
-**Working and tested here** (Linux container, real FFmpeg, synthetic speech):
-- Browser dashboard, project management, resumable chunked uploads with content validation
-- Probe, thumbnails, proxies, silence and scene analysis, brief parsing (PDF/DOCX/TXT), SRT/VTT import as transcript
-- Transcript view, full-text search across the project, click-to-seek
-- Claude tool loop with grounding, validation feedback, approval gating, budget cap and refusal fallback (tested with a scripted client; **not yet run against the live API**)
-- Labeled local test mode
-- Timeline editor, versions, compare, restore
-- Preview and final renders in 16:9, 9:16 and 1:1, burned-in captions, loudness normalization, SRT, WAV export
-- Audio-only sources rendered with a waveform
-- Job status, progress, cancel, retry, and restart recovery
-- Optional password, and local/cloud selection with per-project approval
+```bash
+# .env must contain ANTHROPIC_API_KEY; Google Chrome must be installed
+make validate MEDIA=~/Movies/episode.mp4 CLIP_MINUTES=10 BRIEF=~/Documents/brief.pdf
+```
 
-**Needs your machine to verify:**
-- Real faster-whisper transcription. This container cannot download model weights. The code path, its error handling and Retry are tested.
-- Live Claude API calls (needs your key).
-- In-browser H.264 playback. The test browser here has no H.264 codec; Chrome and Safari do.
-- Intel Mac timings and VideoToolbox.
+The harness starts the real server, uploads your file and brief, and runs real faster-whisper. It then asks live Claude for a rough cut, approves it, renders it, and asks Claude for a revision, which it also renders. Next it exports a final 1080×1920 vertical clip with SRT and WAV, and plays every render in headless **Google Chrome**. Along the way it measures transcription time and real-time factor, preview and final render times, peak memory by phase (server, Whisper and FFmpeg together), and Claude cost and tokens.
 
-**Not implemented yet:** the remote cloud worker itself (only the interface and an opt-in contract exist, see `docs/cloud-worker.md`), OTIO/Premiere/Resolve export, re-importing processed audio from WAV hand-off, multicam, B-roll, image clips on the timeline, and resumable uploads after a browser reload (resume currently works within one session). Payments, teams and multi-tenancy are out of scope by design.
+The output goes to `data/validation/<timestamp>/`:
+- `report.md` and `report.json`
+- a Chrome screenshot of the dashboard
+- every rendered MP4
+- the SRT
+- a frame showing the burned-in captions
+- the transcript
+- `server.log`
+
+Each step is marked **PASS** only if it really ran and passed its checks. Missing prerequisites (no API key, no Chrome, synthetic speech) show as **NOT VERIFIED** or **PARTIAL**, never PASS. Leave out `CLIP_MINUTES` to time a full episode.
+
+## Validation status
+
+| Check | Status | Evidence |
+|---|---|---|
+| App launches in Google Chrome | **Pending your Mac** | Here only Chromium was available: the dashboard rendered (PARTIAL, not Chrome) |
+| faster-whisper downloads and transcribes real speech | **Pending your Mac** | Model download blocked in the build container (403); a failure is reported cleanly with Retry |
+| Live Claude proposes a valid edit | **Pending your API key** | Real Anthropic SDK request/response checked against a local mock server (`test_claude_wire.py`); validation and approval gate covered by tests |
+| Approve, then render a playable MP4 | Render and decode verified; **Chrome playback pending** | H.264/AAC, duration within ±0.35 s, full FFmpeg decode with no errors. The Chrome probe was shown to report both failure and success correctly |
+| Revision through chat, new version renders | **Pending your API key** | The version, compare and restore render path is tested |
+| 9:16 export plus SRT | Verified (render path, non-AI timeline) | 1080×1920 H.264, 10 SRT cues inside the clip and in order, burned-in caption frame inspected |
+| Timings, memory, cost on Intel Mac | **Pending your Mac** | Container numbers (not your hardware): 26 s 9:16 final render in 17 s, peak about 490 MB |
+
+**Not implemented yet:** the remote cloud worker (interface and opt-in contract only, see `docs/cloud-worker.md`); OTIO/Premiere/Resolve export; re-importing processed audio; multicam and B-roll; image clips on the timeline; and resuming an upload after a browser reload. Payments, teams and multi-tenancy are out of scope by design.

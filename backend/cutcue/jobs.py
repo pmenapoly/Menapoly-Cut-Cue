@@ -170,7 +170,8 @@ class JobManager:
         with self._lock:
             self._tokens[job_id] = token
         self.db.update("jobs", "id", job_id, {"status": "running", "attempts": job["attempts"] + 1,
-                                              "message": "Starting", "updated_at": now()})
+                                              "message": "Starting", "started_at": now(), "finished_at": None,
+                                              "updated_at": now()})
         last = {"p": -1.0}
 
         def set_progress(fraction: float, message: str | None) -> None:
@@ -186,14 +187,17 @@ class JobManager:
         try:
             result = self.handlers[job["type"]](ctx) or {}
             self.db.update("jobs", "id", job_id, {"status": "succeeded", "progress": 1.0, "message": "Done",
-                                                  "result_json": dumps(result), "updated_at": now()})
+                                                  "result_json": dumps(result), "finished_at": now(),
+                                                  "updated_at": now()})
         except Cancelled:
-            self.db.update("jobs", "id", job_id, {"status": "cancelled", "message": "Cancelled", "updated_at": now()})
+            self.db.update("jobs", "id", job_id, {"status": "cancelled", "message": "Cancelled", "finished_at": now(),
+                                                  "updated_at": now()})
         except Exception as exc:
             log.warning("job %s (%s) failed: %s", job_id, job["type"], exc)
             log.debug(traceback.format_exc())
             self.db.update("jobs", "id", job_id, {"status": "failed", "error": str(exc)[:2000],
-                                                  "message": "Failed", "updated_at": now()})
+                                                  "message": "Failed", "finished_at": now(),
+                                                  "updated_at": now()})
         finally:
             with self._lock:
                 self._tokens.pop(job_id, None)
