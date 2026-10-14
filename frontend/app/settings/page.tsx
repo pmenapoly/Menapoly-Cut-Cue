@@ -180,6 +180,10 @@ function SettingsPage() {
   }, []);
   return (
     <div className="max-w-3xl space-y-8">
+      <Link href="/connections/" className="card flex items-center justify-between gap-2 p-4 hover:border-line2">
+        <span><span className="block font-medium">Connections</span><span className="block text-sm text-muted">What is set up, unavailable or awaiting authorization.</span></span>
+        <Icon name="chevron" className="text-faint" />
+      </Link>
       <Section title="Appearance">
         <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
           <span className="text-sm">Theme</span>

@@ -1,5 +1,9 @@
 # Deployment instructions (nothing below has been done; each step needs your go-ahead)
 
+> **Updated 2026-10-14:** start with `security-launch.md` (production status, containment, emergency patch) and
+> `deployment-readiness.md` (checklist). The fastest safe fix for production is branch `hotfix/access-identity-minimal`
+> (based on `main`, CI green).
+
 ## Branches
 
 | Repository | Branch | Contents | Merge target | Effect of merging |

@@ -7,6 +7,7 @@ import AppShell, { Section } from "@/components/shell";
 import { ErrorState, Icon, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
 import { Home as HomeData } from "@/lib/cue";
+import { Connections } from "@/components/connections";
 import { timeAgo } from "@/lib/format";
 
 const TONE_DOT: Record<string, string> = { danger: "bg-danger", warn: "bg-warn", accent: "bg-accent", ok: "bg-ok", info: "bg-text", muted: "bg-faint" };
@@ -15,6 +16,8 @@ function HomePage() {
   const [data, setData] = useState<HomeData | null>(null);
   const [error, setError] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [conn, setConn] = useState<Connections | null>(null);
+  useEffect(() => { api.get<Connections>("/cue/connections").then(setConn).catch(() => {}); }, []);
   const load = useCallback(() => api.get<HomeData>("/cue/home").then((d) => { setData(d); setError(false); }).catch(() => setError(true)), []);
   useEffect(() => {
     load();
@@ -34,6 +37,20 @@ function HomePage() {
         </div>
         <button className="btn btn-primary min-h-11" onClick={() => setCreating(true)}><Icon name="plus" /> New project</button>
       </div>
+
+      {conn && !conn.setup.completed && !conn.setup.dismissed && !conn.has_projects && (
+        <Link href="/setup/" className="card flex items-center gap-4 border-accent/50 p-4 hover:border-accent" data-testid="first-run">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-accent-soft text-violet"><Icon name="sparkle" /></span>
+          <span className="min-w-0 flex-1"><span className="block font-semibold">Set up Menapoly Cue (about 5 minutes)</span>
+            <span className="block text-sm text-muted">Check this computer, connect what you need, make a first backup, create your first project.</span></span>
+          <Icon name="chevron" className="text-faint" />
+        </Link>
+      )}
+      {conn && conn.blocking.length > 0 && (
+        <Link href="/connections/" role="alert" className="block rounded-xl border border-danger/40 bg-danger/5 p-3 text-sm">
+          <strong className="text-danger">Needs attention:</strong> {conn.items.filter((i) => conn.blocking.includes(i.key)).map((i) => i.name).join(", ")}. Open Connections.
+        </Link>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-6">

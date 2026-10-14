@@ -31,7 +31,7 @@ class FakeRelay:
         return httpx.MockTransport(self.handle)
 
     def _who(self, request: httpx.Request) -> str | None:
-        if request.headers.get("CF-Access-Client-Id") == "client-id" and request.headers.get("CF-Access-Client-Secret") == "secret":
+        if request.headers.get("CF-Access-Client-Id") == "client-id" and request.headers.get("CF-Access-Client-Secret") in ("secret", "S3CR3T-VALUE-xyz"):
             return "connector@menapoly.test"
         return request.headers.get("oai-authenticated-user-email")
 

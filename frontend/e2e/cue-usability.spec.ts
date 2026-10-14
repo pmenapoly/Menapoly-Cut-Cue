@@ -77,3 +77,33 @@ test("delivery and settings explain what is and isn't connected", async ({ page,
   await expect(page.getByRole("list", { name: "Backups" })).toContainText("database only");
   await shot(page, `cue2-${info.project.name}-settings`);
 });
+
+test("first-run setup walks through checks, backs up and creates the first project", async ({ page }, info) => {
+  await page.goto("/setup/");
+  await expect(page.getByRole("heading", { name: "This computer" })).toBeVisible();
+  await expect(page.getByTestId("conn-ffmpeg")).toContainText("Ready");
+  await shot(page, `cue2-${info.project.name}-setup`);
+  await page.getByRole("button", { name: /^(Next|Skip for now|Continue anyway)/ }).click();
+  await expect(page.getByRole("heading", { name: "AI editing" })).toBeVisible();
+  await expect(page.getByTestId("conn-claude")).toContainText("Not set up");
+  for (const title of ["Keep it private", "Notifications", "Backups"]) {
+    await page.getByRole("button", { name: /^(Next|Skip for now|Continue anyway)/ }).click();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Back up now" }).click();
+  await expect(page.getByText(/Backed up: cutcue-backup-/)).toBeVisible();
+  await page.getByRole("button", { name: /^(Next|Skip for now|Continue anyway)/ }).click();
+  await page.getByLabel("Project name").fill(`First run ${info.project.name}`);
+  await page.getByRole("button", { name: "Create project and add media" }).click();
+  await expect(page).toHaveURL(/project\/\?id=prj_.*welcome=1/);
+});
+
+test("connections page labels every integration honestly", async ({ page }, info) => {
+  await page.goto("/connections/");
+  await expect(page.getByTestId("conn-ffmpeg")).toContainText("Ready");
+  await expect(page.getByTestId("conn-relay")).toContainText("Not set up");
+  await expect(page.getByTestId("conn-text_out")).toContainText("Awaiting authorization");
+  await expect(page.getByTestId("conn-email")).toContainText("Not set up");
+  await expect(page.getByText("Secret values are never shown here.")).toBeVisible();
+  await shot(page, `cue2-${info.project.name}-connections`);
+});

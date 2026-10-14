@@ -4,7 +4,7 @@ import { shot } from "./helpers";
 // Menapoly Cue 2.0 shell at the five required widths: no horizontal overflow, reachable navigation,
 // touch-sized targets, named controls. Runs once (desktop project) and resizes the page itself.
 const WIDTHS = [375, 430, 768, 1280, 1440];
-const PAGES = ["/", "/projects/", "/cut/", "/inbox/", "/library/", "/settings/", "/gallery/"];
+const PAGES = ["/", "/projects/", "/cut/", "/inbox/", "/library/", "/settings/", "/gallery/", "/connections/", "/setup/"];
 
 async function smallTargets(page: Page) {
   return page.evaluate(() => {

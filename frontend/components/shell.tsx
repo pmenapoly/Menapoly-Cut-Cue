@@ -224,6 +224,11 @@ function Shell({ children, title }: { children: ReactNode; title: string }) {
             })}
           </ul>
           <div className="mt-auto space-y-1">
+            <Link href="/connections/" aria-current={isActive(pathname, "/connections/") ? "page" : undefined}
+                  className={`flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl px-2 text-[11px] font-medium xl:flex-row xl:justify-start xl:gap-3 xl:px-3 xl:text-sm ${
+                    isActive(pathname, "/connections/") ? "bg-accent-soft text-text" : "text-muted hover:bg-panel2 hover:text-text"}`}>
+              <Icon name="link" size={20} />Connections
+            </Link>
             <Link href="/settings/" aria-current={isActive(pathname, "/settings/") ? "page" : undefined}
                   className={`flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl px-2 text-[11px] font-medium xl:flex-row xl:justify-start xl:gap-3 xl:px-3 xl:text-sm ${
                     isActive(pathname, "/settings/") ? "bg-accent-soft text-text" : "text-muted hover:bg-panel2 hover:text-text"}`}>

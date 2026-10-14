@@ -99,3 +99,14 @@ Legend:
 | Searchable keyboard-shortcut guide (`?`) and G-then-letter navigation | Done | `cue-usability.spec.ts` |
 | Usability fixes from the screenshot review (9 items) | Done | `usability-review.md` |
 | SMS sending | Disabled (unchanged) | `send_text` fails honestly; drafts only |
+
+## Secure launch preparation (2026-10-14, third round)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Production status of Relay | Checked (read-only). No CI deployment has ever succeeded. Today the API token is set and the Access secrets are **missing**, so the next push to `main` would deploy a vulnerable public Worker. | `security-launch.md` §1 |
+| Minimal emergency patch on top of `main` | Ready, **not merged** | `hotfix/access-identity-minimal`; GitHub CI green; 10 auth tests pass against `main` code |
+| Read-only security readiness CI (secret presence, lint, typecheck, tests, build, dry run) | Done | Green on the security, hotfix and connector branches |
+| Connections page (ready / not set up / unavailable / awaiting authorization; no secrets) | Done | `/connections/`; `test_connections.py`; e2e test |
+| First-run setup (computer, AI, privacy, email, backup, first project) | Done | `/setup/`; e2e test |
+| End-to-end launch workflow (create → upload → AI edit → review → client approval → H.264/AAC exports → email → backup) | Done | `test_launch_workflow.py` |

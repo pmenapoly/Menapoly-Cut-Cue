@@ -55,6 +55,8 @@ Docs in `docs/cue2/`:
 - [feature matrix](docs/cue2/feature-matrix.md)
 - [setup](docs/cue2/setup.md)
 - [Mac validation checklist](docs/cue2/mac-validation-checklist.md)
+- [security launch plan](docs/cue2/security-launch.md)
+- [deployment readiness checklist](docs/cue2/deployment-readiness.md)
 - [deployment](docs/cue2/deployment.md)
 - [Relay connector](docs/cue2/relay-connector.md)
 - [usability review](docs/cue2/usability-review.md)

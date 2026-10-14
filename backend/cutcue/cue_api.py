@@ -274,6 +274,28 @@ def register(app: FastAPI, svc: Services, cue: Cue, ask: AskCue, text: CueText) 
         cue.relay.unlink_project(pid)
         return {"ok": True}
 
+    # --- connection status and first-run setup ----------------------------------------------------------------
+    @app.get("/api/cue/connections")
+    def connections_status():
+        from .connections import connections, setup_state
+        items = connections(svc.settings, cue, ask, text)
+        blocking = [i for i in items if i["required"] and i["status"] != "ready"]
+        return {"items": items, "ready_for_projects": not blocking, "blocking": [i["key"] for i in blocking],
+                "setup": setup_state(cue), "has_projects": bool(svc.db.one("SELECT 1 FROM projects LIMIT 1"))}
+
+    @app.post("/api/cue/connections/relay/test")
+    def connections_relay_test():
+        from .connections import probe_relay
+        if not cue.relay.config.configured:
+            raise BadRequest(cue.relay.config.problem() or "The client portal isn't configured.")
+        return probe_relay(cue)
+
+    @app.post("/api/cue/setup")
+    def setup_update(body: dict):
+        from .connections import set_setup_state
+        allowed = {k: bool(v) for k, v in body.items() if k in ("completed", "dismissed")}
+        return set_setup_state(cue, **allowed, updated_at=__import__("time").time())
+
     @app.get("/api/cue/backups")
     def backups():
         from .backup import verify_backup

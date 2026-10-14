@@ -717,6 +717,9 @@ def main() -> int:
             kinds = [n["kind"] for n in app.api("GET", "/cue/notifications")["items"]]
             ok &= "review_changes_requested" in kinds and "render_done" in kinds
             details.append(f"notifications: {sorted(set(kinds))}")
+            conn = {i["key"]: i for i in app.api("GET", "/cue/connections")["items"]}
+            details.append("connections: " + ", ".join(f"{k}={v['status']}" for k, v in conn.items()))
+            ok &= conn["ffmpeg"]["status"] == "ready"
             app.api("POST", f"/cue/projects/{pid}/review-links/{link['id']}/revoke")
             ok &= public.get(f"/api/public/review/{link['token']}").status_code == 404
             details.append("revoked link returns 404")
