@@ -17,6 +17,10 @@ from starlette.concurrency import run_in_threadpool
 
 from . import __version__, media
 from .assistant import Assistant, timeline_stats
+from .ask import AskCue
+from .cue import Cue
+from .cue_api import register as register_cue
+from .text import CueText, TextConfig
 from .config import ROOT, Settings, settings as default_settings
 from .presets import PRESETS
 from .services import BadRequest, NotFound, Services
@@ -119,6 +123,10 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     app = FastAPI(title="Menapoly Cut Cue", version=__version__,
                   description="Private conversational AI video editor (single user).")
     app.state.services, app.state.assistant = svc, bot
+    cue = Cue(svc, chat=bot.chat)
+    ask = AskCue(cue, client=getattr(bot, "_client", None))
+    text = CueText(cue, TextConfig(settings.text_provider, settings.text_number, settings.text_auth_token,
+                                   settings.text_webhook_url))
     if settings.allowed_origins:
         app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True,
                            allow_methods=["*"], allow_headers=["*"])
@@ -138,7 +146,9 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     @app.middleware("http")
     async def auth(request: Request, call_next):
         path = request.url.path
-        if settings.password and path.startswith("/api/") and path not in ("/api/health", "/api/auth/login", "/api/auth/status"):
+        # /api/public/* is token- or signature-scoped per route (see cue_api.py), never by the owner session.
+        if (settings.password and path.startswith("/api/") and not path.startswith("/api/public/")
+                and path not in ("/api/health", "/api/auth/login", "/api/auth/status")):
             if not hmac.compare_digest(request.cookies.get(COOKIE, ""), session_token):
                 return JSONResponse({"detail": "Not signed in"}, status_code=401)
         response = await call_next(request)
@@ -459,6 +469,8 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
         except ValueError as exc:
             raise BadRequest(str(exc)) from exc
         return {"ok": True}
+
+    register_cue(app, svc, cue, ask, text)
 
     # --- validation (scripts/validate.py): Chrome reports real playback results here ----------------------
     app.state.playback_reports = []

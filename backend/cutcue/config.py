@@ -55,6 +55,13 @@ class Settings:
     cloud_worker_url: str = ""
     cloud_worker_token: str = ""
     allowed_origins: list[str] = field(default_factory=list)
+    # Menapoly Cue 2.0
+    public_url: str = ""  # base URL used when showing review/upload links (e.g. http://my-mac.local:8000)
+    # Cue Text (SMS/MMS intake). Off unless all of these are set. Sending is not implemented.
+    text_provider: str = ""
+    text_number: str = ""
+    text_auth_token: str = ""
+    text_webhook_url: str = ""
 
     @property
     def claude_enabled(self) -> bool:
@@ -91,6 +98,11 @@ def load_settings() -> Settings:
         cloud_worker_url=os.environ.get("CUTCUE_CLOUD_WORKER_URL", ""),
         cloud_worker_token=os.environ.get("CUTCUE_CLOUD_WORKER_TOKEN", ""),
         allowed_origins=[o for o in os.environ.get("CUTCUE_ALLOWED_ORIGINS", "").split(",") if o],
+        public_url=os.environ.get("CUTCUE_PUBLIC_URL", "").rstrip("/"),
+        text_provider=os.environ.get("CUE_TEXT_PROVIDER", "").strip().lower(),
+        text_number=os.environ.get("CUE_TEXT_NUMBER", ""),
+        text_auth_token=os.environ.get("CUE_TEXT_AUTH_TOKEN", ""),
+        text_webhook_url=os.environ.get("CUE_TEXT_WEBHOOK_URL", ""),
     )
 
 

@@ -218,11 +218,19 @@ class Services:
         with part.open("rb") as fh:
             for block in iter(lambda: fh.read(4 * 1024 * 1024), b""):
                 sha.update(block)
+        digest = sha.hexdigest()
+        # Don't duplicate media: the same bytes already in this project return that asset.
+        same = self.db.one("SELECT id FROM assets WHERE project_id = ? AND sha256 = ? AND size = ? AND status != 'error'",
+                           [project_id, digest, upload["size"]])
+        if same:
+            part.unlink(missing_ok=True)
+            self.db.update("uploads", "id", upload_id, {"status": "complete"})
+            return self.get_asset(project_id, same["id"])
         asset_id = new_id("ast")
         stored_name = f"{asset_id}{ext}"
         dest = self.project_dir(project_id) / "assets" / stored_name
         asset = {"id": asset_id, "project_id": project_id, "kind": kind, "original_name": upload["filename"],
-                 "stored_name": stored_name, "size": upload["size"], "sha256": sha.hexdigest(),
+                 "stored_name": stored_name, "size": upload["size"], "sha256": digest,
                  "status": "processing", "created_at": now()}
         try:
             self._validate_content(part, kind, ext, asset)
@@ -231,6 +239,16 @@ class Services:
             self.db.update("uploads", "id", upload_id, {"status": "rejected"})
             raise BadRequest(f"{upload['filename']}: {exc}") from exc
         os.replace(part, dest)
+        # Identical bytes in another project: keep one copy on disk (hard link) instead of two.
+        other = self.db.one("SELECT * FROM assets WHERE sha256 = ? AND size = ? AND project_id != ? AND status != 'error' LIMIT 1",
+                            [digest, upload["size"], project_id])
+        if other and self.asset_path(other).is_file():
+            try:
+                linked = dest.with_suffix(dest.suffix + ".link")
+                os.link(self.asset_path(other), linked)
+                os.replace(linked, dest)
+            except OSError:
+                pass  # different filesystem or links unsupported: keep the copy
         self.db.update("uploads", "id", upload_id, {"status": "complete"})
         self.db.insert("assets", asset)
         project = self.get_project(project_id)

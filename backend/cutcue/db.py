@@ -175,6 +175,130 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE renders ADD COLUMN preset TEXT;
     """,
+    # 5: Menapoly Cue 2.0 layer — clients, project stage, review links, notifications, Ask Cue actions,
+    #    library, upload links and Cue Text (SMS) intake. Additive only: Cut Cue tables are untouched.
+    """
+    CREATE TABLE clients (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        contact TEXT,
+        notes TEXT,
+        created_at REAL NOT NULL
+    );
+    ALTER TABLE projects ADD COLUMN client_id TEXT REFERENCES clients(id) ON DELETE SET NULL;
+    ALTER TABLE projects ADD COLUMN stage TEXT NOT NULL DEFAULT 'draft';
+    ALTER TABLE projects ADD COLUMN archived_at REAL;
+    CREATE TABLE review_links (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        render_id TEXT NOT NULL REFERENCES renders(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        label TEXT NOT NULL,
+        allow_download INTEGER NOT NULL DEFAULT 0,
+        created_at REAL NOT NULL,
+        expires_at REAL,
+        revoked_at REAL,
+        last_viewed_at REAL
+    );
+    CREATE TABLE review_events (
+        id TEXT PRIMARY KEY,
+        link_id TEXT NOT NULL REFERENCES review_links(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        render_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        author TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        at_seconds REAL,
+        resolved_at REAL,
+        created_at REAL NOT NULL
+    );
+    CREATE INDEX review_events_project ON review_events(project_id, created_at);
+    CREATE TABLE notifications (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        href TEXT,
+        source_key TEXT NOT NULL UNIQUE,
+        created_at REAL NOT NULL,
+        read_at REAL
+    );
+    CREATE INDEX notifications_created ON notifications(created_at);
+    CREATE TABLE cue_actions (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+        args_json TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        risk TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        result_json TEXT,
+        error TEXT,
+        created_at REAL NOT NULL,
+        decided_at REAL
+    );
+    CREATE INDEX cue_actions_status ON cue_actions(status, created_at);
+    CREATE TABLE ask_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        role TEXT NOT NULL,
+        content_json TEXT NOT NULL,
+        display TEXT,
+        created_at REAL NOT NULL
+    );
+    CREATE TABLE app_kv (
+        key TEXT PRIMARY KEY,
+        value_json TEXT NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE TABLE library_items (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        data_json TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+    );
+    CREATE TABLE upload_links (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        purpose TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        expires_at REAL NOT NULL,
+        revoked_at REAL,
+        uses INTEGER NOT NULL DEFAULT 0,
+        max_uses INTEGER NOT NULL DEFAULT 10
+    );
+    CREATE TABLE text_senders (
+        id TEXT PRIMARY KEY,
+        phone TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        consent_at REAL,
+        consent_note TEXT,
+        opted_out_at REAL,
+        created_at REAL NOT NULL
+    );
+    CREATE TABLE text_messages (
+        id TEXT PRIMARY KEY,
+        direction TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        provider_id TEXT,
+        from_number TEXT NOT NULL,
+        to_number TEXT NOT NULL,
+        body TEXT NOT NULL DEFAULT '',
+        media_json TEXT NOT NULL DEFAULT '[]',
+        status TEXT NOT NULL,
+        detail TEXT,
+        sender_id TEXT,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        action_id TEXT,
+        created_at REAL NOT NULL,
+        UNIQUE (provider, provider_id)
+    );
+    CREATE INDEX text_messages_created ON text_messages(created_at);
+    """,
 ]
 
 
