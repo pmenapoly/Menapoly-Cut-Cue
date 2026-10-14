@@ -15,21 +15,52 @@ export type Asset = {
   width: number | null; height: number | null; status: string; error: string | null;
   thumb_name: string | null; proxy_name: string | null; has_transcript: boolean;
   silences?: { start: number; end: number }[]; scenes?: number[]; text?: string;
+  audio_override_id?: string | null; audio_offset?: number | null;
 };
-export type Word = { start: number; end: number; word: string };
-export type Segment = { idx: number; start: number; end: number; text: string; words: Word[]; source: string };
-export type Clip = { asset_id: string; start: number; end: number; label?: string };
+export type Word = { start: number; end: number; word: string; speaker?: string };
+export type Segment = { idx: number; start: number; end: number; text: string; words: Word[]; source: string; speaker?: string | null };
+export type Clip = { asset_id: string; start: number; end: number; label?: string; focus_x?: number };
 export type Aspect = "16:9" | "9:16" | "1:1";
-export type Timeline = { aspect: Aspect; clips: Clip[]; burn_captions: boolean; normalize_audio: boolean };
+export type AudioSettings = {
+  denoise: "off" | "light" | "strong"; voice_eq: boolean; compress: boolean; loudness_target: number;
+  music_asset_id: string | null; music_volume_db: number; duck: boolean;
+};
+export const DEFAULT_AUDIO: AudioSettings = {
+  denoise: "off", voice_eq: false, compress: false, loudness_target: -16, music_asset_id: null, music_volume_db: -18, duck: true,
+};
+export type Timeline = {
+  aspect: Aspect; clips: Clip[]; burn_captions: boolean; normalize_audio: boolean; audio?: AudioSettings; title?: string;
+};
+export type SpeakerLabel = { name: string; focus_x: number; talk_seconds: number };
+export type Speakers = { method: string | null; confidence?: number; labels: Record<string, SpeakerLabel> };
+export type Deliverable = {
+  kind: "full" | "clip"; count: number; aspect: Aspect; min_s?: number; max_s?: number; captions: boolean | null;
+  platforms: string[]; text: string;
+};
+export type Requirements = {
+  client?: string; goals?: string[]; audience?: string; tone?: string[]; platforms?: string[]; deliverables?: Deliverable[];
+  key_messages?: string[]; must_include?: string[]; must_avoid?: string[]; cta?: string; deadline?: string;
+  loudness_target?: number; keywords?: string[];
+};
+export type Brief = {
+  requirements: Requirements; sources: { asset_id: string; name: string }[]; overrides: Requirements;
+  override_source: string | null; has_brief: boolean;
+};
+export type Check = { check: string; status: "pass" | "fail" | "warn" | "info"; detail: string };
+export type Compliance = { deliverable: Deliverable | null; checks: Check[]; summary: string };
 export type VersionMeta = { id: string; number: number; label: string; origin: string; parent_id: string | null; created_at: number };
 export type Sequence = {
   id: string; name: string; current_version_id: string | null; versions: VersionMeta[];
   timeline: Timeline | null; duration: number;
 };
-export type ProposalSeq = { sequence_id: string | null; name: string; timeline: Timeline; duration: number; clip_count: number };
+export type ProposalSeq = {
+  sequence_id: string | null; name: string; timeline: Timeline; duration: number; clip_count: number; compliance?: Compliance;
+};
 export type Proposal = {
   id: string; title: string; rationale: string; status: "pending" | "approved" | "rejected";
-  created_by: string; created_at: number; plan: { sequences: ProposalSeq[] };
+  created_by: string; created_at: number;
+  plan: { sequences: ProposalSeq[]; notes?: { auto_edit?: { fillers_removed: { start: number; word: string }[];
+    pauses_tightened: number; removed_seconds: number; source_duration: number } } };
   result: { created: { sequence_id: string; version_id: string; render_id?: string }[] } | null;
 };
 export type ChatMessage = { id: number; role: "user" | "assistant" | "note"; text: string; created_at: number };
@@ -37,7 +68,8 @@ export type Render = {
   id: string; sequence_id: string; version_id: string; job_id: string | null; quality: "preview" | "final";
   status: string; output_name: string | null; srt_name: string | null; wav_name: string | null;
   duration: number | null; created_at: number; progress: number | null; message: string | null; error: string | null;
-  version_number?: number; sequence_name?: string;
+  version_number?: number; sequence_name?: string; origin?: string; parent_render_id?: string | null;
+  info?: { measured_input_lufs?: number; noise_floor_db?: number | null; chain?: string[]; duck?: boolean; offset?: number };
 };
 export type Job = {
   id: string; type: string; status: string; progress: number; message: string | null; error: string | null;

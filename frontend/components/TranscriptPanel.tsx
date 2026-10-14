@@ -23,12 +23,17 @@ export default function TranscriptPanel({ pid, asset, assets, currentTime, onSee
     return <pre className="scroll-thin h-full overflow-auto whitespace-pre-wrap text-sm text-muted">{asset.text ?? "Loading…"}</pre>;
   }
 
-  const row = (assetId: string, start: number, end: number, text: string, extra?: string, highlight = false) => (
+  const speakerColors = ["text-accent", "text-accent2", "text-[#c79fd3]", "text-[#d3c79f]"];
+  const chip = (speaker?: string | null) => speaker
+    ? <span className={`mr-1 text-[10px] font-semibold ${speakerColors[(Number(speaker.slice(1)) - 1) % speakerColors.length]}`}>{speaker}</span>
+    : null;
+  const row = (assetId: string, start: number, end: number, text: string, extra?: string, highlight = false, speaker?: string | null) => (
     <li key={`${assetId}-${start}`} className={`group rounded px-2 py-1 text-sm ${highlight ? "bg-panel2" : "hover:bg-panel2"}`}>
       <button className="mr-2 font-mono text-xs text-accent2" onClick={() => onSeek(assetId, start)}>{fmtTime(start)}</button>
+      {chip(speaker)}
       {extra && <span className="mr-1 text-xs text-muted">{extra}</span>}
       <span>{text}</span>
-      <button className="btn btn-sm ml-2 opacity-0 group-hover:opacity-100"
+      <button className="btn btn-sm ml-2 sm:opacity-0 sm:group-hover:opacity-100"
               onClick={() => onAdd(assetId, Math.max(0, start - 0.15), end + 0.15, text.slice(0, 40))}>+ timeline</button>
     </li>
   );
@@ -53,7 +58,7 @@ export default function TranscriptPanel({ pid, asset, assets, currentTime, onSee
             {asset.kind === "video" || asset.kind === "audio" ? "Transcript not ready yet (see jobs below), or upload an SRT/VTT with the same file name." : "No transcript for this file type."}
           </li>
         ) : (
-          segments.map((s, i) => row(asset.id, s.start, s.end, s.text, undefined, i === active))
+          segments.map((s, i) => row(asset.id, s.start, s.end, s.text, undefined, i === active, s.speaker))
         )}
       </ul>
       {assets.length === 0 && <p className="text-sm text-muted">Upload files to begin.</p>}

@@ -36,7 +36,64 @@ make start    # one process, built UI → open http://127.0.0.1:8000
 5. **Approve** a proposal. That saves a new timeline version and renders a quick preview MP4.
 6. **Revise** by chatting again, or edit the timeline directly: trim in/out points, reorder, split at the playhead, delete, or add lines from the transcript with "+ timeline". Then **Save version**.
 7. Use **Versions** to compare any two versions or restore an older one. Restoring adds a new version, so history is never lost.
-8. **Export final** renders 1080p (or 1080×1920 / 1080×1080) with loudness normalization to −16 LUFS, an SRT file and an optional WAV for audio hand-off (for example, Trebble).
+8. **Export final** renders 1080p (or 1080×1920 / 1080×1080) with two-pass loudness normalization to the timeline's target, an SRT file and an optional WAV for audio hand-off (for example, Trebble).
+
+## Features
+
+All four features run locally with FFmpeg and numpy: no cloud service and no model downloads beyond Whisper. Each one produces a **proposal** that you approve before anything changes. You can use them from the tabs under the timeline (**Auto-edit**, **Clips**, **Brief**, **Source**) or by asking the AI editor in chat.
+
+### Podcast Auto-Editor
+- **Speaker detection** runs after transcription.
+  - Stereo recordings with one voice per channel are split by channel.
+  - Mono or mixed recordings are split by MFCC voice-feature clustering, with the speaker count chosen automatically.
+  - In the Source tab you can rename speakers, set their framing, or re-run with a fixed count.
+- **Intelligent silence removal** works from word timestamps:
+  - Cuts land only between words, and only where the audio is actually silent. The silence threshold follows each recording's own noise floor, so untranscribed laughter is never cut.
+  - Pauses within one speaker are shortened to 0.35 s.
+  - Speaker changes and answers to questions keep a 0.6 s beat, so the conversation still breathes.
+- **Filler removal and dead-air trimming:** "um", "uh" and similar are cut and the gap around them is retimed; dead air at the start and end is trimmed.
+- **Rough cut:** pass `add_hook` (or ask "rough cut with a hook") to open with the strongest short moment.
+- **Change report:** every proposal lists the seconds removed, pauses tightened and each filler cut with its timestamp.
+
+### AI Clip Factory
+- **Candidate moments** are windows of whole sentences, scored with visible reasons:
+  - a strong opening line;
+  - concrete proof (numbers, results);
+  - emphasis words;
+  - brief keywords and must-include phrases;
+  - a question answered by the other speaker.
+- **What it avoids:** openers that need earlier context ("And…", "So…", "It…") are penalized, and any window containing a must-avoid phrase is excluded.
+- **Selection:** the best non-overlapping set is chosen. With no length in the brief, short episodes still get the requested number of clips, at a minimum of 6 s.
+- **Each clip gets:**
+  - 9:16 format with pauses and fillers tightened inside the clip;
+  - captions burned in, with lines up to 28 characters;
+  - framing on the dominant speaker, using that speaker's `focus_x`;
+  - an optional title and −14 LUFS loudness.
+- Later runs avoid moments you've already clipped. Claude can review the candidates and pick different ranges.
+
+### Audio enhancement
+- **Settings per timeline (Audio row):**
+  - denoise: off, light or strong;
+  - voice EQ and compression;
+  - loudness target: −16 podcast, −14 social or −23 broadcast;
+  - background music with volume and **ducking**.
+- **How denoise works:** spectral noise reduction set from the program's measured noise floor, plus a soft gate in pauses.
+- **Ducking:** the music dips under the voice using a sidechain compressor.
+- **Loudness:** two-pass `loudnorm` hits the target within 1 LU.
+- **Clean cuts:** every cut gets 12 ms fades, so there are no clicks.
+- **WAV hand-off and re-import:**
+  - *Source tab:* export a source's audio, clean it in Trebble or Adobe Podcast, upload the result and **Attach** it. The offset is detected automatically, and unrelated audio is rejected. Every later render uses the processed track.
+  - *Render level:* **Re-import audio** on a finished render produces a new render with the processed WAV; the video is copied without re-encoding.
+
+### Creative Brief Intelligence
+- **Extraction:** briefs in TXT, DOCX, PDF or MD become structured requirements:
+  - client, goals, audience, tone and platforms;
+  - deliverables, with count, aspect, length range and captions;
+  - key messages, must-include and must-avoid phrases;
+  - call to action, deadline, and the loudness target for each platform.
+- **Editing:** you can correct the requirements in the Brief tab, and Claude can refine them with a tool.
+- **Driving edits:** the requirements set the clip count, length, aspect, captions and loudness.
+- **Compliance on every proposal and version:** aspect, length range, captions, must-include and must-avoid phrases, key-message coverage, CTA, loudness and deliverable count. Failures and warnings show on the proposal card, and are returned to Claude so it can fix them.
 
 ## Intel Mac tuning (already the defaults)
 
@@ -87,7 +144,7 @@ edit_engine.py       original FFmpeg starter, kept for reference (superseded by 
 make validate MEDIA=~/Movies/episode.mp4 CLIP_MINUTES=10 BRIEF=~/Documents/brief.pdf
 ```
 
-The harness starts the real server, uploads your file and brief, and runs real faster-whisper. It then asks live Claude for a rough cut, approves it, renders it, and asks Claude for a revision, which it also renders. Next it exports a final 1080×1920 vertical clip with SRT and WAV, and plays every render in headless **Google Chrome**. Along the way it measures transcription time and real-time factor, preview and final render times, peak memory by phase (server, Whisper and FFmpeg together), and Claude cost and tokens.
+The harness starts the real server, uploads your file and brief, and runs real faster-whisper. It also runs steps 8–11 on your recording: speaker detection, podcast auto-edit, Clip Factory and audio enhancement. It then asks live Claude for a rough cut, approves it, renders it, and asks Claude for a revision, which it also renders. Next it exports a final 1080×1920 vertical clip with SRT and WAV, and plays every render in headless **Google Chrome**. Along the way it measures transcription time and real-time factor, preview and final render times, peak memory by phase (server, Whisper and FFmpeg together), and Claude cost and tokens.
 
 The output goes to `data/validation/<timestamp>/`:
 - `report.md` and `report.json`
@@ -111,5 +168,10 @@ Each step is marked **PASS** only if it really ran and passed its checks. Missin
 | Revision through chat, new version renders | **Pending your API key** | The version, compare and restore render path is tested |
 | 9:16 export plus SRT | Verified (render path, non-AI timeline) | 1080×1920 H.264, 10 SRT cues inside the clip and in order, burned-in caption frame inspected |
 | Timings, memory, cost on Intel Mac | **Pending your Mac** | Container numbers (not your hardware): 26 s 9:16 final render in 17 s, peak about 490 MB |
+| Podcast auto-edit (silence, fillers, turns) | Verified on synthetic two-speaker fixture | Every pause checked against the rules; fillers absent; rendered program has no silence ≥ 0.75 s; untranscribed sound never cut. **Real-speech quality pending your listening test** |
+| Speaker detection | Verified on fixtures only | 100% on the stereo fixture and on the mono fixture (two very different synthetic voices). **Accuracy on real voices unverified**; the harness reports confidence and you check the labels |
+| Clip Factory + captions | Verified on fixture | 9:16 renders; SRT text equals the words kept in the cut; cues ordered, non-overlapping, each within 60 ms of its first word |
+| Audio enhancement | Verified on fixture | Loudness within 1 LU of target; noise in pauses −13 to −27 dB with speech unchanged (< 0.1 dB); music ducked > 6 dB under speech; re-imported audio in sync within 20 ms |
+| Brief intelligence | Verified on sample briefs | Same requirements from TXT, DOCX and PDF; compliance pass/fail on real cuts. **Your real client briefs may phrase things differently**: check the Brief tab |
 
-**Not implemented yet:** the remote cloud worker (interface and opt-in contract only, see `docs/cloud-worker.md`); OTIO/Premiere/Resolve export; re-importing processed audio; multicam and B-roll; image clips on the timeline; and resuming an upload after a browser reload. Payments, teams and multi-tenancy are out of scope by design.
+**Not implemented yet:** the remote cloud worker (interface and opt-in contract only, see `docs/cloud-worker.md`); OTIO/Premiere/Resolve export; multicam and face-tracked framing (framing is a per-speaker manual setting); B-roll; image clips on the timeline; and resuming an upload after a browser reload. Payments, teams and multi-tenancy are out of scope by design.

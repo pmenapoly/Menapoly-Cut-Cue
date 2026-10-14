@@ -268,6 +268,15 @@ def _contains(haystack: str, phrase: str) -> bool:
     return f" {norm(phrase)} " in f" {norm(haystack)} "
 
 
+def deliverable_loudness(deliverable: dict | None) -> float:
+    """-14 LUFS for social/YouTube or vertical clips, otherwise the podcast standard -16 LUFS."""
+    if not deliverable:
+        return -16.0
+    if set(deliverable.get("platforms", [])) & (SOCIAL | {"YouTube", "YouTube Shorts"}) or deliverable.get("aspect") == "9:16":
+        return -14.0
+    return -16.0
+
+
 def classify(aspect: str, duration: float, req: dict | None) -> str:
     """'clip' or 'full' for a timeline, judged against the brief's deliverables when there are any."""
     pool = [d for d in (req or {}).get("deliverables", []) if d["aspect"] == aspect]
@@ -326,10 +335,10 @@ def compliance(timeline: dict, duration: float, cut_text: str, req: dict, sequen
         spoken = _contains(cut_text, req["cta"]) or _contains(timeline.get("title", ""), req["cta"])
         add("call to action", "pass" if spoken else "warn",
             "present" if spoken else f"'{req['cta'][:50]}' is not in this cut; consider the title or an end card")
-    target = req.get("loudness_target")
+    target = deliverable_loudness(deliverable) if deliverable else req.get("loudness_target")
     if target is not None and timeline.get("normalize_audio", True):
         have = (timeline.get("audio") or {}).get("loudness_target", -16.0)
-        add("loudness", "pass" if abs(have - target) < 0.6 else "warn", f"{have:g} LUFS; brief platform suggests {target:g} LUFS")
+        add("loudness", "pass" if abs(have - target) < 0.6 else "warn", f"{have:g} LUFS; this deliverable's platform suggests {target:g} LUFS")
     fails = sum(c["status"] == "fail" for c in checks)
     warns = sum(c["status"] == "warn" for c in checks)
     return {"deliverable": deliverable, "checks": checks,

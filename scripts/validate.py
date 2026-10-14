@@ -246,7 +246,8 @@ def check_render(app: App, run: Run, pid: str, render: dict, expected: dict) -> 
     details, ok = [], True
     if render["status"] != "succeeded":
         return False, [f"render {render['id']} status {render['status']}: {render.get('error')}"], None
-    path = run.out / f"{render['sequence_name'].replace(' ', '_')}-v{render['version_number']}-{render['quality']}.mp4"
+    safe = re.sub(r"[^A-Za-z0-9_-]+", "_", render["sequence_name"] or "render").strip("_")[:40]
+    path = run.out / f"{safe}-v{render['version_number']}-{render['quality']}-{render['id'][-4:]}.mp4"
     path.write_bytes(app.http.get(f"/api/projects/{pid}/renders/{render['id']}/mp4").content)
     info = ffprobe(path)
     v = next((s for s in info["streams"] if s["codec_type"] == "video"), None)
@@ -605,6 +606,88 @@ def main() -> int:
                 fj = next(j for j in app.api("GET", f"/projects/{pid}/jobs") if j["id"] == fr["job_id"])
                 run.metrics["final_16x9_render"] = {"seconds": job_seconds(fj), "output_seconds": seq["duration"],
                                                     "status": fr["status"], "encoder": (fj.get("result") or {}).get("encoder")}
+
+        # 8-11. New features on the same real media ------------------------------------------------------------
+        app.mem.phase = "speakers"
+        sp = app.api("GET", f"/projects/{pid}/assets/{asset['id']}/speakers")
+        djob = next((j for j in app.api("GET", f"/projects/{pid}/jobs") if j["type"] == "diarize"), None)
+        if djob and djob["status"] == "succeeded" and sp.get("labels"):
+            talk = ", ".join(f"{k}: {v['talk_seconds']:.0f}s" for k, v in sp["labels"].items())
+            run.metrics["speakers"] = {"method": sp["method"], "confidence": sp.get("confidence"), "count": len(sp["labels"]),
+                                       "seconds": job_seconds(djob)}
+            run.step("8", "Speaker detection", PARTIAL,
+                     [f"method {sp['method']}, confidence {sp.get('confidence')}, {len(sp['labels'])} speaker(s) ({talk}), "
+                      f"took {job_seconds(djob)}s",
+                      "accuracy on real voices needs your check: listen to transcript.txt lines against the S1/S2 labels"])
+            (out / "transcript.txt").write_text("\n".join(
+                f"[{s['start']:.2f}-{s['end']:.2f}] {s.get('speaker') or '?'}: {s['text']}"
+                for s in app.api("GET", f"/projects/{pid}/assets/{asset['id']}/transcript")))
+        else:
+            run.step("8", "Speaker detection", FAIL, [f"diarize job: {djob and djob['status']}: {djob and djob['error']}"])
+
+        app.mem.phase = "auto-edit"
+        try:
+            prop = app.api("POST", f"/projects/{pid}/auto-edit", json={"asset_id": asset["id"]})
+            report = prop["plan"]["notes"]["auto_edit"]
+            done = app.api("POST", f"/projects/{pid}/proposals/{prop['id']}/approve")
+            app.wait_jobs(pid)
+            created = done["result"]["created"][0]
+            rend = next(x for x in app.api("GET", f"/projects/{pid}/renders") if x["id"] == created["render_id"])
+            ok, details, mp4 = check_render(app, run, pid, rend, {"duration": done["plan"]["sequences"][0]["duration"]})
+            details.insert(0, prop["rationale"][:300])
+            if mp4:
+                log = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(mp4), "-af", "silencedetect=noise=-45dB:d=1.2",
+                                      "-f", "null", "-"], capture_output=True, text=True).stderr
+                long_gaps = re.findall(r"silence_duration: ([\d.]+)", log)
+                details.append(f"silences >= 1.2 s left in the edit: {len(long_gaps)} (music beds or deliberate beats can be valid)")
+            run.metrics["auto_edit"] = {"removed_seconds": report["removed_seconds"], "pauses_tightened": report["pauses_tightened"],
+                                        "fillers_removed": len(report["fillers_removed"])}
+            details.append("listen for clipped words at cuts; the tests guarantee cuts land between words only on synthetic speech")
+            run.step("9", "Podcast auto-edit renders", PASS if ok else FAIL, details)
+        except Exception as exc:
+            run.step("9", "Podcast auto-edit renders", FAIL, [f"{type(exc).__name__}: {exc}"])
+
+        app.mem.phase = "clip factory"
+        try:
+            prop = app.api("POST", f"/projects/{pid}/clip-factory", json={"count": 2, "titles": True})
+            done = app.api("POST", f"/projects/{pid}/proposals/{prop['id']}/approve")
+            app.wait_jobs(pid)
+            renders = {x["id"]: x for x in app.api("GET", f"/projects/{pid}/renders")}
+            details, all_ok = [prop["rationale"][:300]], True
+            for created, spec in zip(done["result"]["created"], done["plan"]["sequences"]):
+                ok, d, _ = check_render(app, run, pid, renders[created["render_id"]], {"duration": spec["duration"], "size": (360, 640)})
+                cues = parse_srt(app.http.get(f"/api/projects/{pid}/renders/{created['render_id']}/srt").text)
+                ordered = all(a[1] <= b[0] + 0.001 for a, b in zip(cues, cues[1:]))
+                d.append(f"{spec['name']}: {len(cues)} caption cues, non-overlapping: {ordered}")
+                all_ok = all_ok and ok and bool(cues) and ordered
+                details += d
+            run.step("10", "Clip Factory 9:16 clips with captions", PASS if all_ok else FAIL, details)
+        except Exception as exc:
+            run.step("10", "Clip Factory 9:16 clips with captions", FAIL, [f"{type(exc).__name__}: {exc}"])
+
+        app.mem.phase = "audio enhancement"
+        try:
+            from cutcue.audio import integrated_loudness
+            seg_end = min(asset["duration"], 60.0)
+            app.api("POST", f"/projects/{pid}/sequences", json={"name": "Audio check", "timeline": {
+                "clips": [{"asset_id": asset["id"], "start": 0, "end": seg_end}],
+                "audio": {"denoise": "light", "voice_eq": True, "compress": True, "loudness_target": -16}}})
+            vid = app.api("GET", f"/projects/{pid}/sequences")[-1]["current_version_id"]
+            r = app.api("POST", f"/projects/{pid}/renders", json={"version_id": vid, "quality": "final"})
+            app.wait_jobs(pid)
+            r = next(x for x in app.api("GET", f"/projects/{pid}/renders") if x["id"] == r["id"])
+            path = run.out / "audio-enhanced.mp4"
+            path.write_bytes(app.http.get(f"/api/projects/{pid}/renders/{r['id']}/mp4").content)
+            lufs = integrated_loudness(path)
+            ok = r["status"] == "succeeded" and abs(lufs - (-16)) <= 1.0
+            run.metrics["audio_enhancement"] = {"lufs": lufs, "noise_floor_db": r["info"].get("noise_floor_db"),
+                                                "input_lufs": r["info"].get("measured_input_lufs")}
+            run.step("11", "Audio enhancement (denoise, EQ, compression, -16 LUFS)", PASS if ok else FAIL,
+                     [f"first {seg_end:.0f}s: input {r['info'].get('measured_input_lufs')} LUFS, noise floor "
+                      f"{r['info'].get('noise_floor_db')} dB -> output {lufs:.1f} LUFS (target -16 ±1)",
+                      f"listen to {path.name}: denoise strength is a judgement call on real rooms"])
+        except Exception as exc:
+            run.step("11", "Audio enhancement (denoise, EQ, compression, -16 LUFS)", FAIL, [f"{type(exc).__name__}: {exc}"])
 
         # 7. Measurements --------------------------------------------------------------------------------------
         project = app.api("GET", f"/projects/{pid}")

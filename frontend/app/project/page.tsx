@@ -7,6 +7,7 @@ import AuthGate from "@/components/AuthGate";
 import ChatPanel from "@/components/ChatPanel";
 import { JobsPanel, RendersPanel, VersionsPanel } from "@/components/OutputsPanel";
 import TimelineEditor from "@/components/TimelineEditor";
+import { AutoEditPanel, BriefPanel, ClipsPanel, SourcePanel } from "@/components/ToolsPanel";
 import TranscriptPanel from "@/components/TranscriptPanel";
 import {
   api, ApiError, Asset, Clip, Health, Job, mediaUrl, Project, Proposal, Render, renderUrl, Sequence, Timeline,
@@ -28,7 +29,8 @@ function Editor({ pid }: { pid: string }) {
   const [dirty, setDirty] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"renders" | "versions" | "jobs">("renders");
+  type Tab = "auto-edit" | "clips" | "brief" | "source" | "renders" | "versions" | "jobs";
+  const [tab, setTab] = useState<Tab>("auto-edit");
   const [source, setSource] = useState<Source>(null);
   const [time, setTime] = useState(0);
   const [error, setError] = useState("");
@@ -224,15 +226,20 @@ function Editor({ pid }: { pid: string }) {
           </section>
 
           <section className="card min-h-[200px] p-3">
-            <div className="mb-2 flex gap-2">
-              {(["renders", "versions", "jobs"] as const).map((t) => (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {(["auto-edit", "clips", "brief", "source", "renders", "versions", "jobs"] as const).map((t) => (
                 <button key={t} className={`btn btn-sm capitalize ${tab === t ? "border-accent text-accent" : ""}`} onClick={() => setTab(t)}>{t}</button>
               ))}
             </div>
-            {tab === "renders" && <RendersPanel pid={pid} renders={renders} playingId={source?.kind === "render" ? source.render.id : null}
+            {tab === "renders" && <RendersPanel pid={pid} renders={renders} assets={assets} onChanged={refresh} playingId={source?.kind === "render" ? source.render.id : null}
                                                 onPlay={(r) => { stopAt.current = null; setSource({ kind: "render", render: r }); }} />}
             {tab === "versions" && <VersionsPanel pid={pid} seq={seq} onChanged={() => { setDirty(false); refresh(); }} />}
             {tab === "jobs" && <JobsPanel pid={pid} jobs={jobs} onChanged={refresh} />}
+            {tab === "auto-edit" && <AutoEditPanel pid={pid} assets={assets} onCreated={refresh} />}
+            {tab === "clips" && <ClipsPanel pid={pid} onCreated={refresh} />}
+            {tab === "brief" && <BriefPanel pid={pid} versionId={dirty ? null : seq?.current_version_id ?? null} />}
+            {tab === "source" && <SourcePanel pid={pid} asset={selectedAsset} assets={assets}
+                                              onChanged={async () => { await refresh(); if (selectedAsset) selectAsset(selectedAsset); }} />}
           </section>
         </main>
 

@@ -10,3 +10,8 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
 - Rules: never invent timestamps, transcripts, renders or third-party endpoints. Every AI edit goes through
   `Services.create_proposal` (validated) and needs explicit user approval. No `shell=True`. Keep Intel macOS
   compatibility (CPU fallbacks, no Apple Silicon-only deps). Cloud stays opt-in per project.
+- Feature modules: audio.py (enhancement chain, loudness, alignment), diarize.py (speakers), podcast.py (auto-editor),
+  moments.py (clip factory scoring), brief.py (brief extraction + compliance). Services wire them into proposals.
+- Fixture speech is band-limited below 3.8 kHz so tones above 5 kHz can measure music/markers in tests.
+- scripts/validate.py is the Mac real-world harness: keep every new feature represented there, and never report PASS
+  for something that did not really run.

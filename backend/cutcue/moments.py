@@ -142,13 +142,10 @@ def find_moments(asset_id: str, segments: list[dict], req: dict | None = None, *
                                      window[0]["text"].strip(), " ".join(seg["text"] for seg in window),
                                      sorted(talk), max(talk, key=talk.get) if talk else None, reasons))
     ordered = sorted(windows, key=lambda c: (-c.score, c.start, c.end))
-    # Greedy over every valid window (not only the best per start) so several good clips fit side by side.
-    chosen: list[Candidate] = []
-    for cand in ordered:
-        if len(chosen) >= count:
-            break
-        if all(cand.end + 1.0 <= c.start or cand.start >= c.end + 1.0 for c in chosen):
-            chosen.append(cand)
+    pool = [c for c in windows if c.score > 0]
+    chosen = select_non_overlapping(pool, count)
+    if len(chosen) < count:  # not enough positive-scoring moments: allow weaker ones to meet the count
+        chosen = select_non_overlapping(windows, count)
     # For review: the best window for each distinct opening line.
     seen, ranked = set(), []
     for cand in ordered:
@@ -158,9 +155,41 @@ def find_moments(asset_id: str, segments: list[dict], req: dict | None = None, *
     return sorted(chosen, key=lambda c: c.start), ranked[:max_candidates]
 
 
+def select_non_overlapping(windows: list[Candidate], count: int, gap: float = 1.0) -> list[Candidate]:
+    """Weighted interval scheduling: as many clips as possible (up to count), then the highest total score."""
+    items = sorted(windows, key=lambda c: (c.end, c.start))
+    if not items or count <= 0:
+        return []
+    ends = [c.end for c in items]
+    import bisect
+
+    prev = [bisect.bisect_right(ends, c.start - gap) for c in items]  # windows 0..prev-1 end early enough
+    n = len(items)
+    # best[k][i] = (clips, score) using the first i windows and at most k clips
+    best = [[(0, 0.0)] * (n + 1) for _ in range(count + 1)]
+    take = [[False] * (n + 1) for _ in range(count + 1)]
+    for k in range(1, count + 1):
+        row, below = best[k], best[k - 1]
+        for i in range(1, n + 1):
+            c = items[i - 1]
+            with_c = (below[prev[i - 1]][0] + 1, below[prev[i - 1]][1] + c.score)
+            if with_c > row[i - 1]:
+                row[i], take[k][i] = with_c, True
+            else:
+                row[i] = row[i - 1]
+    chosen, k, i = [], count, n
+    while k > 0 and i > 0:
+        if take[k][i]:
+            chosen.append(items[i - 1])
+            i, k = prev[i - 1], k - 1
+        else:
+            i -= 1
+    return sorted(chosen, key=lambda c: c.start)
+
+
 def title_from(first_line: str, limit: int = 42) -> str:
     """Short on-screen title from the opening line (whole words, no trailing punctuation clutter)."""
-    sentence = re.split(r"(?<=[.!?:])\s", first_line.strip())[0].rstrip(":")
+    sentence = re.split(r"(?<=[.!?:])\s", first_line.strip())[0].rstrip(":.!,;")
     if len(sentence) <= limit:
         return sentence
     words, out = sentence.split(), ""

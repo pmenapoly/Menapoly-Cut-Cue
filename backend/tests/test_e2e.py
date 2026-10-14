@@ -49,10 +49,11 @@ def test_full_workflow(client, services, fixture_dir, tmp_path):
     assert len(reply["proposal_ids"]) == 1
     proposal = client.get(f"/api/projects/{pid}/proposals").json()[0]
     names = [s["name"] for s in proposal["plan"]["sequences"]]
-    assert names == ["Rough cut", "Vertical clip 1", "Vertical clip 2"]
+    assert names[0] == "Rough cut" and [n.split(":")[0] for n in names[1:]] == ["Clip 1", "Clip 2"]
     rough = proposal["plan"]["sequences"][0]
     assert rough["timeline"]["clips"][0]["label"] == "Hook"
-    assert rough["duration"] < video["duration"] + 6, "pause removal should tighten the main cut"
+    body = sum(c["end"] - c["start"] for c in rough["timeline"]["clips"][1:])
+    assert body < video["duration"] - 3, "auto-edit should tighten the main cut (pauses + dead air)"
     assert rough["clip_count"] > 3
 
     approved = client.post(f"/api/projects/{pid}/proposals/{proposal['id']}/approve").json()

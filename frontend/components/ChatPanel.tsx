@@ -105,12 +105,28 @@ function ProposalCard({ pid, p, onDone }: { pid: string; p: Proposal; onDone: ()
         <span className={`text-[11px] uppercase ${p.status === "pending" ? "text-accent" : p.status === "approved" ? "text-ok" : "text-muted"}`}>{p.status}</span>
       </div>
       {p.rationale && <p className="mt-1 whitespace-pre-wrap text-xs text-muted">{p.rationale}</p>}
-      <ul className="mt-2 space-y-0.5 text-xs">
-        {p.plan.sequences.map((s, i) => (
-          <li key={i}>• {s.name}{s.sequence_id ? " (revision)" : ""}: {s.clip_count} clips, {fmtTime(s.duration)}, {s.timeline.aspect}
-            {s.timeline.burn_captions ? ", captions" : ""}</li>
-        ))}
+      <ul className="mt-2 space-y-1 text-xs">
+        {p.plan.sequences.map((s, i) => {
+          const issues = s.compliance?.checks.filter((c) => c.status === "fail" || c.status === "warn") ?? [];
+          return (
+            <li key={i}>• {s.name}{s.sequence_id ? " (revision)" : ""}: {s.clip_count} clips, {fmtTime(s.duration)}, {s.timeline.aspect}
+              {s.timeline.burn_captions ? ", captions" : ""}{s.timeline.title ? `, title “${s.timeline.title}”` : ""}
+              {s.compliance && (
+                <div className={`ml-3 ${issues.some((c) => c.status === "fail") ? "text-danger" : issues.length ? "text-accent" : "text-ok"}`}>
+                  Brief: {s.compliance.summary}
+                  {issues.slice(0, 4).map((c) => <div key={c.check} className="text-muted">– {c.check}: {c.detail}</div>)}
+                </div>
+              )}
+            </li>
+          );
+        })}
       </ul>
+      {p.plan.notes?.auto_edit && (
+        <p className="mt-1 text-xs text-muted">
+          Auto-edit: −{p.plan.notes.auto_edit.removed_seconds.toFixed(1)}s of {fmtTime(p.plan.notes.auto_edit.source_duration)},
+          {" "}{p.plan.notes.auto_edit.pauses_tightened} pauses tightened, fillers cut: {p.plan.notes.auto_edit.fillers_removed.map((f) => `${f.word} @${fmtTime(f.start)}`).join(", ") || "none"}
+        </p>
+      )}
       {p.status === "pending" && (
         <div className="mt-2 flex gap-2">
           <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => act("approve")}>Approve & render preview</button>

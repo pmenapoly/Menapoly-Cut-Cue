@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Aspect, Asset, Clip, fmtTime, Sequence, Timeline } from "@/lib/api";
+import { Aspect, Asset, AudioSettings, Clip, DEFAULT_AUDIO, fmtTime, Sequence, Timeline } from "@/lib/api";
 
 const COLORS = ["#e0a458", "#9fd3c7", "#c79fd3", "#d3c79f", "#9fb3d3", "#d39fa8"];
 
@@ -64,6 +64,9 @@ export default function TimelineEditor(props: {
             {props.dirty && <span className="text-accent">● unsaved</span>}
           </div>
 
+          <AudioRow audio={{ ...DEFAULT_AUDIO, ...draft.audio }} assets={props.assets}
+                    onChange={(audio) => update({ audio })} title={draft.title ?? ""} onTitle={(title) => update({ title })} />
+
           <div className="scroll-thin flex h-14 overflow-x-auto rounded border border-line bg-ink p-1">
             {draft.clips.map((c, i) => (
               <button key={i} onClick={() => { setSel(i); props.onPreviewClip(c); }} title={`${c.label || ""} ${fmtTime(c.start)}–${fmtTime(c.end)}`}
@@ -83,6 +86,11 @@ export default function TimelineEditor(props: {
                 <input className="input w-24" type="number" step="0.05" value={clip.end} onChange={(e) => setClip(sel, { end: Number(e.target.value) })} /></label>
               <label className="flex flex-col"><span className="label">Label</span>
                 <input className="input w-36" value={clip.label ?? ""} onChange={(e) => setClip(sel, { label: e.target.value })} /></label>
+              {draft.aspect !== "16:9" && (
+                <label className="flex flex-col"><span className="label">Framing</span>
+                  <input type="range" min={0} max={1} step={0.05} value={clip.focus_x ?? 0.5}
+                         onChange={(e) => setClip(sel, { focus_x: Number(e.target.value) })} /></label>
+              )}
               <button className="btn btn-sm" onClick={() => move(sel, -1)}>◀</button>
               <button className="btn btn-sm" onClick={() => move(sel, 1)}>▶</button>
               <button className="btn btn-sm" disabled={!canSplit} title="Split at the source player's playhead" onClick={() => {
@@ -111,6 +119,43 @@ export default function TimelineEditor(props: {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function AudioRow({ audio, assets, onChange, title, onTitle }: {
+  audio: AudioSettings; assets: Record<string, Asset>; onChange: (a: AudioSettings) => void; title: string; onTitle: (t: string) => void;
+}) {
+  const set = (patch: Partial<AudioSettings>) => onChange({ ...audio, ...patch });
+  const music = Object.values(assets).filter((a) => a.has_audio && a.status === "ready");
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded border border-line px-2 py-1.5 text-xs">
+      <span className="label">Audio</span>
+      <label className="flex items-center gap-1">Denoise
+        <select className="input py-0.5" value={audio.denoise} onChange={(e) => set({ denoise: e.target.value as AudioSettings["denoise"] })}>
+          <option value="off">off</option><option value="light">light</option><option value="strong">strong</option>
+        </select></label>
+      <label className="flex items-center gap-1"><input type="checkbox" checked={audio.voice_eq} onChange={(e) => set({ voice_eq: e.target.checked })} /> Voice EQ</label>
+      <label className="flex items-center gap-1"><input type="checkbox" checked={audio.compress} onChange={(e) => set({ compress: e.target.checked })} /> Compress</label>
+      <label className="flex items-center gap-1">Target
+        <select className="input py-0.5" value={audio.loudness_target} onChange={(e) => set({ loudness_target: Number(e.target.value) })}>
+          <option value={-16}>-16 LUFS podcast</option><option value={-14}>-14 LUFS social</option><option value={-23}>-23 LUFS broadcast</option>
+        </select></label>
+      <label className="flex items-center gap-1">Music
+        <select className="input max-w-36 py-0.5" value={audio.music_asset_id ?? ""} onChange={(e) => set({ music_asset_id: e.target.value || null })}>
+          <option value="">none</option>
+          {music.map((a) => <option key={a.id} value={a.id}>{a.original_name}</option>)}
+        </select></label>
+      {audio.music_asset_id && (
+        <>
+          <label className="flex items-center gap-1">Vol
+            <input className="input w-14 py-0.5" type="number" min={-40} max={0} value={audio.music_volume_db}
+                   onChange={(e) => set({ music_volume_db: Number(e.target.value) })} />dB</label>
+          <label className="flex items-center gap-1"><input type="checkbox" checked={audio.duck} onChange={(e) => set({ duck: e.target.checked })} /> Duck under voice</label>
+        </>
+      )}
+      <label className="flex items-center gap-1">Title
+        <input className="input w-40 py-0.5" maxLength={80} placeholder="on-screen title (optional)" value={title} onChange={(e) => onTitle(e.target.value)} /></label>
     </div>
   );
 }

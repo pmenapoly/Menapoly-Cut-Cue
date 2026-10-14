@@ -538,9 +538,10 @@ class Services:
         silences = (self.analysis(asset_id, "silences") or {}).get("silences")
         return podcast.auto_edit(asset_id, asset["duration"], segments, silences, podcast.AutoEditOptions.from_dict(options))
 
-    def auto_edit_proposal(self, project_id: str, asset_id: str, options: dict | None = None, *,
-                           name: str = "Podcast auto-edit", aspect: str = "16:9", audio: dict | None = None,
-                           hook: dict | None = None, created_by: str = "auto-editor") -> dict:
+    def auto_edit_spec(self, project_id: str, asset_id: str, options: dict | None = None, *,
+                       name: str = "Podcast auto-edit", aspect: str = "16:9", audio: dict | None = None,
+                       hook: dict | None = None) -> tuple[dict, dict, str]:
+        """(sequence spec, report, rationale) for an auto-edited podcast, optionally opening with a hook."""
         clips, report = self.auto_edit(project_id, asset_id, options)
         if not clips:
             raise BadRequest(report.get("note", "Nothing left after auto-edit"))
@@ -551,15 +552,27 @@ class Services:
                                     f"{full['max_s'] / 60:.1f} min. Ask the editor which sections to drop.")
         if audio is None:
             # Podcast standard -16 LUFS, unless the brief's full edit is going to YouTube or social (-14).
-            loud_platforms = brief_mod.SOCIAL | {"YouTube"}
-            target = -14.0 if full and set(full.get("platforms", [])) & loud_platforms else -16.0
-            audio = {"voice_eq": True, "compress": True, "loudness_target": target}
+            audio = {"voice_eq": True, "compress": True, "loudness_target": brief_mod.deliverable_loudness(full)}
         clip_specs = [c.model_dump() for c in clips]
         if hook:
             clip_specs.insert(0, {"asset_id": asset_id, "start": hook["start"], "end": hook["end"], "label": "Hook"})
-        spec = {"name": name, "aspect": aspect, "clips": clip_specs, "audio": audio}
         rationale = podcast.summarize(report) + (f" {report['brief_note']}" if report.get("brief_note") else "")
+        if hook:
+            rationale += f" Opens with a {hook['end'] - hook['start']:.0f}s hook: \"{hook.get('first_line', '')[:80]}\"."
+        return {"name": name, "aspect": aspect, "clips": clip_specs, "audio": audio}, report, rationale
+
+    def auto_edit_proposal(self, project_id: str, asset_id: str, options: dict | None = None, *,
+                           name: str = "Podcast auto-edit", hook: dict | None = None, created_by: str = "auto-editor") -> dict:
+        spec, report, rationale = self.auto_edit_spec(project_id, asset_id, options, name=name, hook=hook)
         return self.create_proposal(project_id, name, rationale, [spec], created_by=created_by, notes={"auto_edit": report})
+
+    def best_hook(self, project_id: str, asset_id: str, min_s: float = 6.0, max_s: float = 20.0) -> dict | None:
+        """Strongest short moment to use as a cold open."""
+        found = self.find_moments(project_id, asset_id, 1, min_s, max_s)
+        if not found["chosen"]:
+            return None
+        c = found["chosen"][0]
+        return {"start": round(max(0.0, c["start"] - 0.15), 3), "end": round(c["end"] + 0.25, 3), "first_line": c["first_line"]}
 
     # --- AI clip factory (local moment finder) -----------------------------------------------------------
     def _primary_media(self, project_id: str, asset_id: str | None) -> dict:
@@ -578,14 +591,14 @@ class Services:
         deliverable = next((d for d in req.get("deliverables", []) if d["kind"] == "clip"), None) or {}
         hi = max_s or deliverable.get("max_s") or 60.0
         lo = min_s or deliverable.get("min_s") or min(15.0, hi * 0.5)
+        min_is_default = not (min_s or deliverable.get("min_s"))
         if lo > hi:
             raise BadRequest("min_s must not exceed max_s")
         return {"count": max(1, min(10, int(count or deliverable.get("count") or 3))), "min_s": float(lo), "max_s": float(hi),
                 "aspect": deliverable.get("aspect", "9:16"),
                 "captions": deliverable.get("captions") if deliverable.get("captions") is not None else True,
-                "loudness_target": -14.0 if (set(deliverable.get("platforms", [])) & brief_mod.SOCIAL or not deliverable)
-                else req.get("loudness_target", -14.0),
-                "from_brief": bool(deliverable), "requirements": req}
+                "loudness_target": brief_mod.deliverable_loudness(deliverable) if deliverable else -14.0,
+                "from_brief": bool(deliverable), "min_is_default": min_is_default, "requirements": req}
 
     def find_moments(self, project_id: str, asset_id: str | None = None, count: int | None = None,
                      min_s: float | None = None, max_s: float | None = None, avoid_existing: bool = False) -> dict:
@@ -597,30 +610,54 @@ class Services:
                 tl = seq["timeline"]
                 if tl and tl["aspect"] != "16:9":
                     exclude += [(c["start"], c["end"]) for c in tl["clips"] if c["asset_id"] == asset["id"]]
-        chosen, ranked = moments_mod.find_moments(asset["id"], self.transcript(asset["id"]), settings["requirements"],
+        segments = self.transcript(asset["id"])
+        chosen, ranked = moments_mod.find_moments(asset["id"], segments, settings["requirements"],
                                                   count=settings["count"], min_s=settings["min_s"], max_s=settings["max_s"],
                                                   exclude=exclude)
+        if len(chosen) < settings["count"] and settings["min_is_default"]:
+            # The 15 s minimum is only a default: relax it (never below 6 s) to deliver the requested count.
+            relaxed = max(6.0, settings["min_s"] / 2)
+            more, ranked2 = moments_mod.find_moments(asset["id"], segments, settings["requirements"], count=settings["count"],
+                                                     min_s=relaxed, max_s=settings["max_s"], exclude=exclude)
+            if len(more) > len(chosen):
+                chosen, ranked = more, ranked2
+                settings["min_s"] = relaxed
         return {"asset_id": asset["id"], "settings": {k: v for k, v in settings.items() if k != "requirements"},
                 "chosen": [c.to_dict() for c in chosen], "candidates": [c.to_dict() for c in ranked]}
 
-    def clip_factory_proposal(self, project_id: str, asset_id: str | None = None, count: int | None = None,
-                              min_s: float | None = None, max_s: float | None = None, titles: bool = False,
-                              avoid_existing: bool = True, created_by: str = "clip-factory",
-                              moments: list[dict] | None = None) -> dict:
+    def moments_from_ranges(self, asset_id: str, ranges: list[dict]) -> list[dict]:
+        """Turn caller-chosen {start, end} ranges into moment dicts (snapped to whole transcript segments)."""
+        segments = self.transcript(asset_id)
+        out = []
+        for r in ranges:
+            window = [s for s in segments if s["end"] > float(r["start"]) + 0.05 and s["start"] < float(r["end"]) - 0.05]
+            if not window:
+                raise BadRequest(f"No transcript between {r['start']} and {r['end']}")
+            talk: dict[str, float] = {}
+            for s in window:
+                if s.get("speaker"):
+                    talk[s["speaker"]] = talk.get(s["speaker"], 0.0) + s["end"] - s["start"]
+            out.append({"start": window[0]["start"], "end": window[-1]["end"], "first_line": window[0]["text"].strip(),
+                        "dominant_speaker": max(talk, key=talk.get) if talk else None, "reasons": ["chosen by the editor"]})
+        return out
+
+    def clip_factory_specs(self, project_id: str, asset_id: str | None = None, count: int | None = None,
+                           min_s: float | None = None, max_s: float | None = None, titles: bool = False,
+                           avoid_existing: bool = True, ranges: list[dict] | None = None) -> tuple[list[dict], dict, str]:
         found = self.find_moments(project_id, asset_id, count, min_s, max_s, avoid_existing)
         settings = found["settings"]
-        chosen = moments or found["chosen"]
+        chosen = self.moments_from_ranges(found["asset_id"], ranges) if ranges else found["chosen"]
         if not chosen:
             raise BadRequest(f"No self-contained moment of {settings['min_s']:g}-{settings['max_s']:g}s found. "
                              "Try a wider length range.")
         speakers = (self.analysis(found["asset_id"], "speakers") or {}).get("labels", {})
         segments = self.transcript(found["asset_id"])
         asset = self.get_asset(project_id, found["asset_id"])
+        silences = (self.analysis(found["asset_id"], "silences") or {}).get("silences")
         specs = []
         for n, cand in enumerate(chosen, start=1):
             window = [s for s in segments if s["start"] >= cand["start"] - 0.01 and s["end"] <= cand["end"] + 0.01]
-            clips, _report = podcast.auto_edit(found["asset_id"], asset["duration"], window,
-                                               (self.analysis(found["asset_id"], "silences") or {}).get("silences"),
+            clips, _report = podcast.auto_edit(found["asset_id"], asset["duration"], window, silences,
                                                podcast.AutoEditOptions(same_speaker_pause=0.25, turn_pause=0.4,
                                                                        lead_in=0.15, tail=0.35))
             focus = speakers.get(cand.get("dominant_speaker") or "", {}).get("focus_x", 0.5)
@@ -633,10 +670,18 @@ class Services:
                           "audio": {"voice_eq": True, "compress": True, "loudness_target": settings["loudness_target"]}})
         why = "; ".join(f"Clip {i}: {', '.join(c['reasons'][:3])}" for i, c in enumerate(chosen, start=1))
         source = "brief deliverable" if settings["from_brief"] else "defaults"
-        return self.create_proposal(project_id, f"Clip Factory: {len(specs)} vertical clip(s)",
-                                    f"Scored {len(found['candidates'])} candidate moments ({settings['min_s']:g}-"
-                                    f"{settings['max_s']:g}s from {source}). {why}", specs, created_by=created_by,
-                                    notes={"clip_factory": {"settings": settings, "candidates": found["candidates"]}})
+        rationale = (f"Scored {len(found['candidates'])} candidate moments ({settings['min_s']:g}-{settings['max_s']:g}s "
+                     f"from {source}). {why}")
+        return specs, {"settings": settings, "candidates": found["candidates"]}, rationale
+
+    def clip_factory_proposal(self, project_id: str, asset_id: str | None = None, count: int | None = None,
+                              min_s: float | None = None, max_s: float | None = None, titles: bool = False,
+                              avoid_existing: bool = True, created_by: str = "clip-factory",
+                              ranges: list[dict] | None = None) -> dict:
+        specs, notes, rationale = self.clip_factory_specs(project_id, asset_id, count, min_s, max_s, titles,
+                                                          avoid_existing, ranges)
+        return self.create_proposal(project_id, f"Clip Factory: {len(specs)} vertical clip(s)", rationale, specs,
+                                    created_by=created_by, notes={"clip_factory": notes})
 
     # --- transcripts ---------------------------------------------------------------------------
     def transcript(self, asset_id: str, start: float | None = None, end: float | None = None) -> list[dict]:

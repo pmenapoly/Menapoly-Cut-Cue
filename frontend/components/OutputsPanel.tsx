@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { api, ApiError, Compare, fmtTime, Job, Render, renderUrl, Sequence } from "@/lib/api";
+import { api, ApiError, Asset, Compare, fmtTime, Job, Render, renderUrl, Sequence } from "@/lib/api";
 
 export function VersionsPanel({ pid, seq, onChanged }: { pid: string; seq: Sequence | null; onChanged: () => void }) {
   const [pick, setPick] = useState<string[]>([]);
@@ -40,9 +40,13 @@ export function VersionsPanel({ pid, seq, onChanged }: { pid: string; seq: Seque
   );
 }
 
-export function RendersPanel({ pid, renders, onPlay, playingId }: {
+export function RendersPanel({ pid, renders, onPlay, playingId, assets = [], onChanged = () => {} }: {
   pid: string; renders: Render[]; onPlay: (r: Render) => void; playingId: string | null;
+  assets?: Asset[]; onChanged?: () => void;
 }) {
+  const [reimport, setReimport] = useState<{ id: string; audio: string } | null>(null);
+  const [error, setError] = useState("");
+  const audioAssets = assets.filter((a) => a.kind === "audio" && a.status === "ready");
   if (!renders.length) return <p className="text-sm text-muted">No renders yet. Approve a proposal or click Render preview.</p>;
   return (
     <ul className="space-y-1 text-sm">
@@ -50,7 +54,7 @@ export function RendersPanel({ pid, renders, onPlay, playingId }: {
         <li key={r.id} className={`rounded border p-2 ${playingId === r.id ? "border-accent" : "border-line"}`}>
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{r.sequence_name}</span>
-            <span className="text-muted">v{r.version_number} · {r.quality}</span>
+            <span className="text-muted">v{r.version_number} · {r.quality}{r.origin === "reimport" ? " · processed audio" : ""}</span>
             <span className={r.status === "succeeded" ? "text-ok" : r.status === "failed" ? "text-danger" : "text-accent"}>
               {r.status}{r.status === "running" && r.progress != null ? ` ${Math.round(r.progress * 100)}%` : ""}
             </span>
@@ -64,6 +68,26 @@ export function RendersPanel({ pid, renders, onPlay, playingId }: {
               <a className="btn btn-sm" href={renderUrl(pid, r.id, "mp4", true)}>MP4</a>
               <a className="btn btn-sm" href={renderUrl(pid, r.id, "srt", true)}>SRT</a>
               {r.wav_name && <a className="btn btn-sm" href={renderUrl(pid, r.id, "wav", true)}>WAV</a>}
+              <button className="btn btn-sm" title="Replace this render's audio with a processed WAV you uploaded"
+                      onClick={() => setReimport(reimport?.id === r.id ? null : { id: r.id, audio: "" })}>Re-import audio</button>
+            </div>
+          )}
+          {r.info?.measured_input_lufs != null && (
+            <div className="text-[11px] text-muted">audio: {r.info.chain?.length ? `${r.info.chain.length} enhancement filter(s), ` : ""}
+              {r.info.duck ? "music ducked, " : ""}normalized from {r.info.measured_input_lufs.toFixed(1)} LUFS</div>
+          )}
+          {reimport?.id === r.id && (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+              <select className="input py-0.5" value={reimport.audio} onChange={(e) => setReimport({ ...reimport, audio: e.target.value })}>
+                <option value="">Choose processed WAV…</option>
+                {audioAssets.map((a) => <option key={a.id} value={a.id}>{a.original_name}</option>)}
+              </select>
+              <button className="btn btn-sm" disabled={!reimport.audio} onClick={async () => {
+                setError("");
+                try { await api.post(`/projects/${pid}/renders/${r.id}/reimport`, { audio_asset_id: reimport.audio }); setReimport(null); onChanged(); }
+                catch (err) { setError(err instanceof ApiError ? err.message : String(err)); }
+              }}>Create render with this audio</button>
+              {error && <span className="text-danger">{error}</span>}
             </div>
           )}
         </li>
