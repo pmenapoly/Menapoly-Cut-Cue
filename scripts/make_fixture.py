@@ -94,6 +94,11 @@ def synthesize(text_file: Path, dest: Path, tmp: Path, speaker: str = "H") -> No
         run(["ffmpeg", "-y", "-i", str(aiff), "-ar", "48000", "-ac", "1", str(dest)])
     else:
         raise SystemExit("Need FFmpeg built with libflite, or macOS `say`, to synthesize test speech.")
+    # Trim the synthesizer's own leading/trailing silence so ground-truth times are where speech really is.
+    trimmed = dest.with_name(dest.stem + "-trim.wav")
+    trim = "silenceremove=start_periods=1:start_threshold=-55dB"
+    run(["ffmpeg", "-y", "-i", str(dest), "-af", f"{trim},areverse,{trim},areverse", str(trimmed)])
+    trimmed.replace(dest)
 
 
 def silence(dest: Path, seconds: float) -> None:

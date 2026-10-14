@@ -14,6 +14,8 @@ from .documents import extract_text, parse_captions
 from .jobs import CloudWorker, JobContext, JobManager
 from . import media
 from . import audio as audio_mod
+from . import diarize as diarize_mod
+from . import podcast
 from .render import SourceAudio, remux_with_audio, render_timeline
 from .timeline import Clip, Timeline, TimelineError, clamp_to_duration, remove_pauses, timeline_duration, validate_timeline
 from . import transcribe as tx
@@ -63,6 +65,7 @@ class Services:
         self.jobs.register("transcribe", self._job_transcribe)
         self.jobs.register("render", self._job_render)
         self.jobs.register("reimport", self._job_reimport)
+        self.jobs.register("diarize", self._job_diarize)
         self.jobs.listeners.append(self._on_job_done)
         if start_workers:
             self.jobs.start()
@@ -266,6 +269,7 @@ class Services:
         cues = (self.analysis(subtitle_asset_id, "captions") or {}).get("cues", [])
         cues = [c for c in cues if c["start"] < (target["duration"] or 0)]
         self._store_segments(target, cues, "imported-captions")
+        self.jobs.enqueue(self.get_project(project_id), "diarize", {"asset_id": target["id"]}, "Waiting to identify speakers")
         return len(cues)
 
     # --- assets ----------------------------------------------------------------------------
@@ -331,9 +335,13 @@ class Services:
             return result
         if asset["has_audio"]:
             ctx.progress(0.05, "Detecting pauses")
-            silences = media.detect_silences(source, duration, cancel=ctx.cancel,
+            # Threshold relative to this recording's noise floor: quiet rooms and noisy ones both work.
+            floor = audio_mod.estimate_noise_floor(source)
+            noise_db = round(max(-55.0, min(-25.0, floor + 10)), 1)
+            silences = media.detect_silences(source, duration, noise_db=noise_db, min_duration=0.3, cancel=ctx.cancel,
                                              progress=lambda f: ctx.progress(0.05 + 0.45 * f))
-            self._set_analysis(asset["id"], "silences", {"silences": silences, "noise_db": -35, "min_duration": 0.6})
+            self._set_analysis(asset["id"], "silences", {"silences": silences, "noise_db": noise_db,
+                                                         "noise_floor_db": round(floor, 1), "min_duration": 0.3})
             result["silences"] = len(silences)
         if asset["has_video"]:
             ctx.progress(0.5, "Detecting scenes")
@@ -380,6 +388,7 @@ class Services:
         else:
             raise tx.TranscriptionUnavailable("Transcription is disabled (CUTCUE_TRANSCRIBER=none)")
         self._store_segments(asset, segments, engine)
+        self.jobs.enqueue(self.get_project(ctx.project_id), "diarize", {"asset_id": asset["id"]}, "Waiting to identify speakers")
         return {"segments": len(segments)}
 
     def _store_segments(self, asset: dict, segments: list[dict], source: str) -> None:
@@ -395,9 +404,88 @@ class Services:
         self.db.executemany("""INSERT INTO transcript_segments (project_id, asset_id, idx, start, end, text, words_json, source)
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", rows)
 
+    # --- speakers ----------------------------------------------------------------------------------
+    def _job_diarize(self, ctx: JobContext) -> dict:
+        asset = self._job_asset(ctx)
+        rows = self.db.all("SELECT id, start, end, text, words_json FROM transcript_segments WHERE asset_id = ? ORDER BY start",
+                           [asset["id"]])
+        if not rows:
+            return {"skipped": "no transcript"}
+        segments = [{"start": r["start"], "end": r["end"], "text": r["text"], "words": loads(r["words_json"], [])} for r in rows]
+        channels = loads(asset["probe_json"], {}).get("audio_channels", 1)
+        ctx.progress(0.1, "Identifying speakers")
+        result = diarize_mod.diarize(self.asset_path(asset), segments, channels, ctx.payload.get("num_speakers"))
+        updates = []
+        for row, seg, speaker, word_speakers in zip(rows, segments, result["segment_speakers"], result["word_speakers"]):
+            words = [{**w, "speaker": word_speakers[i]} if i < len(word_speakers) else w for i, w in enumerate(seg["words"])]
+            updates.append([speaker, dumps(words), row["id"]])
+        self.db.executemany("UPDATE transcript_segments SET speaker = ?, words_json = ? WHERE id = ?", updates)
+        previous = (self.analysis(asset["id"], "speakers") or {}).get("labels", {})
+        talk: dict[str, float] = {}
+        for seg, speaker in zip(segments, result["segment_speakers"]):
+            talk[speaker] = talk.get(speaker, 0.0) + seg["end"] - seg["start"]
+        labels = {sp: {"name": previous.get(sp, {}).get("name", f"Speaker {sp[1:]}"),
+                       "focus_x": previous.get(sp, {}).get("focus_x", 0.5), "talk_seconds": round(talk.get(sp, 0.0), 1)}
+                  for sp in result["speakers"]}
+        self._set_analysis(asset["id"], "speakers", {"method": result["method"], "confidence": result["confidence"],
+                                                     "requested": ctx.payload.get("num_speakers"), "labels": labels})
+        return {"method": result["method"], "speakers": len(labels), "confidence": result["confidence"]}
+
+    def speakers(self, project_id: str, asset_id: str) -> dict:
+        self.get_asset(project_id, asset_id)
+        return self.analysis(asset_id, "speakers") or {"method": None, "labels": {}}
+
+    def update_speakers(self, project_id: str, asset_id: str, labels: dict) -> dict:
+        current = self.speakers(project_id, asset_id)
+        if not current.get("labels"):
+            raise BadRequest("Speakers have not been identified for this file yet")
+        for key, patch in (labels or {}).items():
+            if key not in current["labels"]:
+                raise BadRequest(f"Unknown speaker {key}")
+            if "name" in patch:
+                current["labels"][key]["name"] = str(patch["name"]).strip()[:40] or current["labels"][key]["name"]
+            if "focus_x" in patch:
+                current["labels"][key]["focus_x"] = min(1.0, max(0.0, float(patch["focus_x"])))
+        self._set_analysis(asset_id, "speakers", current)
+        return current
+
+    def rediarize(self, project_id: str, asset_id: str, num_speakers: int | None) -> dict:
+        asset = self.get_asset(project_id, asset_id)
+        if num_speakers is not None and not 1 <= num_speakers <= 6:
+            raise BadRequest("num_speakers must be between 1 and 6")
+        if not asset["has_transcript"]:
+            raise BadRequest("Transcribe the file first")
+        return self.jobs.enqueue(self.get_project(project_id), "diarize", {"asset_id": asset_id, "num_speakers": num_speakers},
+                                 "Waiting to identify speakers")
+
+    # --- podcast auto-editor ---------------------------------------------------------------------------
+    def auto_edit(self, project_id: str, asset_id: str, options: dict | None = None) -> tuple[list, dict]:
+        asset = self.get_asset(project_id, asset_id)
+        if asset["kind"] not in ("video", "audio") or asset["status"] != "ready":
+            raise BadRequest("Auto-edit needs a ready video or audio file")
+        segments = self.transcript(asset_id)
+        if not segments:
+            raise BadRequest("The transcript is not ready yet")
+        silences = (self.analysis(asset_id, "silences") or {}).get("silences")
+        return podcast.auto_edit(asset_id, asset["duration"], segments, silences, podcast.AutoEditOptions.from_dict(options))
+
+    def auto_edit_proposal(self, project_id: str, asset_id: str, options: dict | None = None, *,
+                           name: str = "Podcast auto-edit", aspect: str = "16:9", audio: dict | None = None,
+                           hook: dict | None = None, created_by: str = "auto-editor") -> dict:
+        clips, report = self.auto_edit(project_id, asset_id, options)
+        if not clips:
+            raise BadRequest(report.get("note", "Nothing left after auto-edit"))
+        clip_specs = [c.model_dump() for c in clips]
+        if hook:
+            clip_specs.insert(0, {"asset_id": asset_id, "start": hook["start"], "end": hook["end"], "label": "Hook"})
+        spec = {"name": name, "aspect": aspect, "clips": clip_specs,
+                "audio": audio or {"voice_eq": True, "compress": True, "loudness_target": -16.0}}
+        return self.create_proposal(project_id, name, podcast.summarize(report), [spec], created_by=created_by,
+                                    notes={"auto_edit": report})
+
     # --- transcripts ---------------------------------------------------------------------------
     def transcript(self, asset_id: str, start: float | None = None, end: float | None = None) -> list[dict]:
-        sql = "SELECT idx, start, end, text, words_json, source FROM transcript_segments WHERE asset_id = ?"
+        sql = "SELECT id, idx, start, end, text, words_json, source, speaker FROM transcript_segments WHERE asset_id = ?"
         params: list = [asset_id]
         if start is not None:
             sql += " AND end > ?"
@@ -408,6 +496,7 @@ class Services:
         rows = self.db.all(sql + " ORDER BY start", params)
         for r in rows:
             r["words"] = loads(r.pop("words_json"), [])
+            r.pop("id")
         return rows
 
     def segments_by_asset(self, asset_ids: set[str]) -> dict[str, list[dict]]:
@@ -493,7 +582,8 @@ class Services:
         self.db.execute("DELETE FROM sequences WHERE id = ?", [sequence_id])
 
     # --- proposals (AI or local planner) -> require explicit approval ------------------------------
-    def create_proposal(self, project_id: str, title: str, rationale: str, sequences: list[dict], created_by: str) -> dict:
+    def create_proposal(self, project_id: str, title: str, rationale: str, sequences: list[dict], created_by: str,
+                        notes: dict | None = None) -> dict:
         """Validate and expand a plan. Raises TimelineError/BadRequest with fixable messages."""
         assets = self.project_assets_map(project_id)
         expanded: list[dict] = []
@@ -513,7 +603,8 @@ class Services:
                                           keep_padding=float(pauses.get("keep_padding", 0.15)))
                 timeline = Timeline(aspect=spec.get("aspect", "16:9"), clips=clips,
                                     burn_captions=bool(spec.get("burn_captions", False)),
-                                    normalize_audio=bool(spec.get("normalize_audio", True)))
+                                    normalize_audio=bool(spec.get("normalize_audio", True)),
+                                    audio=spec.get("audio") or {}, title=spec.get("title") or "")
                 timeline = clamp_to_duration(timeline, assets)
                 validate_timeline(timeline, assets)
                 expanded.append({"sequence_id": seq_id, "name": (spec.get("name") or f"Sequence {n}")[:120],
@@ -526,7 +617,8 @@ class Services:
         if problems:
             raise TimelineError(problems)
         proposal = {"id": new_id("prp"), "project_id": project_id, "title": (title or "Edit proposal")[:200],
-                    "rationale": (rationale or "")[:4000], "plan_json": dumps({"sequences": expanded}),
+                    "rationale": (rationale or "")[:4000],
+                    "plan_json": dumps({"sequences": expanded, "notes": notes or {}}),
                     "status": "pending", "created_by": created_by, "created_at": now()}
         self.db.insert("proposals", proposal)
         return self.get_proposal(project_id, proposal["id"])

@@ -124,6 +124,7 @@ def probe(path: Path) -> dict:
         "duration": duration,
         "has_video": video is not None,
         "has_audio": audio is not None,
+        "audio_channels": int(audio.get("channels") or 0) if audio else 0,
         "width": int(video["width"]) if video else None,
         "height": int(video["height"]) if video else None,
         "fps": fps,

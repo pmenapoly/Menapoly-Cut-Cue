@@ -74,6 +74,20 @@ class AudioAssetIn(BaseModel):
     audio_asset_id: str
 
 
+class SpeakersPatch(BaseModel):
+    labels: dict[str, dict]
+
+
+class DiarizeIn(BaseModel):
+    num_speakers: int | None = None
+
+
+class AutoEditIn(BaseModel):
+    asset_id: str
+    options: dict = {}
+    name: str = "Podcast auto-edit"
+
+
 def create_app(settings: Settings | None = None, services: Services | None = None,
                assistant: Assistant | None = None) -> FastAPI:
     settings = settings or default_settings
@@ -239,6 +253,22 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     @app.delete("/api/projects/{pid}/assets/{aid}/processed-audio", status_code=204)
     def detach_processed_audio(pid: str, aid: str):
         svc.detach_processed_audio(pid, aid)
+
+    @app.get("/api/projects/{pid}/assets/{aid}/speakers")
+    def get_speakers(pid: str, aid: str):
+        return svc.speakers(pid, aid)
+
+    @app.patch("/api/projects/{pid}/assets/{aid}/speakers")
+    def patch_speakers(pid: str, aid: str, body: SpeakersPatch):
+        return svc.update_speakers(pid, aid, body.labels)
+
+    @app.post("/api/projects/{pid}/assets/{aid}/diarize", status_code=201)
+    def diarize(pid: str, aid: str, body: DiarizeIn):
+        return svc.rediarize(pid, aid, body.num_speakers)
+
+    @app.post("/api/projects/{pid}/auto-edit", status_code=201)
+    def auto_edit(pid: str, body: AutoEditIn):
+        return svc.auto_edit_proposal(pid, body.asset_id, body.options, name=body.name[:120] or "Podcast auto-edit")
 
     @app.get("/api/projects/{pid}/search")
     def search(pid: str, q: str, limit: int = 30):
