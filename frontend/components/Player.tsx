@@ -27,8 +27,8 @@ function isTyping(el: EventTarget | null) {
 
 export const Player = forwardRef<PlayerHandle, {
   pid: string; source: PlayerSource; assets: Asset[]; segments: Record<string, Segment[]>;
-  onTime?: (t: number) => void; compact?: boolean; shortcuts?: boolean;
-}>(function Player({ pid, source, assets, segments, onTime, compact = false, shortcuts = true }, ref) {
+  onTime?: (t: number) => void; compact?: boolean; shortcuts?: boolean; onHelp?: () => void;
+}>(function Player({ pid, source, assets, segments, onTime, compact = false, shortcuts = true, onHelp }, ref) {
   const video = useRef<HTMLVideoElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -138,13 +138,13 @@ export const Player = forwardRef<PlayerHandle, {
       else if (k === "m") setMuted((m) => !m);
       else if (k === "c") setCc((c) => !c);
       else if (k === "f") frame.current?.requestFullscreen?.().catch(() => {});
-      else if (k === "?") setShowHelp((h) => !h);
+      else if (k === "?") { if (onHelp) onHelp(); else setShowHelp((h) => !h); }
       else if (e.key === "Home") seek(0);
       else if (e.key === "End") seek(total);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [shortcuts, toggle, seek, time, total]);
+  }, [shortcuts, toggle, seek, time, total, onHelp]);
 
   const aspect = timeline?.aspect ?? (source.kind === "render" ? source.aspect ?? "16:9" : "16:9");
   const focus = clip?.focus_x ?? 0.5;
@@ -224,7 +224,7 @@ export const Player = forwardRef<PlayerHandle, {
           <Icon name={muted ? "mute" : "volume"} /></button>
         {timeline && !compact && <button className={`btn btn-ghost btn-sm ${cc ? "text-violet" : ""}`} onClick={() => setCc((c) => !c)} aria-pressed={cc} aria-label="Captions (C)">CC</button>}
         <button className={`btn btn-ghost btn-icon hidden ${compact ? "" : "sm:inline-flex"}`} onClick={() => frame.current?.requestFullscreen?.().catch(() => {})} aria-label="Full screen (F)"><Icon name="maximize" /></button>
-        <button className={`btn btn-ghost btn-icon hidden ${compact ? "" : "md:inline-flex"}`} onClick={() => setShowHelp((h) => !h)} aria-label="Keyboard shortcuts (?)" aria-expanded={showHelp}><Icon name="keyboard" /></button>
+        <button className={`btn btn-ghost btn-icon hidden ${compact ? "" : "md:inline-flex"}`} onClick={() => (onHelp ? onHelp() : setShowHelp((h) => !h))} aria-label="Keyboard shortcuts (?)" aria-expanded={showHelp}><Icon name="keyboard" /></button>
       </div>
       {showHelp && (
         <div className="rounded-xl border border-line bg-panel2 p-3 text-xs text-muted animate-rise" role="note">

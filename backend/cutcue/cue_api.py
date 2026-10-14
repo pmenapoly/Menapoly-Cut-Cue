@@ -258,6 +258,54 @@ def register(app: FastAPI, svc: Services, cue: Cue, ask: AskCue, text: CueText) 
     def create_upload_link(pid: str):
         return cue.create_upload_link(pid)
 
+    # --- client portal (Relay) connector and email ------------------------------------------------------------
+    @app.get("/api/cue/relay")
+    def relay_status(project_id: str | None = None):
+        status = cue.relay.status()
+        if project_id:
+            status["publications"] = cue.relay.publications(project_id)
+            link = svc.db.one("SELECT * FROM relay_projects WHERE project_id = ?", [project_id])
+            status["link"] = link
+        return status
+
+    @app.post("/api/cue/relay/unlink/{pid}")
+    def relay_unlink(pid: str):
+        svc.get_project(pid)
+        cue.relay.unlink_project(pid)
+        return {"ok": True}
+
+    @app.get("/api/cue/backups")
+    def backups():
+        from .backup import verify_backup
+        root = svc.settings.data_dir.parent / "backups"
+        out = []
+        for d in sorted(root.glob("cutcue-backup-*"), reverse=True)[:20] if root.is_dir() else []:
+            try:
+                v = verify_backup(d)
+                out.append({"name": d.name, "ok": v["ok"], "include_media": v["include_media"], "files": v["files"],
+                            "projects": v["counts"].get("projects")})
+            except (OSError, ValueError, KeyError):
+                out.append({"name": d.name, "ok": False})
+        return {"folder": str(root), "backups": out}
+
+    @app.post("/api/cue/backups", status_code=201)
+    def backup_now():
+        """Database-only backup from the UI (fast). Full media backups: `make backup`. Restore is CLI-only."""
+        from .backup import create_backup, verify_backup
+        dest = create_backup(svc.settings.data_dir, svc.settings.data_dir.parent / "backups", include_media=False)
+        return {"name": dest.name, **verify_backup(dest)}
+
+    @app.get("/api/cue/email")
+    def email_status():
+        return cue.mailer.status()
+
+    @app.post("/api/cue/email/test")
+    def email_test():
+        try:
+            return cue.mailer.send_test()
+        except ValueError as exc:
+            raise BadRequest(str(exc)) from exc
+
     # --- library ---------------------------------------------------------------------------------------
     @app.get("/api/cue/library")
     def library(kind: str = "", q: str = ""):

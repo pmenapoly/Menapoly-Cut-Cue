@@ -56,6 +56,7 @@ const PATHS: Record<string, string> = {
   archive: "M3 4h18v4H3zM5 8v12h14V8M10 12h4",
   palette: "M12 22a10 10 0 110-20c5.5 0 10 4 10 9a5 5 0 01-5 5h-2a2 2 0 00-1.5 3.3A1.5 1.5 0 0112 22zM7 12h0M9 7h0M15 7h0M17 12h0",
   template: "M4 4h16v6H4zM4 14h7v6H4zM15 14h5v6h-5z",
+  monitor: "M3 4h18v12H3zM8 20h8M12 16v4",
 };
 
 export function Icon({ name, size = 18, className = "", label }: { name: keyof typeof PATHS | string; size?: number; className?: string; label?: string }) {

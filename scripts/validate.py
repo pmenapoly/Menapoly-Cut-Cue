@@ -2,8 +2,8 @@
 
 Runs the actual app (real server process, real HTTP API, real FFmpeg, real faster-whisper,
 live Claude API, real Google Chrome) through the acceptance workflow and writes a report.
-A step is PASS only if it really ran and its checks passed. Missing prerequisites give
-NOT VERIFIED, never PASS.
+A step is VERIFIED only if it really ran and its checks passed. Missing prerequisites give
+BLOCKED, inputs you did not provide give SKIPPED, never VERIFIED.
 
 Usage (from the repo root):
     make validate MEDIA=~/Movies/episode.mp4 [CLIP_MINUTES=10]
@@ -33,7 +33,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-PASS, FAIL, PARTIAL, NOT_VERIFIED = "PASS", "FAIL", "PARTIAL", "NOT VERIFIED"
+# VERIFIED: really ran and passed. FAILED: ran and failed. NEEDS REVIEW: ran, but a human must judge (e.g. listen).
+# SKIPPED: not requested / input not given. BLOCKED: a prerequisite is missing (API key, Chrome, model, config).
+PASS, FAIL, PARTIAL, NOT_VERIFIED, SKIPPED = "VERIFIED", "FAILED", "NEEDS REVIEW", "BLOCKED", "SKIPPED"
 CHROME_PATHS = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "google-chrome", "google-chrome-stable",
                 "chromium", "chromium-browser"]
 
@@ -146,10 +148,10 @@ def parse_srt(text: str) -> list[tuple[float, float, str]]:
 
 
 class App:
-    def __init__(self, run: Run, data_dir: Path, port: int):
+    def __init__(self, run: Run, data_dir: Path, port: int, host: str = "127.0.0.1"):
         self.run, self.port = run, port
         self.base = f"http://127.0.0.1:{port}"
-        env = {**os.environ, "CUTCUE_DATA_DIR": str(data_dir), "CUTCUE_PORT": str(port), "CUTCUE_HOST": "127.0.0.1",
+        env = {**os.environ, "CUTCUE_DATA_DIR": str(data_dir), "CUTCUE_PORT": str(port), "CUTCUE_HOST": host,
                "CUTCUE_PASSWORD": "", "PYTHONUNBUFFERED": "1"}
         self.log = open(run.out / "server.log", "w")
         self.proc = subprocess.Popen([str(ROOT / "backend/.venv/bin/python"), "-m", "cutcue"], cwd=ROOT / "backend",
@@ -296,6 +298,9 @@ def main() -> int:
     ap.add_argument("--clip-minutes", type=float, default=0, help="Use only the first N minutes of --media")
     ap.add_argument("--brief", type=Path, help="Creative brief (TXT/PDF/DOCX)")
     ap.add_argument("--chrome", help="Path to Google Chrome (auto-detected on macOS)")
+    ap.add_argument("--long-media", type=Path, help="A long podcast (30+ min) for the performance check (step 14)")
+    ap.add_argument("--phone-check", action="store_true",
+                    help="Pause to open a review link on your phone and record the result (step 15)")
     args = ap.parse_args()
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -342,7 +347,8 @@ def main() -> int:
         print("Building the browser UI (npm run build)…")
         subprocess.run(["npm", "run", "build"], cwd=ROOT / "frontend", check=True, capture_output=True)
 
-    app = App(run, out / "appdata", free_port())
+    # --phone-check listens on the local network so your phone can open the review link (password still off).
+    app = App(run, out / "appdata", free_port(), host="0.0.0.0" if args.phone_check else "127.0.0.1")
     try:
         health = app.wait_ready()
         claude_live = health["assistant_mode"] == "claude"
@@ -739,6 +745,114 @@ def main() -> int:
         except Exception as exc:
             run.step("13", "Ask Cue (live Claude) proposes, never executes", FAIL, [f"{type(exc).__name__}: {exc}"])
 
+        # 14. Long podcast performance --------------------------------------------------------------------------
+        if not args.long_media:
+            run.step("14", "Long podcast (30+ min): transcription, auto-edit, render, memory", SKIPPED,
+                     ["pass --long-media ~/Movies/full-episode.mp4 (make validate LONG=…)"])
+        else:
+            try:
+                long_media = args.long_media.expanduser().resolve()
+                app.mem.phase = "long podcast"
+                lp = app.api("POST", "/projects", json={"name": f"Long podcast {stamp}"})["id"]
+                t0 = time.time()
+                la = app.upload(lp, long_media)
+                app.wait_jobs(lp, timeout=8 * 3600)
+                la = app.api("GET", f"/projects/{lp}/assets/{la['id']}")
+                jobs_l = {j["type"]: j for j in app.api("GET", f"/projects/{lp}/jobs")}
+                tr = jobs_l.get("transcribe")
+                prop = app.api("POST", f"/projects/{lp}/auto-edit", json={"asset_id": la["id"]})
+                done = app.api("POST", f"/projects/{lp}/proposals/{prop['id']}/approve")
+                app.wait_jobs(lp, timeout=8 * 3600)
+                rend = next(x for x in app.api("GET", f"/projects/{lp}/renders") if x["id"] == done["result"]["created"][0]["render_id"])
+                rj = next(j for j in app.api("GET", f"/projects/{lp}/jobs") if j["id"] == rend["job_id"])
+                minutes = (la["duration"] or 0) / 60
+                peak = max(app.mem.peaks.get("long podcast", 0), 0)
+                details = [f"{long_media.name}: {minutes:.1f} min",
+                           f"transcription {job_seconds(tr)}s ({(job_seconds(tr) or 0) / max(la['duration'] or 1, 1):.2f}x realtime)" if tr else "no transcription job",
+                           f"auto-edit removed {prop['plan']['notes']['auto_edit']['removed_seconds']:.0f}s",
+                           f"preview render of the full edit: {job_seconds(rj)}s, status {rend['status']}",
+                           f"peak memory during this phase: {peak:.0f} MB (16 GB machine)",
+                           f"wall clock total: {time.time() - t0:.0f}s"]
+                run.metrics["long_podcast"] = {"minutes": minutes, "transcribe_s": tr and job_seconds(tr),
+                                               "render_s": job_seconds(rj), "peak_mb": peak}
+                ok = rend["status"] == "succeeded" and tr and tr["status"] == "succeeded" and minutes >= 30
+                run.step("14", "Long podcast (30+ min): transcription, auto-edit, render, memory",
+                         PASS if ok else (PARTIAL if rend["status"] == "succeeded" else FAIL),
+                         details + ([] if minutes >= 30 else ["shorter than 30 min: not a long-podcast test"]))
+            except Exception as exc:
+                run.step("14", "Long podcast (30+ min): transcription, auto-edit, render, memory", FAIL, [f"{type(exc).__name__}: {exc}"])
+
+        # 15. Mobile review link ----------------------------------------------------------------------------------
+        try:
+            done_r = [r for r in app.api("GET", f"/projects/{pid}/renders") if r["status"] == "succeeded"]
+            link = app.api("POST", f"/cue/projects/{pid}/review-links", json={"render_id": done_r[0]["id"], "label": "Phone check"})
+            phone = httpx.Client(base_url=app.base, timeout=60, headers={
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1"})
+            page = phone.get(f"/review/?t={link['token']}")
+            part = phone.get(f"/api/public/review/{link['token']}/media", headers={"Range": "bytes=0-65535"})
+            details = [f"review page HTTP {page.status_code}, video byte-range HTTP {part.status_code} ({len(part.content)} bytes)",
+                       "served without the owner session, as a phone would see it"]
+            api_ok = page.status_code == 200 and part.status_code == 206
+            if not args.phone_check:
+                run.step("15", "Mobile review link", PARTIAL if api_ok else FAIL, details + [
+                    "the phone itself was not used: rerun with --phone-check (needs CUTCUE_HOST=0.0.0.0 or a tunnel)"])
+            else:
+                lan = socket.gethostname()
+                url = f"http://{lan}:{app.port}/review/?t={link['token']}"
+                print(f"\n>>> On your phone (same Wi-Fi), open:\n    {url}\n    Play the video, leave a note, then come back here.")
+                answer = input("Did the video play and did the note send? [y/n] ").strip().lower()
+                notes = app.api("GET", f"/cue/projects/{pid}")["feedback"]
+                details.append(f"notes received from the phone: {len(notes)}")
+                run.step("15", "Mobile review link", PASS if api_ok and answer == "y" and notes else FAIL, details)
+        except Exception as exc:
+            run.step("15", "Mobile review link", FAIL, [f"{type(exc).__name__}: {exc}"])
+
+        # 16. Database backup and restore ----------------------------------------------------------------------
+        try:
+            from cutcue.backup import create_backup, restore_backup, verify_backup
+            done_r = [r for r in app.api("GET", f"/projects/{pid}/renders") if r["status"] == "succeeded"]
+            dest = create_backup(out / "appdata", out / "backups")
+            check = verify_backup(dest)
+            restored = restore_backup(dest, out / "restored-data")
+            app2 = App(run, out / "restored-data", free_port())
+            try:
+                app2.wait_ready()
+                same = app2.api("GET", f"/cue/projects/{pid}")["project"]["id"] == pid
+                r0 = done_r[0]["id"]
+                blob = app2.http.get(f"/api/projects/{pid}/renders/{r0}/mp4").content
+                same_bytes = blob == app.http.get(f"/api/projects/{pid}/renders/{r0}/mp4").content
+            finally:
+                app2.stop()
+            ok = check["ok"] and restored["counts"] == check["counts"] and same and same_bytes
+            run.step("16", "Database backup and restore", PASS if ok else FAIL,
+                     [f"backup: {check['files']} files, counts {check['counts']}",
+                      f"restored server serves the same project: {same}; render bytes identical: {same_bytes}"])
+        except Exception as exc:
+            run.step("16", "Database backup and restore", FAIL, [f"{type(exc).__name__}: {exc}"])
+
+        # 17-18. Client portal connector and email (only if you configured them) ------------------------------------
+        relay = app.api("GET", "/cue/relay")
+        if not relay["configured"]:
+            run.step("17", "Publish to the client portal (Relay)", NOT_VERIFIED, [relay["problem"] or "not configured"])
+        else:
+            try:
+                act = app.api("POST", "/cue/actions", json={"kind": "publish_to_relay", "project_id": pid})
+                res = app.api("POST", f"/cue/actions/{act['id']}/approve")
+                run.step("17", "Publish to the client portal (Relay)", PASS if res["status"] == "executed" else FAIL,
+                         [res.get("error") or res["result"].get("note", ""), "check the new review version in Relay yourself"])
+            except Exception as exc:
+                run.step("17", "Publish to the client portal (Relay)", FAIL, [f"{type(exc).__name__}: {exc}"])
+        email = app.api("GET", "/cue/email")
+        if not email["configured"]:
+            run.step("18", "Email notifications", NOT_VERIFIED, ["set CUE_SMTP_HOST, CUE_EMAIL_FROM, CUE_EMAIL_TO in .env"])
+        else:
+            try:
+                r = app.api("POST", "/cue/email/test")
+                run.step("18", "Email notifications", PARTIAL if r["status"] == "sent" else FAIL,
+                         [f"test email: {r['status']} {r.get('error') or ''}", f"check {email['to']}'s inbox (and spam folder)"])
+            except Exception as exc:
+                run.step("18", "Email notifications", FAIL, [f"{type(exc).__name__}: {exc}"])
+
         # 7. Measurements --------------------------------------------------------------------------------------
         project = app.api("GET", f"/projects/{pid}")
         run.metrics["peak_memory_mb"] = {k: round(v) for k, v in app.mem.peaks.items()}
@@ -769,7 +883,11 @@ def main() -> int:
 
 def write_report(run: Run) -> None:
     (run.out / "report.json").write_text(json.dumps({"steps": run.steps, "metrics": run.metrics}, indent=1, default=str))
+    counts = {k: sum(1 for s in run.steps if s["status"] == k) for k in (PASS, FAIL, PARTIAL, SKIPPED, NOT_VERIFIED)}
     lines = [f"# Menapoly Cut Cue validation report", "", f"Run folder: `{run.out}`", "",
+             " · ".join(f"**{k}**: {v}" for k, v in counts.items()), "",
+             "VERIFIED = really ran and passed · FAILED = ran and failed · NEEDS REVIEW = ran, a person must judge · "
+             "SKIPPED = input not given · BLOCKED = prerequisite missing", "",
              "| Step | Result |", "|---|---|"]
     lines += [f"| {s['step']}. {s['title']} | **{s['status']}** |" for s in run.steps]
     for s in run.steps:

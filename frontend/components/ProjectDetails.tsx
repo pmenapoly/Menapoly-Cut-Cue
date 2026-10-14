@@ -138,6 +138,7 @@ function OverviewTab({ o, reload, onTab }: { o: Overview; reload: () => void; on
           : p.open_feedback ? <p className="text-sm">The client left notes. <button className="text-violet underline" onClick={() => onTab("reviews")}>Read the notes and prepare a revision</button></p>
           : p.render_count && p.stage !== "in_review" && p.stage !== "approved" && p.stage !== "delivered" ? <p className="text-sm">An edit is rendered. <button className="text-violet underline" onClick={() => onTab("reviews")}>Share it for review</button></p>
           : p.version_count === 0 && p.status.key === "ready" ? <p className="text-sm">Media is ready. <Link className="text-violet underline" href={`/project/?id=${p.id}&mode=simple`}>Ask Cue for a first edit</Link></p>
+          : o.processing.length ? <p className="text-sm">Cue is working on this project (see below). You can leave this page: you&apos;ll get a notification when it has actually finished.</p>
           : <p className="text-sm text-muted">{p.status.label}.</p>}
       </section>
       <section aria-label="Processing" className="space-y-2"><h3 className="text-sm font-semibold text-muted">Processing</h3><ProcessingList jobs={o.processing} showProject={false} /></section>
@@ -288,7 +289,9 @@ function ReviewsTab({ o, reload, publicUrl }: { o: Overview; reload: () => void;
     <div className="space-y-6">
       <section className="card space-y-3 p-4">
         <h3 className="font-semibold">Share for review</h3>
-        {done.length === 0 ? <p className="text-sm text-muted">Nothing is rendered yet. Approve an edit in Cut Cue; when its preview has finished rendering you can share it here.</p> : (
+        {done.length === 0 ? <p className="text-sm text-muted">{o.processing.some((j) => j.type === "render")
+          ? "A preview is rendering now. As soon as it has finished, you can share it here."
+          : "Nothing is rendered yet. Approve an edit in Cut Cue; when its preview has finished rendering you can share it here."}</p> : (
           <>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block space-y-1"><span className="label">Which render</span>
@@ -375,10 +378,55 @@ function ReviewsTab({ o, reload, publicUrl }: { o: Overview; reload: () => void;
   );
 }
 
+type RelayStatus = { configured: boolean; problem: string | null; url: string | null;
+  publications: { id: string; render_id: string; status: string; error: string | null; attempts: number; published_at: number | null; updated_at: number }[] };
+
+function PortalPublish({ o }: { o: Overview }) {
+  const { toast } = useShell();
+  const pid = o.project.id;
+  const [relay, setRelay] = useState<RelayStatus | null>(null);
+  const [action, setAction] = useState<CueAction | null>(null);
+  const load = useCallback(() => api.get<RelayStatus>(`/cue/relay?project_id=${pid}`).then(setRelay).catch(() => {}), [pid]);
+  useEffect(() => { load(); }, [load]);
+  const done = o.renders.filter((r) => r.status === "succeeded");
+  if (!relay) return null;
+  return (
+    <section className="card space-y-3 p-4" aria-labelledby="portal-h">
+      <h3 id="portal-h" className="font-semibold">Client portal</h3>
+      {!relay.configured ? (
+        <p className="text-sm text-muted">Not connected. {relay.problem} See docs/cue2/relay-connector.md.</p>
+      ) : (
+        <>
+          <p className="text-sm text-muted">Publishes the latest finished render to your Menapoly Cue client portal as a new review version. It runs only after you approve, and publishing the same render twice never makes a second copy.</p>
+          {action ? <ActionCard a={action} onChange={(a) => { setAction(a); load(); }} />
+            : done.length === 0 ? <p className="text-sm text-muted">Render an edit first.</p>
+            : <button className="btn min-h-11" onClick={async () => {
+                try { setAction(await api.post<CueAction>("/cue/actions", { kind: "publish_to_relay", project_id: pid, reason: "Share with the client in the portal" })); }
+                catch (e) { toast(e instanceof ApiError ? e.message : "Couldn't prepare", "error"); }
+              }}><Icon name="link" /> Publish to client portal</button>}
+        </>
+      )}
+      {relay.publications.length > 0 && (
+        <ul className="space-y-1 text-sm" aria-label="Portal publications">
+          {relay.publications.map((x) => (
+            <li key={x.id} className="flex flex-wrap items-center gap-2">
+              <StatusPill label={x.status === "published" ? "Published" : x.status === "failed" ? "Failed" : x.status === "uploading" ? "Uploading" : "Pending"}
+                          tone={x.status === "published" ? "ok" : x.status === "failed" ? "danger" : "info"} busy={x.status === "uploading"} />
+              <span className="text-muted">{timeAgo(x.published_at ?? x.updated_at)}{x.attempts > 1 ? ` · ${x.attempts} attempts` : ""}</span>
+              {x.error && <span className="w-full text-xs text-danger">{x.error}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function DeliveryTab({ o, onDelivered }: { o: Overview; onDelivered: () => void }) {
   const pid = o.project.id;
   return (
     <div className="space-y-4">
+      <PortalPublish o={o} />
       <div className="flex flex-wrap gap-2">
         <Link className="btn btn-primary min-h-11" href={`/project/?id=${pid}&mode=simple&export=1`}><Icon name="download" /> Export formats in Cut Cue</Link>
         {o.project.stage !== "delivered" && <button className="btn min-h-11" onClick={onDelivered}><Icon name="check" /> Mark as delivered</button>}

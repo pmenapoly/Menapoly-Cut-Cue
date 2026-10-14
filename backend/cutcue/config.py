@@ -62,6 +62,21 @@ class Settings:
     text_number: str = ""
     text_auth_token: str = ""
     text_webhook_url: str = ""
+    # Relay connector (publish approved renders to the Cloudflare Menapoly Cue). Off unless URL + workspace are set.
+    relay_url: str = ""
+    relay_workspace_id: str = ""
+    relay_client_id: str = ""          # Cloudflare Access service token
+    relay_client_secret: str = ""
+    relay_dev_identity: str = ""       # local testing only; refused unless relay_url is localhost
+    # Email notifications (SMTP). Off unless host, from and to are set.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_security: str = "starttls"    # starttls | ssl | none
+    email_from: str = ""
+    email_to: str = ""
+    email_kinds: str = "render_done,job_failed,review_changes_requested,review_approved,review_comment,review_requested,stage_changed,relay_published,relay_failed"
 
     @property
     def claude_enabled(self) -> bool:
@@ -103,6 +118,19 @@ def load_settings() -> Settings:
         text_number=os.environ.get("CUE_TEXT_NUMBER", ""),
         text_auth_token=os.environ.get("CUE_TEXT_AUTH_TOKEN", ""),
         text_webhook_url=os.environ.get("CUE_TEXT_WEBHOOK_URL", ""),
+        relay_url=os.environ.get("CUE_RELAY_URL", "").rstrip("/"),
+        relay_workspace_id=os.environ.get("CUE_RELAY_WORKSPACE_ID", ""),
+        relay_client_id=os.environ.get("CUE_RELAY_ACCESS_CLIENT_ID", ""),
+        relay_client_secret=os.environ.get("CUE_RELAY_ACCESS_CLIENT_SECRET", ""),
+        relay_dev_identity=os.environ.get("CUE_RELAY_DEV_IDENTITY", ""),
+        smtp_host=os.environ.get("CUE_SMTP_HOST", ""),
+        smtp_port=int(os.environ.get("CUE_SMTP_PORT", "587")),
+        smtp_user=os.environ.get("CUE_SMTP_USER", ""),
+        smtp_password=os.environ.get("CUE_SMTP_PASSWORD", ""),
+        smtp_security=os.environ.get("CUE_SMTP_SECURITY", "starttls").strip().lower(),
+        email_from=os.environ.get("CUE_EMAIL_FROM", ""),
+        email_to=os.environ.get("CUE_EMAIL_TO", ""),
+        email_kinds=os.environ.get("CUE_EMAIL_KINDS", Settings.email_kinds),
     )
 
 

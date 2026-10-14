@@ -7,7 +7,9 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, u
 import { api } from "@/lib/api";
 import { Notification } from "@/lib/cue";
 import { timeAgo } from "@/lib/format";
+import { isTypingTarget } from "@/lib/shortcuts";
 import AuthGate from "./AuthGate";
+import ShortcutsDialog from "./ShortcutsDialog";
 import { Dialog, Empty, Icon, Logo, Spinner, Toasts } from "./ui";
 
 export const NAV = [
@@ -42,7 +44,7 @@ export function ThemeToggle({ withLabel = false }: { withLabel?: boolean }) {
   return (
     <button className={`btn btn-ghost ${withLabel ? "w-full justify-start" : "btn-icon"}`} aria-label={label} title={label}
             onClick={() => { const p = next[pref]; setPref(p); applyTheme(p); }}>
-      <Icon name={pref === "dark" ? "moon" : pref === "light" ? "sun" : "compare"} />
+      <Icon name={pref === "dark" ? "moon" : pref === "light" ? "sun" : "monitor"} />
       {withLabel && <span className="text-sm">{label.replace("Theme: ", "Theme · ")}</span>}
     </button>
   );
@@ -157,6 +159,8 @@ function isActive(pathname: string, href: string) {
 
 function Shell({ children, title }: { children: ReactNode; title: string }) {
   const pathname = usePathname() || "/";
+  const router = useRouter();
+  const [helpOpen, setHelpOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [unread, setUnread] = useState(0);
   const [pending, setPending] = useState(0);
@@ -178,12 +182,19 @@ function Shell({ children, title }: { children: ReactNode; title: string }) {
     return () => clearInterval(t);
   }, [refreshBadges]);
   useEffect(() => {
+    let pendingG = 0;
+    const GO: Record<string, string> = { h: "/", p: "/projects/", c: "/cut/", i: "/inbox/", l: "/library/" };
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setSearchOpen(true); }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setSearchOpen(true); return; }
+      if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target) || document.querySelector('[role="dialog"]')) return;
+      if (e.key === "?") { e.preventDefault(); setHelpOpen(true); return; }
+      const k = e.key.toLowerCase();
+      if (pendingG && Date.now() - pendingG < 1200 && GO[k]) { e.preventDefault(); pendingG = 0; router.push(GO[k]); return; }
+      pendingG = k === "g" ? Date.now() : 0;
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [router]);
 
   const badge = (href: string) => (href === "/inbox/" ? pending : 0);
 
@@ -230,6 +241,8 @@ function Shell({ children, title }: { children: ReactNode; title: string }) {
             <Icon name="bell" />
             {!!unread && <span aria-hidden className="absolute right-1 top-1 min-w-4 rounded-full bg-accent-strong px-1 text-[10px] font-semibold leading-4 text-on-accent">{unread > 9 ? "9+" : unread}</span>}
           </button>
+          <button className="btn btn-ghost btn-icon hidden md:inline-flex" aria-label="Keyboard shortcuts (?)" title="Keyboard shortcuts (?)"
+                  onClick={() => setHelpOpen(true)}><Icon name="keyboard" /></button>
           <span className="hidden sm:inline-flex"><ThemeToggle /></span>
           <Link href="/settings/" className="btn btn-ghost btn-icon md:hidden" aria-label="Settings"><Icon name="settings" /></Link>
         </header>
@@ -257,6 +270,7 @@ function Shell({ children, title }: { children: ReactNode; title: string }) {
       </div>
       <NotificationCenter open={notesOpen} onClose={() => setNotesOpen(false)} onChanged={refreshBadges} />
       <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <ShortcutsDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
       <Toasts toasts={toasts} />
     </Ctx.Provider>
   );

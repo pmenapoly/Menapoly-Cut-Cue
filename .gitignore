@@ -13,3 +13,4 @@ frontend/next-env.d.ts
 frontend/e2e/.fixtures-path
 frontend/test-results/
 frontend/playwright-report/
+backups/

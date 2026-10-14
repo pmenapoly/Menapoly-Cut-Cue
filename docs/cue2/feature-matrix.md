@@ -83,3 +83,19 @@ Legend:
 - Google Chrome with H.264 playback: harness step 1. Playwright Chromium here has no H.264, so the review page's `<video>` was checked for presence, not for playback.
 - Any SMS provider.
 - MenapolyRelay connector: not built.
+
+## Security and production-readiness sprint (2026-10-14, second round)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Relay: forged identity header bypassed Cloudflare Access | **Fixed on `security/access-identity-headers`, not deployed** | 10 tests (real RS256 JWTs); 4 of them fail on the old code; `SECURITY_FIX_ACCESS_IDENTITY.md` |
+| Relay connector (approval-gated, idempotent, no duplicate projects, versions or copies) | Done | 6 failure-injection tests and 1 test **against the real Relay app** running locally |
+| Relay service-token identity (allow-listed) and `add_project` returning its ID | Done on `feature/cue-connector`, not deployed | 2 tests; live Access service token **not verified** |
+| Consistent project, asset and render identity across Projects, Cut Cue, v1, Library, reviews and delivery | Done | `test_identities_are_consistent_across_surfaces` |
+| Email notifications over SMTP (renders, failures, review requests, client decisions, stage changes, portal) | Done | Real SMTP to a local test server; exactly-once; retry with backoff; background sender |
+| In-app notifications for stage changes and review requests | Done | `test_notifications.py` |
+| Database backup and restore (checksummed; restore moves old data aside) | Done | `test_backup.py`; harness step 16 VERIFIED here |
+| Mac validation checklist and harness steps 14–18 with VERIFIED / FAILED / NEEDS REVIEW / SKIPPED / BLOCKED | Done | `mac-validation-checklist.md`; smoke run here |
+| Searchable keyboard-shortcut guide (`?`) and G-then-letter navigation | Done | `cue-usability.spec.ts` |
+| Usability fixes from the screenshot review (9 items) | Done | `usability-review.md` |
+| SMS sending | Disabled (unchanged) | `send_text` fails honestly; drafts only |

@@ -3,7 +3,7 @@ PY ?= python3
 VENV := backend/.venv
 VPY := $(VENV)/bin/python
 
-.PHONY: setup check dev start build test ui-test validate fixture whisper-model clean
+.PHONY: setup check dev start build test ui-test validate fixture whisper-model clean backup backup-db restore
 
 setup: ## Install backend + frontend dependencies and create .env
 	test -d $(VENV) || $(PY) -m venv $(VENV)
@@ -31,8 +31,17 @@ test: ## Backend unit, integration and end-to-end tests (real FFmpeg renders)
 ui-test: build ## Browser interaction tests (Playwright) at desktop, tablet and phone sizes; screenshots -> docs/screenshots
 	cd frontend && npx playwright test
 
-validate: ## Real-world validation on this machine: make validate MEDIA=~/Movies/episode.mp4 [CLIP_MINUTES=10] [BRIEF=brief.pdf]
-	$(VPY) scripts/validate.py $(if $(MEDIA),--media "$(MEDIA)") $(if $(CLIP_MINUTES),--clip-minutes $(CLIP_MINUTES)) $(if $(BRIEF),--brief "$(BRIEF)")
+validate: ## Real-world validation: make validate MEDIA=~/Movies/episode.mp4 [CLIP_MINUTES=10] [BRIEF=brief.pdf] [LONG=~/Movies/full.mp4] [PHONE=1]
+	$(VPY) scripts/validate.py $(if $(MEDIA),--media "$(MEDIA)") $(if $(CLIP_MINUTES),--clip-minutes $(CLIP_MINUTES)) $(if $(BRIEF),--brief "$(BRIEF)") $(if $(LONG),--long-media "$(LONG)") $(if $(PHONE),--phone-check)
+
+backup: ## Back up database + media (safe while running) -> backups/cutcue-backup-<time>
+	cd backend && .venv/bin/python -m cutcue.backup create --out ../backups
+
+backup-db: ## Back up the database only (small, fast)
+	cd backend && .venv/bin/python -m cutcue.backup create --no-media --out ../backups
+
+restore: ## Restore a backup (stop the app first): make restore BACKUP=backups/cutcue-backup-<time>
+	cd backend && .venv/bin/python -m cutcue.backup verify "$(abspath $(BACKUP))" && .venv/bin/python -m cutcue.backup restore "$(abspath $(BACKUP))" --yes
 
 fixture: ## Generate the synthetic Market Mocha interview + brief in data/fixtures
 	$(VPY) scripts/make_fixture.py data/fixtures

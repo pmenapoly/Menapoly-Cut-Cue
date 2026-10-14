@@ -54,6 +54,10 @@ Docs in `docs/cue2/`:
 - [Cue Text](docs/cue2/cue-text.md)
 - [feature matrix](docs/cue2/feature-matrix.md)
 - [setup](docs/cue2/setup.md)
+- [Mac validation checklist](docs/cue2/mac-validation-checklist.md)
+- [deployment](docs/cue2/deployment.md)
+- [Relay connector](docs/cue2/relay-connector.md)
+- [usability review](docs/cue2/usability-review.md)
 
 Cue Text (SMS) receives and processes texts but **never sends** anything yet.
 

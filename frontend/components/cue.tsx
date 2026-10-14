@@ -134,7 +134,7 @@ export function ActionCard({ a, onChange }: { a: CueAction; onChange?: (a: CueAc
               <span className="w-full text-sm">{a.risk === "client_facing" ? "This creates a link someone outside can open. Continue?"
                 : a.risk === "destructive" ? "This hides the project from your lists. Continue?"
                 : a.risk === "ai_cost" ? "This uses Claude and counts toward the project's AI budget. Continue?"
-                : "This sends a message outside the app. Continue?"}</span>
+                : "This sends something outside the app (a message, or a video to the client portal). Continue?"}</span>
               <button className="btn btn-primary min-h-11" disabled={!!busy} onClick={() => decide("approve")}>{busy === "approve" ? <Spinner /> : <Icon name="check" />} Yes, approve</button>
               <button className="btn min-h-11" onClick={() => setConfirming(false)}>Back</button>
             </>
@@ -200,7 +200,8 @@ export function AskCuePanel({ compact = false }: { compact?: boolean }) {
     <section aria-label="Ask Cue" className="card flex min-w-0 flex-col p-4 sm:p-5">
       <div className="mb-3 flex items-center gap-2">
         <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-accent to-violet text-on-accent"><Icon name="sparkle" size={16} /></span>
-        <h2 className="font-semibold tracking-tight">Ask Cue</h2>
+        <span className="min-w-0"><h2 className="font-semibold tracking-tight">Ask Cue</h2>
+          <span className="block text-[11px] text-muted">Across all your projects</span></span>
         {mode && <span className={`chip ml-auto ${mode === "claude" ? "text-ok" : "text-warn"}`} title={mode === "claude" ? "Claude is connected" : "No API key: a simple built-in planner answers"}>
           {mode === "claude" ? "Claude connected" : "Local mode"}</span>}
       </div>

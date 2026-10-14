@@ -20,3 +20,6 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
   cue_api.py (/api/cue, token-scoped /api/public, versioned /api/v1). Shell UI: components/shell.tsx, cue.tsx,
   ProjectDetails.tsx; pages /, /projects, /cut, /inbox, /library, /settings, /review, /upload, /gallery.
   Never execute an action without Cue.approve_action; never show invented percentages in Cue surfaces. Docs: docs/cue2/.
+- Production round: relay.py (Relay connector: approval-gated publish_to_relay, idempotent by deterministic file name),
+  mailer.py (SMTP email outbox, one email per notification), backup.py (checksummed backup/restore; restore moves data
+  aside). Harness statuses: VERIFIED / FAILED / NEEDS REVIEW / SKIPPED / BLOCKED. Shortcuts live in frontend/lib/shortcuts.ts.

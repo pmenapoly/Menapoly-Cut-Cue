@@ -20,6 +20,8 @@ from .assistant import Assistant, timeline_stats
 from .ask import AskCue
 from .cue import Cue
 from .cue_api import register as register_cue
+from .mailer import EmailConfig, EmailNotifier
+from .relay import RelayConfig, RelayConnector
 from .text import CueText, TextConfig
 from .config import ROOT, Settings, settings as default_settings
 from .presets import PRESETS
@@ -127,6 +129,11 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     ask = AskCue(cue, client=getattr(bot, "_client", None))
     text = CueText(cue, TextConfig(settings.text_provider, settings.text_number, settings.text_auth_token,
                                    settings.text_webhook_url))
+    cue.relay = RelayConnector(svc, RelayConfig(settings.relay_url, settings.relay_workspace_id, settings.relay_client_id,
+                                                settings.relay_client_secret, settings.relay_dev_identity))
+    cue.mailer = EmailNotifier(svc.db, EmailConfig(settings.smtp_host, settings.smtp_port, settings.smtp_user,
+                                                   settings.smtp_password, settings.smtp_security, settings.email_from,
+                                                   settings.email_to, settings.email_kinds), settings.public_url)
     if settings.allowed_origins:
         app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True,
                            allow_methods=["*"], allow_headers=["*"])

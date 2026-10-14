@@ -299,6 +299,50 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX text_messages_created ON text_messages(created_at);
     """,
+    # 6: Relay connector (publish approved renders to the Cloudflare client portal) and email notifications.
+    #    Additive only. UNIQUE keys make publishing and emailing idempotent across retries.
+    """
+    CREATE TABLE relay_projects (
+        project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+        relay_url TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        remote_project_id TEXT NOT NULL,
+        created_at REAL NOT NULL
+    );
+    CREATE TABLE relay_publications (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        render_id TEXT NOT NULL,
+        relay_url TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        remote_project_id TEXT,
+        remote_upload_id TEXT,
+        remote_version_id TEXT,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL,
+        published_at REAL,
+        UNIQUE (relay_url, workspace_id, render_id)
+    );
+    CREATE TABLE email_outbox (
+        id TEXT PRIMARY KEY,
+        notification_id TEXT UNIQUE,
+        to_addr TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at REAL NOT NULL,
+        next_attempt_at REAL NOT NULL,
+        sent_at REAL
+    );
+    CREATE INDEX email_outbox_status ON email_outbox(status, next_attempt_at);
+    """,
 ]
 
 

@@ -88,6 +88,87 @@ function CueTextSettings() {
   );
 }
 
+type EmailStatus = { configured: boolean; to: string | null; from: string | null; host: string | null; kinds: string[];
+  counts: Record<string, number>; recent: { id: string; subject: string; status: string; error: string | null; created_at: number }[] };
+type Backups = { folder: string; backups: { name: string; ok: boolean; include_media?: boolean; files?: number; projects?: number }[] };
+type Relay = { configured: boolean; problem: string | null; url: string | null; workspace_id: string | null; auth: string | null };
+
+const KIND_LABEL: Record<string, string> = {
+  render_done: "Renders finished", job_failed: "Something failed", review_changes_requested: "Client requested changes",
+  review_approved: "Client approved", review_comment: "Client notes", review_requested: "Cue proposed an edit",
+  stage_changed: "Project status changed", relay_published: "Published to portal", relay_failed: "Portal publish failed",
+};
+
+function EmailSettings() {
+  const { toast } = useShell();
+  const [s, setS] = useState<EmailStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => api.get<EmailStatus>("/cue/email").then(setS).catch(() => {}), []);
+  useEffect(() => { load(); }, [load]);
+  if (!s) return <Loading rows={1} />;
+  return (
+    <div className="card space-y-3 p-4 text-sm">
+      <p><StatusPill label={s.configured ? `Emails go to ${s.to}` : "Email is off"} tone={s.configured ? "ok" : "muted"} /></p>
+      {s.configured ? (
+        <>
+          <p className="text-muted">Sent for: {s.kinds.map((k) => KIND_LABEL[k] ?? k).join(", ")}. Every notification also appears in the bell.</p>
+          <button className="btn min-h-11" disabled={busy} onClick={async () => {
+            setBusy(true);
+            try { const r = await api.post<{ status: string; error: string | null }>("/cue/email/test");
+              toast(r.status === "sent" ? "Test email sent. Check your inbox." : `Not sent yet: ${r.error ?? r.status}`, r.status === "sent" ? "ok" : "error"); }
+            catch (e) { toast(e instanceof ApiError ? e.message : "Failed", "error"); }
+            setBusy(false); load();
+          }}>Send a test email</button>
+          {s.recent.length > 0 && <ul className="space-y-1" aria-label="Recent emails">{s.recent.map((m) => (
+            <li key={m.id} className="flex flex-wrap gap-2"><StatusPill label={m.status} tone={m.status === "sent" ? "ok" : m.status === "failed" ? "danger" : "info"} />
+              <span className="min-w-0 truncate">{m.subject}</span>{m.error && <span className="w-full text-xs text-danger">{m.error}</span>}</li>))}</ul>}
+        </>
+      ) : <p className="text-muted">Add <code className="kbd">CUE_SMTP_HOST</code>, <code className="kbd">CUE_EMAIL_FROM</code> and <code className="kbd">CUE_EMAIL_TO</code> (plus login details) to <code className="kbd">.env</code> and restart. See docs/cue2/setup.md.</p>}
+    </div>
+  );
+}
+
+function PortalAndBackups() {
+  const { toast } = useShell();
+  const [relay, setRelay] = useState<Relay | null>(null);
+  const [backups, setBackups] = useState<Backups | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    api.get<Relay>("/cue/relay").then(setRelay).catch(() => {});
+    api.get<Backups>("/cue/backups").then(setBackups).catch(() => {});
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <div className="space-y-6">
+      <Section title="Client portal (Menapoly Cue on Cloudflare)">
+        <div className="card space-y-1 p-4 text-sm">
+          {relay ? <>
+            <p><StatusPill label={relay.configured ? `Connected to ${relay.url}` : "Not connected"} tone={relay.configured ? "ok" : "muted"} /></p>
+            <p className="text-muted">{relay.configured ? "Publish a finished render from a project's Delivery tab. Each publish needs your approval." : relay.problem}</p>
+          </> : <Loading rows={1} />}
+        </div>
+      </Section>
+      <Section title="Backups">
+        <div className="card space-y-3 p-4 text-sm">
+          <p className="text-muted">“Back up now” saves the database (projects, edits, reviews, settings). For everything including media, run <code className="kbd">make backup</code>. Restoring is done from the terminal with the app stopped (<code className="kbd">make restore BACKUP=…</code>).</p>
+          <button className="btn min-h-11" disabled={busy} onClick={async () => {
+            setBusy(true);
+            try { const r = await api.post<{ name: string; ok: boolean }>("/cue/backups"); toast(r.ok ? `Backed up: ${r.name}` : "Backup failed verification", r.ok ? "ok" : "error"); }
+            catch (e) { toast(e instanceof ApiError ? e.message : "Backup failed", "error"); }
+            setBusy(false); load();
+          }}>Back up now</button>
+          {backups && backups.backups.length > 0 && (
+            <ul className="space-y-1" aria-label="Backups">{backups.backups.map((b) => (
+              <li key={b.name} className="flex flex-wrap items-center gap-2"><StatusPill label={b.ok ? "Verified" : "Damaged"} tone={b.ok ? "ok" : "danger"} />
+                <span className="font-mono text-xs">{b.name}</span><span className="text-xs text-muted">{b.include_media ? "with media" : "database only"} · {b.projects ?? "?"} projects</span></li>))}</ul>
+          )}
+          {backups && <p className="text-xs text-faint">Folder: {backups.folder}</p>}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
 function SettingsPage() {
   const [theme, setTheme] = useState<ThemePref>("system");
   const [meta, setMeta] = useState<Meta | null>(null);
@@ -126,6 +207,8 @@ function SettingsPage() {
           </> : <Loading rows={1} />}
         </div>
       </Section>
+      <Section title="Email notifications" id="email"><EmailSettings /></Section>
+      <PortalAndBackups />
       <Section title="Cue Text" id="cue-text"><CueTextSettings /></Section>
       <Section title="Design">
         <div className="card flex flex-wrap items-center justify-between gap-2 p-4 text-sm">

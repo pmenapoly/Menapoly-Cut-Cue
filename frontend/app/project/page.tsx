@@ -12,6 +12,7 @@ import { Timeline } from "@/components/Timeline";
 import { AutoEditPanel, BriefPanel, ClipsPanel, SourcePanel } from "@/components/ToolsPanel";
 import { TranscriptEditor } from "@/components/TranscriptEditor";
 import { Dialog, Icon, Logo, Segmented, Spinner, Tabs, Toasts } from "@/components/ui";
+import ShortcutsDialog from "@/components/ShortcutsDialog";
 import { VersionsDialog } from "@/components/VersionsDialog";
 import { Mode, MobileTab, PreviewTarget, useWorkspace, WorkspaceCtx } from "@/components/workspace";
 import { api, Asset } from "@/lib/api";
@@ -49,7 +50,8 @@ function Onboarding({ onDismiss }: { onDismiss: () => void }) {
   if (!current) return null;
   return (
     <nav aria-label="Getting started" className="card flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 animate-fade-in" data-testid="onboarding">
-      <ol className="flex flex-wrap items-center gap-1 text-xs">
+      <p className="text-xs font-semibold text-violet sm:hidden">Step {steps.findIndex((s) => s.id === current.id) + 1} of {steps.length}: {current.label}</p>
+      <ol className="hidden flex-wrap items-center gap-1 text-xs sm:flex">
         {steps.map((s, i) => (
           <li key={s.id} className="flex items-center gap-1" aria-current={s.id === current.id ? "step" : undefined}>
             <span className={`flex items-center gap-1 rounded-full px-2 py-1 ${s.done ? "text-ok" : s.id === current.id ? "bg-accent-soft font-semibold text-violet" : "text-faint"}`}>
@@ -76,9 +78,10 @@ function TopBar() {
   return (
     <header className="sticky top-0 z-40 border-b border-line/70 bg-ink/80 backdrop-blur-xl">
       <div className="flex items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-5">
-        <Link href="/" className="btn btn-ghost btn-icon shrink-0" aria-label="Menapoly Cue home"><Logo compact /></Link>
-        <Link href={`/projects/?id=${pid}`} className="btn btn-ghost btn-icon hidden shrink-0 sm:inline-flex" aria-label="Project details" title="Project details, reviews and delivery">
-          <Icon name="folder" /></Link>
+        <Link href={`/projects/?id=${pid}`} className="btn btn-ghost min-h-10 shrink-0 gap-1 px-2" data-testid="editor-back"
+              title="Project details, reviews and delivery">
+          <Icon name="arrowLeft" size={18} /><span className="hidden text-sm md:inline">Project</span><span className="sr-only md:hidden">Back to project</span></Link>
+        <Link href="/" className="btn btn-ghost btn-icon hidden shrink-0 lg:inline-flex" aria-label="Menapoly Cue home"><Logo compact /></Link>
         {renaming ? (
           <form className="min-w-0 flex-1" onSubmit={async (e) => { e.preventDefault(); await run(() => api.patch(`/projects/${pid}`, { name })); setRenaming(false); }}>
             <input className="input max-w-xs py-1" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setRenaming(false)} autoFocus aria-label="Project name" />
@@ -150,7 +153,7 @@ function Workspace({ initialMode, welcome, openExportFirst = false }: { initialM
   const [mode, setModeState] = useState<Mode>(initialMode);
   const [preview, setPreview] = useState<PreviewTarget>({ kind: "edit" });
   const [mobileTab, setMobileTab] = useState<MobileTab>(welcome ? "files" : "cue");
-  const [dialog, setDialog] = useState<"" | "export" | "versions" | "brief">(openExportFirst ? "export" : "");
+  const [dialog, setDialog] = useState<"" | "export" | "versions" | "brief" | "shortcuts">(openExportFirst ? "export" : "");
   const [guide, setGuide] = useState(true);
   const [selected, setSelected] = useState<number | null>(null);
   const [playhead, setPlayhead] = useState(0);
@@ -229,7 +232,8 @@ function Workspace({ initialMode, welcome, openExportFirst = false }: { initialM
 
   if (!loaded) return <div className="grid min-h-dvh place-items-center text-muted"><Spinner size={22} /></div>;
 
-  const playerEl = <Player ref={player} pid={pid} source={source} assets={assets} segments={segments} onTime={setPlayhead} shortcuts={!dialog} />;
+  const playerEl = <Player ref={player} pid={pid} source={source} assets={assets} segments={segments} onTime={setPlayhead} shortcuts={!dialog}
+                             onHelp={() => setDialog("shortcuts")} />;
   const showingProposal = preview.kind === "proposal" || (preview.kind === "edit" && !draft?.clips.length && proposals.some((p) => p.status === "pending"));
   const previewBanner = (showingProposal || preview.kind === "render") && (
     <div className="flex items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent-soft px-3 py-2 text-xs" data-testid="preview-banner">
@@ -238,6 +242,14 @@ function Workspace({ initialMode, welcome, openExportFirst = false }: { initialM
     </div>
   );
   const pending = proposals.filter((p) => p.status === "pending").length;
+  const hasMedia = assets.some((a) => a.kind === "video" || a.kind === "audio");
+  const filesSection = (
+    <section className={`card space-y-3 p-4 ${mobileTab === "preview" ? "hidden lg:block" : ""}`} aria-labelledby="files-h">
+      <h2 id="files-h" className="label">Files</h2>
+      <UploadZone compact={assets.length > 0} />
+      <FileList />
+    </section>
+  );
 
   return (
     <WorkspaceCtx.Provider value={ws}>
@@ -248,16 +260,14 @@ function Workspace({ initialMode, welcome, openExportFirst = false }: { initialM
         {mode === "simple" ? (
           <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
             <div className={`space-y-4 ${mobileTab === "cue" ? "hidden lg:block" : ""}`}>
-              <section ref={monitor} className={`card scroll-mt-20 space-y-3 p-3 sm:p-4 ${mobileTab === "files" ? "hidden lg:block" : ""}`} aria-label="Preview">
+              {/* A new project starts with the upload area on top; the (empty) player appears once there is media. */}
+              {!hasMedia && filesSection}
+              <section ref={monitor} className={`card scroll-mt-20 space-y-3 p-3 sm:p-4 ${mobileTab === "files" ? "hidden lg:block" : ""} ${hasMedia ? "" : "lg:hidden"}`} aria-label="Preview">
                 {previewBanner}
                 {playerEl}
               </section>
               <div className={mobileTab === "files" ? "hidden lg:block" : ""}><EditCard /></div>
-              <section className={`card space-y-3 p-4 ${mobileTab === "preview" ? "hidden lg:block" : ""}`} aria-labelledby="files-h">
-                <h2 id="files-h" className="label">Files</h2>
-                <UploadZone compact={assets.length > 0} />
-                <FileList />
-              </section>
+              {hasMedia && filesSection}
             </div>
             <aside className={`card p-4 lg:sticky lg:top-[4.5rem] lg:block lg:h-[calc(100dvh-5.5rem)] ${mobileTab === "cue" ? "h-[calc(100dvh-10rem)]" : "hidden"}`}>
               <CueChat />
@@ -355,6 +365,7 @@ function Workspace({ initialMode, welcome, openExportFirst = false }: { initialM
 
       <ExportDialog open={dialog === "export"} onClose={() => setDialog("")} />
       <VersionsDialog open={dialog === "versions"} onClose={() => setDialog("")} />
+      <ShortcutsDialog open={dialog === "shortcuts"} onClose={() => setDialog("")} />
       <Dialog open={dialog === "brief"} onClose={() => setDialog("")} title="Creative brief">
         <BriefPanel pid={pid} versionId={seq?.current_version_id ?? null} />
       </Dialog>

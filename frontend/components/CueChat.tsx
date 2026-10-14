@@ -153,7 +153,7 @@ export function CueChat() {
           <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-accent to-violet text-on-accent"><Icon name="sparkle" size={16} /></span>
           <div>
             <h2 className="text-sm font-semibold leading-tight">Cue</h2>
-            <p className="text-[11px] text-faint">{health?.assistant_mode === "claude" ? "AI editor · Claude" : "Test mode · add a Claude key for full chat"}</p>
+            <p className="text-[11px] text-faint">{health?.assistant_mode === "claude" ? "Edits this project · Claude" : "Edits this project · simple built-in mode (connect Claude in Settings)"}</p>
           </div>
         </div>
       </header>

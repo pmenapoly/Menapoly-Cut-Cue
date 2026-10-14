@@ -37,6 +37,7 @@ ACTION_POLICY: dict[str, dict[str, str]] = {
     "request_revision": {"risk": "ai_cost", "label": "Ask Cut Cue to prepare a revision"},
     "archive_project": {"risk": "destructive", "label": "Archive a project"},
     "send_text": {"risk": "external_delivery", "label": "Send a text message"},
+    "publish_to_relay": {"risk": "external_delivery", "label": "Publish to the client portal"},
 }
 RISK_TEXT = {
     "creates": "Creates something new. Nothing existing changes.",
@@ -45,7 +46,7 @@ RISK_TEXT = {
     "client_facing": "Creates a link someone outside can open.",
     "ai_cost": "Uses Claude (counts toward the project's AI budget).",
     "destructive": "Hides the project from your lists. You can restore it.",
-    "external_delivery": "Sends a message outside this app.",
+    "external_delivery": "Sends something outside this app (a message, or a video to the client portal).",
 }
 
 FAILURE_HELP: list[tuple[re.Pattern, str]] = [
@@ -86,7 +87,10 @@ class Cue:
         self.db = services.db
         self._chat = chat  # Cut Cue's per-project assistant (used only by approved request_revision actions)
         self.text_sender: Callable[[dict], dict] | None = None  # set by the Cue Text module when configured
+        self.relay = None   # RelayConnector, set by main.create_app
+        self.mailer = None  # EmailNotifier, set by main.create_app
         services.jobs.listeners.append(self._on_job)
+        services.proposal_listeners.append(self._on_proposal)
 
     # --- clients ----------------------------------------------------------------------------------
     def list_clients(self) -> list[dict]:
@@ -120,14 +124,19 @@ class Cue:
             values["client_id"] = None
         elif client_id:
             values["client_id"] = self.get_client(client_id)["id"]
+        changed_stage = None
         if stage is not None:
             if stage not in STAGES:
                 raise BadRequest(f"stage must be one of {', '.join(STAGES)}")
             values["stage"] = stage
+            if self.db.one("SELECT stage FROM projects WHERE id = ?", [project_id])["stage"] != stage:
+                changed_stage = stage
         if archived is not None:
             values["archived_at"] = now() if archived else None
         if values:
             self.db.update("projects", "id", project_id, values)
+        if changed_stage:
+            self._stage_changed(project_id, changed_stage)
         return self.project_card(project_id)
 
     def _status(self, p: dict) -> dict:
@@ -298,11 +307,29 @@ class Cue:
 
     # --- notifications -----------------------------------------------------------------------------------
     def notify(self, kind: str, title: str, *, body: str = "", project_id: str | None = None, href: str | None = None,
-               source_key: str) -> None:
-        """Insert once per source (dedupe on ``source_key``)."""
-        self.db.execute("""INSERT OR IGNORE INTO notifications (id, kind, title, body, project_id, href, source_key, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                        [new_id("ntf"), kind, title[:200], body[:1000], project_id, href, source_key, now()])
+               source_key: str) -> bool:
+        """Insert once per source (dedupe on ``source_key``); new notifications are also emailed when enabled."""
+        row = {"id": new_id("ntf"), "kind": kind, "title": title[:200], "body": body[:1000], "project_id": project_id,
+               "href": href, "source_key": source_key, "created_at": now()}
+        cur = self.db.execute("""INSERT OR IGNORE INTO notifications (id, kind, title, body, project_id, href, source_key, created_at)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", list(row.values()))
+        if cur.rowcount != 1:
+            return False
+        if self.mailer:
+            try:
+                self.mailer.enqueue(row)
+            except Exception:  # email must never break the in-app notification
+                pass
+        return True
+
+    def _on_proposal(self, proposal: dict) -> None:
+        """An AI- or tool-made edit proposal is a review request for the owner."""
+        if proposal.get("created_by") in ("user", "manual"):
+            return
+        project = self.db.one("SELECT name FROM projects WHERE id = ?", [proposal["project_id"]])
+        self.notify("review_requested", "Cue proposed an edit for you to review",
+                    body=f"{project['name'] if project else ''}: {proposal['title']}", project_id=proposal["project_id"],
+                    href=f"/project/?id={proposal['project_id']}&mode=simple", source_key=f"proposal:{proposal['id']}")
 
     def notifications(self, limit: int = 30, before: float | None = None, unread_only: bool = False) -> dict:
         where, params = ["1=1"], []
@@ -355,9 +382,17 @@ class Cue:
     def _advance_stage(self, project_id: str, stage: str) -> None:
         """Move draft → editing automatically; never move a project backwards."""
         if stage == "editing":
-            self.db.execute("UPDATE projects SET stage = 'editing' WHERE id = ? AND stage = 'draft'", [project_id])
+            cur = self.db.execute("UPDATE projects SET stage = 'editing' WHERE id = ? AND stage = 'draft'", [project_id])
         else:
-            self.db.execute("UPDATE projects SET stage = ? WHERE id = ?", [stage, project_id])
+            cur = self.db.execute("UPDATE projects SET stage = ? WHERE id = ? AND stage != ?", [stage, project_id, stage])
+        if cur.rowcount:
+            self._stage_changed(project_id, stage)
+
+    def _stage_changed(self, project_id: str, stage: str) -> None:
+        project = self.db.one("SELECT name FROM projects WHERE id = ?", [project_id])
+        self.notify("stage_changed", f"{project['name'] if project else 'Project'} is now {STAGE_LABELS[stage].lower()}",
+                    project_id=project_id, href=f"/projects/?id={project_id}",
+                    source_key=f"stage:{project_id}:{stage}:{int(now())}")
 
     # --- review links ------------------------------------------------------------------------------------
     def create_review_link(self, project_id: str, render_id: str | None = None, label: str = "",
@@ -572,6 +607,14 @@ class Cue:
             return project_id, {"notes": notes}, f"Ask Cut Cue to draft a revision of “{name}” from {notes.count(chr(10)) + 1} note(s)"
         if kind == "archive_project":
             return project_id, {}, f"Archive “{name}”"
+        if kind == "publish_to_relay":
+            if not self.relay:
+                raise BadRequest("The client portal connector isn't available")
+            render = self.relay.validate(project_id, args.get("render_id") or None)
+            what = PRESETS[render["preset"]]["label"] if render.get("preset") in PRESETS else (
+                "final export" if render["quality"] == "final" else "preview")
+            return project_id, {"render_id": render["id"]}, \
+                f"Publish the {what} of “{name}” to the client portal (Menapoly Cue on Cloudflare)"
         raise BadRequest(f"Unsupported action '{kind}'")
 
     def _latest_version(self, project_id: str) -> str | None:
@@ -680,6 +723,20 @@ class Cue:
         if kind == "archive_project":
             self.update_project_meta(project_id, archived=True)
             return {"project_id": project_id, "archived": True}
+        if kind == "publish_to_relay":
+            from .relay import RelayError
+            try:
+                pub = self.relay.publish(project_id, args["render_id"])
+            except RelayError as exc:
+                self.notify("relay_failed", "Publishing to the client portal failed", body=str(exc)[:300], project_id=project_id,
+                            href=f"/projects/?id={project_id}&tab=delivery", source_key=f"relay_failed:{args['render_id']}:{int(now())}")
+                raise BadRequest(str(exc)) from exc
+            self.notify("relay_published", "Published to the client portal", body=self.s.get_project(project_id)["name"],
+                        project_id=project_id, href=f"/projects/?id={project_id}&tab=delivery", source_key=f"relay:{pub['id']}")
+            note = ("It was already there from an earlier attempt; nothing was uploaded twice." if pub.get("reconciled")
+                    else "Uploaded as a new review version in the client portal.")
+            return {"publication_id": pub["id"], "remote_version_id": pub["remote_version_id"], "note": note,
+                    "href": f"/projects/?id={project_id}&tab=delivery"}
         if kind == "send_text":
             if not self.text_sender:
                 raise BadRequest("Texting isn't set up: no SMS provider is configured, so nothing was sent.")

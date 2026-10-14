@@ -70,6 +70,7 @@ class Services:
         self.jobs.register("reimport", self._job_reimport)
         self.jobs.register("diarize", self._job_diarize)
         self.jobs.listeners.append(self._on_job_done)
+        self.proposal_listeners: list = []  # called with each new proposal (Cue 2.0 notifications)
         if start_workers:
             self.jobs.start()
 
@@ -942,7 +943,13 @@ class Services:
                     "plan_json": dumps({"sequences": expanded, "notes": notes or {}}),
                     "status": "pending", "created_by": created_by, "created_at": now()}
         self.db.insert("proposals", proposal)
-        return self.get_proposal(project_id, proposal["id"])
+        created = self.get_proposal(project_id, proposal["id"])
+        for listener in self.proposal_listeners:
+            try:
+                listener(created)
+            except Exception:  # a notification problem must never break creating a proposal
+                pass
+        return created
 
     def get_proposal(self, project_id: str, proposal_id: str) -> dict:
         row = self.db.one("SELECT * FROM proposals WHERE id = ? AND project_id = ?", [check_id(proposal_id, "prp"), project_id])
