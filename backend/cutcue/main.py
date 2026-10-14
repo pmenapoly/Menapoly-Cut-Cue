@@ -87,6 +87,15 @@ class BriefPatch(BaseModel):
     replace: bool = False
 
 
+class ClipFactoryIn(BaseModel):
+    asset_id: str | None = None
+    count: int | None = None
+    min_s: float | None = None
+    max_s: float | None = None
+    titles: bool = False
+    avoid_existing: bool = True
+
+
 class AutoEditIn(BaseModel):
     asset_id: str
     options: dict = {}
@@ -270,6 +279,16 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     @app.post("/api/projects/{pid}/assets/{aid}/diarize", status_code=201)
     def diarize(pid: str, aid: str, body: DiarizeIn):
         return svc.rediarize(pid, aid, body.num_speakers)
+
+    @app.get("/api/projects/{pid}/moments")
+    def moments(pid: str, asset_id: str | None = None, count: int | None = None, min_s: float | None = None,
+                max_s: float | None = None):
+        return svc.find_moments(pid, asset_id, count, min_s, max_s)
+
+    @app.post("/api/projects/{pid}/clip-factory", status_code=201)
+    def clip_factory(pid: str, body: ClipFactoryIn):
+        return svc.clip_factory_proposal(pid, body.asset_id, body.count, body.min_s, body.max_s, body.titles,
+                                         body.avoid_existing)
 
     @app.get("/api/projects/{pid}/brief")
     def get_brief(pid: str):
