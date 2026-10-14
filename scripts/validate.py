@@ -689,6 +689,56 @@ def main() -> int:
         except Exception as exc:
             run.step("11", "Audio enhancement (denoise, EQ, compression, -16 LUFS)", FAIL, [f"{type(exc).__name__}: {exc}"])
 
+        # 12-13. Menapoly Cue 2.0 layer on the same real project -----------------------------------------------
+        app.mem.phase = "cue 2.0"
+        try:
+            details, ok = [], True
+            app.api("PATCH", f"/cue/projects/{pid}", json={"client_name": "Validation Client"})
+            over = app.api("GET", f"/cue/projects/{pid}")
+            details.append(f"project status: {over['project']['status']['label']}, stage {over['project']['stage']}, "
+                           f"client {over['project']['client_name']}")
+            done = [r for r in over["renders"] if r["status"] == "succeeded"]
+            if not done:
+                raise RuntimeError("no finished render to share")
+            link = app.api("POST", f"/cue/projects/{pid}/review-links", json={"render_id": done[0]["id"]})
+            public = httpx.Client(base_url=app.base, timeout=60)  # no owner session: what a client sees
+            part = public.get(f"/api/public/review/{link['token']}/media", headers={"Range": "bytes=0-1023"})
+            ok &= part.status_code == 206 and len(part.content) == 1024
+            details.append(f"review link streams with byte ranges: HTTP {part.status_code}")
+            ev = public.post(f"/api/public/review/{link['token']}/events",
+                             json={"kind": "changes_requested", "author": "Validator", "body": "Shorter intro", "at_seconds": 3})
+            ok &= ev.status_code == 201
+            kinds = [n["kind"] for n in app.api("GET", "/cue/notifications")["items"]]
+            ok &= "review_changes_requested" in kinds and "render_done" in kinds
+            details.append(f"notifications: {sorted(set(kinds))}")
+            app.api("POST", f"/cue/projects/{pid}/review-links/{link['id']}/revoke")
+            ok &= public.get(f"/api/public/review/{link['token']}").status_code == 404
+            details.append("revoked link returns 404")
+            details.append("open http://127.0.0.1:<port>/ in Chrome yourself to judge the Home/Projects/Inbox screens; "
+                           "this step checks the API and data, not the visuals")
+            run.step("12", "Cue 2.0: client, status, review link, client feedback, notifications", PASS if ok else FAIL, details)
+        except Exception as exc:
+            run.step("12", "Cue 2.0: client, status, review link, client feedback, notifications", FAIL, [f"{type(exc).__name__}: {exc}"])
+
+        app.mem.phase = "ask cue"
+        try:
+            name = app.api("GET", f"/projects/{pid}")["name"]
+            r = app.api("POST", "/cue/ask", json={"message": f"What's the status of {name}, and make 2 short clips from it."})
+            pending = [a for a in r["actions"] if a["status"] == "proposed"]
+            executed = [a for a in r["actions"] if a["status"] != "proposed"]
+            details = [f"mode {r['mode']}, cost ${r.get('cost_usd', 0):.4f}", f"reply: {r['reply'][:300]}",
+                       f"proposed actions: {[a['summary'] for a in pending]}"]
+            if executed:
+                run.step("13", "Ask Cue (live Claude) proposes, never executes", FAIL, details + ["an action ran without approval"])
+            elif r["mode"] != "claude":
+                run.step("13", "Ask Cue (live Claude) proposes, never executes", NOT_VERIFIED,
+                         details + ["ANTHROPIC_API_KEY not set: only the local planner answered"])
+            else:
+                run.step("13", "Ask Cue (live Claude) proposes, never executes", PASS if pending else PARTIAL,
+                         details + ([] if pending else ["Claude answered but proposed no action; judge the reply yourself"]))
+        except Exception as exc:
+            run.step("13", "Ask Cue (live Claude) proposes, never executes", FAIL, [f"{type(exc).__name__}: {exc}"])
+
         # 7. Measurements --------------------------------------------------------------------------------------
         project = app.api("GET", f"/projects/{pid}")
         run.metrics["peak_memory_mb"] = {k: round(v) for k, v in app.mem.peaks.items()}

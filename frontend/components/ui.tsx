@@ -37,6 +37,25 @@ const PATHS: Record<string, string> = {
   mute: "M4 9h4l5-4v14l-5-4H4zM17 9l4 6M21 9l-4 6",
   music: "M9 18V6l11-2v12M9 18a3 3 0 11-6 0 3 3 0 016 0zM20 16a3 3 0 11-6 0 3 3 0 016 0z",
   wand: "M4 20L15 9M14 4l1.5 3L19 8.5 15.5 10 14 13l-1.5-3L9 8.5 12.5 7z",
+  home: "M4 11l8-7 8 7v9a1 1 0 01-1 1h-5v-6h-4v6H5a1 1 0 01-1-1z",
+  folder: "M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z",
+  inbox: "M4 13l2-8h12l2 8M4 13v6h16v-6M4 13h5l1 2h4l1-2h5",
+  library: "M5 4h3v16H5zM10 4h3v16h-3zM15.5 4.5l3-.8 3.9 15.5-3 .8z",
+  bell: "M6 16V11a6 6 0 1112 0v5l2 2H4zM10 20a2 2 0 004 0",
+  settings: "M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z",
+  search: "M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-5-5",
+  sun: "M12 17a5 5 0 100-10 5 5 0 000 10zM12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4",
+  moon: "M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z",
+  link: "M10 14a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1M14 10a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1",
+  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
+  board: "M4 4h4v16H4zM10 4h4v10h-4zM16 4h4v13h-4z",
+  list: "M8 6h13M8 12h13M8 18h13M3 6h0M3 12h0M3 18h0",
+  phone: "M7 2h10a1 1 0 011 1v18a1 1 0 01-1 1H7a1 1 0 01-1-1V3a1 1 0 011-1zM11 18h2",
+  alert: "M12 9v4M12 17h0M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z",
+  clock: "M12 22a10 10 0 100-20 10 10 0 000 20zM12 6v6l4 2",
+  archive: "M3 4h18v4H3zM5 8v12h14V8M10 12h4",
+  palette: "M12 22a10 10 0 110-20c5.5 0 10 4 10 9a5 5 0 01-5 5h-2a2 2 0 00-1.5 3.3A1.5 1.5 0 0112 22zM7 12h0M9 7h0M15 7h0M17 12h0",
+  template: "M4 4h16v6H4zM4 14h7v6H4zM15 14h5v6h-5z",
 };
 
 export function Icon({ name, size = 18, className = "", label }: { name: keyof typeof PATHS | string; size?: number; className?: string; label?: string }) {
@@ -134,7 +153,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, label, size = "m
                 className={`flex shrink-0 items-center gap-1.5 rounded-lg font-medium transition-colors ${size === "sm" ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"} ${
                   value === t.id ? "bg-panel3 text-text shadow-sm" : "text-muted hover:text-text"}`}>
           {t.icon && <Icon name={t.icon} size={15} />}{t.label}
-          {!!t.badge && <span className="rounded-full bg-accent-strong px-1.5 text-[10px] text-white">{t.badge}</span>}
+          {!!t.badge && <span className="rounded-full bg-accent-strong px-1.5 text-[10px] font-semibold text-on-accent">{t.badge}</span>}
         </button>
       ))}
     </div>
@@ -157,7 +176,7 @@ export function Toasts({ toasts }: { toasts: { id: number; text: string; tone: "
       {toasts.map((t) => (
         <div key={t.id} role={t.tone === "error" ? "alert" : "status"}
              className={`pointer-events-auto flex max-w-md items-start gap-2 rounded-xl border px-4 py-2.5 text-sm shadow-2xl animate-rise ${
-               t.tone === "error" ? "border-danger/40 bg-[#2a1520] text-[#ffd5da]" : t.tone === "ok" ? "border-ok/30 bg-[#11241c] text-[#cdf5e2]" : "border-line2 bg-panel3"}`}>
+               t.tone === "error" ? "border-danger/40 bg-[var(--toast-err-bg)] text-[var(--toast-err-text)]" : t.tone === "ok" ? "border-ok/30 bg-[var(--toast-ok-bg)] text-[var(--toast-ok-text)]" : "border-line2 bg-panel3"}`}>
           <Icon name={t.tone === "error" ? "info" : "check"} size={16} className="mt-0.5 shrink-0" />{t.text}
         </div>
       ))}
@@ -173,7 +192,7 @@ export function Segmented<T extends string>({ options, value, onChange, label }:
       {options.map((o) => (
         <button key={o.id} role="radio" aria-checked={value === o.id} title={o.hint} onClick={() => onChange(o.id)}
                 className={`rounded-[10px] px-3 py-1.5 text-sm font-medium transition-all ${
-                  value === o.id ? "bg-[linear-gradient(135deg,#5f4fe0,#7346d9)] text-white shadow" : "text-muted hover:text-text"}`}>
+                  value === o.id ? "bg-accent-strong font-semibold text-on-accent shadow" : "text-muted hover:text-text"}`}>
           {o.label}
         </button>
       ))}
@@ -181,13 +200,45 @@ export function Segmented<T extends string>({ options, value, onChange, label }:
   );
 }
 
-export function Logo({ compact = false }: { compact?: boolean }) {
+export function Logo({ compact = false, product = "cut" }: { compact?: boolean; product?: "cue" | "cut" }) {
   return (
     <span className="flex items-center gap-2.5">
-      <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-accent-strong to-violet text-white shadow-[0_6px_20px_-6px_#7262f2]">
-        <Icon name="scissors" size={17} />
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-accent to-violet text-on-accent shadow-[0_6px_20px_-6px_var(--glow)]">
+        <Icon name={product === "cue" ? "sparkle" : "scissors"} size={17} />
       </span>
-      {!compact && <span className="text-[15px] font-semibold tracking-tight">Menapoly <span className="text-violet">Cut Cue</span></span>}
+      {!compact && <span className="text-[15px] font-semibold tracking-tight">Menapoly <span className="text-violet">{product === "cue" ? "Cue" : "Cut Cue"}</span></span>}
     </span>
+  );
+}
+
+/** Status pill: color is never the only signal (always has text). */
+export function StatusPill({ label, tone, busy = false }: { label: string; tone: "danger" | "info" | "accent" | "warn" | "ok" | "muted"; busy?: boolean }) {
+  const cls = { danger: "border-danger/40 text-danger", warn: "border-warn/40 text-warn", ok: "border-ok/40 text-ok",
+    accent: "border-accent/40 text-violet", info: "border-line2 text-text", muted: "border-line text-muted" }[tone];
+  return (
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border bg-panel/70 px-2.5 py-0.5 text-xs font-medium ${cls}`}>
+      {busy ? <Spinner size={10} /> : <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-current" />}{label}
+    </span>
+  );
+}
+
+/** Error with a plain explanation and a way to recover. */
+export function ErrorState({ title = "Something went wrong", children, onRetry }: { title?: string; children?: ReactNode; onRetry?: () => void }) {
+  return (
+    <div role="alert" className="flex flex-col items-center gap-2 px-6 py-10 text-center">
+      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-danger/10 text-danger"><Icon name="alert" size={22} /></div>
+      <p className="font-medium">{title}</p>
+      {children && <div className="max-w-sm text-sm text-muted">{children}</div>}
+      {onRetry && <button className="btn btn-sm mt-1" onClick={onRetry}>Try again</button>}
+    </div>
+  );
+}
+
+export function Loading({ label = "Loading", rows = 3 }: { label?: string; rows?: number }) {
+  return (
+    <div role="status" aria-label={label} className="space-y-2">
+      {Array.from({ length: rows }, (_, i) => <div key={i} className="skeleton h-14" />)}
+      <span className="sr-only">{label}…</span>
+    </div>
   );
 }

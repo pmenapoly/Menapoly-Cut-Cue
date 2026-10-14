@@ -11,11 +11,11 @@ test("first-time user: upload → ask Cue → preview → approve → export", a
   };
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /Edit by telling Cue/ })).toBeVisible();
+  await expect(page.getByText("What should we make today?")).toBeVisible();
   await shot(page, `${tag}-01-dashboard`);
 
   // Create the project.
-  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByRole("button", { name: "New project" }).first().click();
   await page.getByLabel("Project name").fill(`Market Mocha (${tag})`);
   await shot(page, `${tag}-02-new-project`);
   await page.getByRole("button", { name: "Create project" }).click();

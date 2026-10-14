@@ -87,7 +87,7 @@ export function TranscriptEditor({ playhead, onSeekSource }: { playhead: number;
                     const now = playingSource && draft?.clips[playingSource.index]?.asset_id === asset.id && playingSource.source >= w.start && playingSource.source < w.end;
                     return (
                       <span key={k} role="button" tabIndex={-1} onClick={(e) => pick(i, e.shiftKey)}
-                            className={`cursor-pointer rounded px-px transition-colors ${selected ? "bg-accent/40 text-white" : now ? "bg-white/15" : "hover:bg-panel3"} ${inEdit(mid) ? "" : "text-faint line-through decoration-faint/40"}`}>
+                            className={`cursor-pointer rounded px-px transition-colors ${selected ? "bg-accent/40 text-text" : now ? "bg-white/15" : "hover:bg-panel3"} ${inEdit(mid) ? "" : "text-faint line-through decoration-faint/40"}`}>
                         {w.word}
                       </span>
                     );

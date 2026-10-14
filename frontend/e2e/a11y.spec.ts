@@ -27,7 +27,7 @@ async function unnamedControls(page: Page) {
 
 test("dashboard and workspace controls all have accessible names", async ({ page, request }, info) => {
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "New project" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "New project" }).first()).toBeVisible();
   expect(await unnamedControls(page)).toEqual([]);
   const { pid } = await projectWithEdit(request, `A11y (${info.project.name})`);
   await page.goto(`/project/?id=${pid}&mode=simple`);

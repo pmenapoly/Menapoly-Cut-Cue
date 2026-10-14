@@ -75,7 +75,7 @@ The two apps don't share a runtime or storage. A Worker can't run FFmpeg or reac
 | Need in Cue 2.0 | Reuse from |
 |---|---|
 | Edit, render, transcript, proposals, versions | Cut Cue `Services` (unchanged) |
-| Job queue and status | Cut Cue `JobManager` (real progress from FFmpeg `out_time`; no invented values) |
+| Job queue and status | Cut Cue `JobManager`. Per-step progress comes from FFmpeg `out_time`, but render stages are combined with fixed weights, so the overall % is an estimate. Cue 2.0 surfaces therefore show the stage message and elapsed time, not a percentage. |
 | Review threads, decisions, notification dedupe patterns | Relay design: `(recipient, type, source)` unique dedupe and cursor pagination. Re-implemented locally in SQLite; no code shared across runtimes. |
 | Roles and multi-tenant client access | Relay. Stays there; Cut Cue stays single-user. |
 | Large cloud uploads and client portal | Relay R2 multipart and review UI (a future connector target) |

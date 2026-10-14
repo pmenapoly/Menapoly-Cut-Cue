@@ -15,3 +15,8 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
 - Fixture speech is band-limited below 3.8 kHz so tones above 5 kHz can measure music/markers in tests.
 - scripts/validate.py is the Mac real-world harness: keep every new feature represented there, and never report PASS
   for something that did not really run.
+- Menapoly Cue 2.0 layer (branch menapoly-cue-2.0): cue.py (clients, status, notifications, review/upload links,
+  approval-gated cue_actions), ask.py (Ask Cue: read tools + propose_action only), text.py (Cue Text intake; never sends),
+  cue_api.py (/api/cue, token-scoped /api/public, versioned /api/v1). Shell UI: components/shell.tsx, cue.tsx,
+  ProjectDetails.tsx; pages /, /projects, /cut, /inbox, /library, /settings, /review, /upload, /gallery.
+  Never execute an action without Cue.approve_action; never show invented percentages in Cue surfaces. Docs: docs/cue2/.

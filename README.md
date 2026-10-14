@@ -27,6 +27,36 @@ make start    # one process, built UI → open http://127.0.0.1:8000
 
 `make check` re-runs the dependency check. `make test` runs the backend test suite (a few minutes; it does real FFmpeg renders). `make ui-test` runs the browser interaction tests at desktop, tablet and phone sizes.
 
+## Menapoly Cue 2.0 (branch `menapoly-cue-2.0`)
+
+The app now opens on **Menapoly Cue**, a workspace around the editor. It has five destinations:
+
+- **Home:** Ask Cue, what needs you next, recent projects, the review queue and live processing.
+- **Projects:** card, board and list views; clients, stages and search; project details covering media, brief, edits, reviews and delivery.
+- **Cut Cue:** this editor, in Simple or Pro, unchanged.
+- **Inbox:** approvals, reviews, notifications, texts and activity.
+- **Library:** media across projects, briefs, brand kits and templates.
+
+**Approval rule:** Ask Cue and Cue Text can only *propose*. Every change waits in Inbox → Approvals, and sharing, cost or deletion asks a second time.
+
+**Client review:** a private, revocable link lets a client watch a render, leave timecoded notes, approve or request changes. They don't need an account.
+
+**Light theme:** dark/light design tokens, plus a component gallery at `/gallery/`.
+
+Docs in `docs/cue2/`:
+
+- [audit](docs/cue2/audit.md)
+- [architecture](docs/cue2/architecture.md)
+- [API contract v1](docs/cue2/api-contract-v1.md)
+- [design system](docs/cue2/design-system.md)
+- [responsive](docs/cue2/responsive.md)
+- [migration plan](docs/cue2/migration-plan.md)
+- [Cue Text](docs/cue2/cue-text.md)
+- [feature matrix](docs/cue2/feature-matrix.md)
+- [setup](docs/cue2/setup.md)
+
+Cue Text (SMS) receives and processes texts but **never sends** anything yet.
+
 ## The interface
 
 Menapoly Cut Cue has two modes on the same project. Switch between them at any time from the top bar; your edit, history and exports are shared.

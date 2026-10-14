@@ -76,7 +76,9 @@ function TopBar() {
   return (
     <header className="sticky top-0 z-40 border-b border-line/70 bg-ink/80 backdrop-blur-xl">
       <div className="flex items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-5">
-        <Link href="/" className="btn btn-ghost btn-icon shrink-0" aria-label="All projects"><Logo compact /></Link>
+        <Link href="/" className="btn btn-ghost btn-icon shrink-0" aria-label="Menapoly Cue home"><Logo compact /></Link>
+        <Link href={`/projects/?id=${pid}`} className="btn btn-ghost btn-icon hidden shrink-0 sm:inline-flex" aria-label="Project details" title="Project details, reviews and delivery">
+          <Icon name="folder" /></Link>
         {renaming ? (
           <form className="min-w-0 flex-1" onSubmit={async (e) => { e.preventDefault(); await run(() => api.patch(`/projects/${pid}`, { name })); setRenaming(false); }}>
             <input className="input max-w-xs py-1" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setRenaming(false)} autoFocus aria-label="Project name" />
@@ -141,14 +143,14 @@ function EditCard() {
 }
 
 /* ---------- The workspace ---------- */
-function Workspace({ initialMode, welcome }: { initialMode: Mode; welcome: boolean }) {
+function Workspace({ initialMode, welcome, openExportFirst = false }: { initialMode: Mode; welcome: boolean; openExportFirst?: boolean }) {
   const store = useStore();
   const { pid, loaded, draft, seq, proposals, renders, assets, segments, edit, save, discard, dirty, undo, redo, toasts, sequences } = store;
   const router = useRouter();
   const [mode, setModeState] = useState<Mode>(initialMode);
   const [preview, setPreview] = useState<PreviewTarget>({ kind: "edit" });
   const [mobileTab, setMobileTab] = useState<MobileTab>(welcome ? "files" : "cue");
-  const [dialog, setDialog] = useState<"" | "export" | "versions" | "brief">("");
+  const [dialog, setDialog] = useState<"" | "export" | "versions" | "brief">(openExportFirst ? "export" : "");
   const [guide, setGuide] = useState(true);
   const [selected, setSelected] = useState<number | null>(null);
   const [playhead, setPlayhead] = useState(0);
@@ -371,9 +373,9 @@ function Route() {
     try { stored = localStorage.getItem("cutcue-mode"); } catch { /* */ }
     setMode((m) => m ?? (fromUrl === "pro" || fromUrl === "simple" ? fromUrl : stored === "pro" ? "pro" : "simple"));
   }, [q]);
-  if (!pid) return <p className="p-8 text-muted">Missing project. <Link href="/" className="text-violet underline">Back to projects</Link></p>;
+  if (!pid) return <p className="p-8 text-muted">Missing project. <Link href="/projects/" className="text-violet underline">Back to projects</Link></p>;
   if (!mode) return null;
-  return <ProjectProvider pid={pid}><Workspace initialMode={mode} welcome={q.get("welcome") === "1"} /></ProjectProvider>;
+  return <ProjectProvider pid={pid}><Workspace initialMode={mode} welcome={q.get("welcome") === "1"} openExportFirst={q.get("export") === "1"} /></ProjectProvider>;
 }
 
 export default function Page() {

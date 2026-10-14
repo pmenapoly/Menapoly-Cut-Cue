@@ -1,26 +1,78 @@
 @import "tailwindcss";
 
-/* Menapoly Cut Cue design tokens: dark-first, indigo/violet accent, high-contrast text. */
+/* Menapoly Cue design system tokens (docs/cue2/design-system.md).
+   Dark is the default; light is chosen by the OS or by data-theme="light". Every text pair meets WCAG AA. */
+:root, [data-theme="dark"] {
+  --ink: #11121B;        /* background */
+  --panel: #1C1D2A;      /* surface */
+  --panel2: #242536;     /* raised surface / inputs */
+  --panel3: #2E2F44;     /* hover / selected */
+  --line: #34354B;
+  --line2: #46475F;
+  --text: #F5F4FA;
+  --muted: #BDBBD0;
+  --faint: #A3A1BC;
+  --accent: #8B79F7;     /* primary (fills, borders, focus) */
+  --accent-strong: #8B79F7; /* primary button fill */
+  --on-accent: #11121B;  /* text on primary fill (5.5:1) */
+  --violet: #C3A6FF;     /* secondary accent, also accent text (≥6:1) */
+  --ok: #39B8A5;         /* success */
+  --warn: #E9B949;
+  --danger: #F4838F;
+  --toast-ok-bg: #12302B; --toast-ok-text: #C9F2EA;
+  --toast-err-bg: #34161D; --toast-err-text: #FFD5DA;
+  --glow: #8B79F755;
+  --ambient-1: #8B79F71f; --ambient-2: #C3A6FF14;
+  color-scheme: dark;
+}
+[data-theme="light"] {
+  --ink: #F6F5FB; --panel: #FFFFFF; --panel2: #F0EEF8; --panel3: #E6E3F2;
+  --line: #DDDAEA; --line2: #C6C2DA;
+  --text: #17182A; --muted: #47465E; --faint: #5D5B76;
+  --accent: #5B47D6; --accent-strong: #5B47D6; --on-accent: #FFFFFF;
+  --violet: #6B4CC9; --ok: #187064; --warn: #8A5A00; --danger: #B4233B;
+  --toast-ok-bg: #E3F5F1; --toast-ok-text: #0E4A41;
+  --toast-err-bg: #FBE6E9; --toast-err-text: #7A1426;
+  --glow: #5B47D633; --ambient-1: #8B79F714; --ambient-2: #C3A6FF1a;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --ink: #F6F5FB; --panel: #FFFFFF; --panel2: #F0EEF8; --panel3: #E6E3F2;
+    --line: #DDDAEA; --line2: #C6C2DA;
+    --text: #17182A; --muted: #47465E; --faint: #5D5B76;
+    --accent: #5B47D6; --accent-strong: #5B47D6; --on-accent: #FFFFFF;
+    --violet: #6B4CC9; --ok: #187064; --warn: #8A5A00; --danger: #B4233B;
+    --toast-ok-bg: #E3F5F1; --toast-ok-text: #0E4A41;
+    --toast-err-bg: #FBE6E9; --toast-err-text: #7A1426;
+    --glow: #5B47D633; --ambient-1: #8B79F714; --ambient-2: #C3A6FF1a;
+    color-scheme: light;
+  }
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-panel: var(--panel);
+  --color-panel2: var(--panel2);
+  --color-panel3: var(--panel3);
+  --color-line: var(--line);
+  --color-line2: var(--line2);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-on-accent: var(--on-accent);
+  --color-accent-soft: color-mix(in oklab, var(--accent) 16%, transparent);
+  --color-violet: var(--violet);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+}
 @theme {
-  --color-ink: #0b0a12;
-  --color-panel: #13121c;
-  --color-panel2: #1a1926;
-  --color-panel3: #232233;
-  --color-line: #2b2a3c;
-  --color-line2: #3a3850;
-  --color-text: #eeedf7;
-  --color-muted: #a3a1bd;
-  --color-faint: #9290ae;
-  --color-accent: #8b7cf8;
-  --color-accent-strong: #5f4fe0;
-  --color-accent-soft: #8b7cf826;
-  --color-violet: #b18cff;
-  --color-ok: #5ad69a;
-  --color-warn: #f2c35b;
-  --color-danger: #f47e8a;
-  --color-video: #6d5df5;
-  --color-audio: #2fb8a3;
-  --color-caption: #c08a3e;
+  --color-video: #7563F0;
+  --color-audio: #2FA894;
+  --color-caption: #C08A3E;
   --font-sans: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
   --animate-fade-in: fade-in 180ms ease-out both;
@@ -33,23 +85,22 @@
 @keyframes pulse-soft { 0%, 100% { opacity: .55 } 50% { opacity: 1 } }
 @keyframes shimmer { from { background-position: -200% 0 } to { background-position: 200% 0 } }
 
-html { color-scheme: dark; }
-html, body { background: var(--color-ink); color: var(--color-text); }
+html, body { background: var(--ink); color: var(--text); }
 body { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01"; }
 
 /* Subtle ambient gradient behind everything. */
 body::before {
   content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background:
-    radial-gradient(60rem 30rem at 10% -10%, #6d5df51f, transparent 60%),
-    radial-gradient(50rem 30rem at 110% 0%, #b18cff14, transparent 60%);
+    radial-gradient(60rem 30rem at 10% -10%, var(--ambient-1), transparent 60%),
+    radial-gradient(50rem 30rem at 110% 0%, var(--ambient-2), transparent 60%);
 }
 
 :focus-visible { outline: 2px solid var(--color-violet); outline-offset: 2px; border-radius: 6px; }
-::selection { background: #8b7cf866; }
+::selection { background: color-mix(in oklab, var(--accent) 40%, transparent); }
 
 .skip-link { position: absolute; left: -9999px; top: 8px; z-index: 100; }
-.skip-link:focus { left: 12px; background: var(--color-accent); color: white; padding: 8px 12px; border-radius: 8px; }
+.skip-link:focus { left: 12px; background: var(--accent-strong); color: var(--on-accent); padding: 8px 12px; border-radius: 8px; }
 
 @layer components {
   .btn {
@@ -57,10 +108,9 @@ body::before {
       transition-colors duration-150 hover:border-line2 hover:bg-panel3 disabled:cursor-not-allowed disabled:opacity-45;
   }
   .btn-primary {
-    @apply border-transparent text-white shadow-[0_6px_24px_-8px_#7262f2aa];
-    background-image: linear-gradient(135deg, #5f4fe0, #7346d9);
+    @apply border-transparent bg-accent-strong font-semibold text-on-accent shadow-[0_6px_24px_-10px_var(--glow)];
   }
-  .btn-primary:hover:not(:disabled) { background-image: linear-gradient(135deg, #6858e6, #7c4fe0); }
+  .btn-primary:hover:not(:disabled) { background-color: color-mix(in oklab, var(--accent-strong) 88%, var(--text)); }
   .btn-ghost { @apply border-transparent bg-transparent hover:bg-panel2; }
   .btn-danger { @apply border-danger/40 text-danger hover:bg-danger/10; }
   .btn-sm { @apply min-h-7 px-2.5 py-1 text-xs; }
@@ -74,10 +124,10 @@ body::before {
   .chip { @apply inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] text-muted; }
   .skeleton {
     @apply rounded-md;
-    background: linear-gradient(90deg, #1a1926 25%, #232233 50%, #1a1926 75%);
+    background: linear-gradient(90deg, var(--panel2) 25%, var(--panel3) 50%, var(--panel2) 75%);
     background-size: 200% 100%; animation: shimmer 1.4s linear infinite;
   }
-  .scroll-thin { scrollbar-width: thin; scrollbar-color: #3a3850 transparent; }
+  .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
   .kbd { @apply rounded border border-line2 bg-panel3 px-1.5 py-0.5 font-mono text-[11px] text-muted; }
 }
 

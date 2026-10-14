@@ -113,7 +113,7 @@ function Message({ m }: { m: ChatMessage }) {
   const note = m.role === "note";
   return (
     <div className={`flex max-w-[92%] gap-2.5 animate-rise ${note ? "text-danger" : ""}`}>
-      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-accent-strong to-violet text-white"><Icon name="sparkle" size={14} /></span>
+      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-accent to-violet text-on-accent"><Icon name="sparkle" size={14} /></span>
       <div className="whitespace-pre-wrap text-sm leading-relaxed">{m.text.replace(/^\[Local test mode[^\]]*\]\s*/, "")}</div>
     </div>
   );
@@ -150,7 +150,7 @@ export function CueChat() {
     <section className="flex h-full min-h-0 flex-col" aria-label="Cue, your AI editor">
       <header className="flex items-center justify-between gap-2 pb-3">
         <div className="flex items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-accent-strong to-violet text-white"><Icon name="sparkle" size={16} /></span>
+          <span className="grid h-8 w-8 place-items-center rounded-xl bg-gradient-to-br from-accent to-violet text-on-accent"><Icon name="sparkle" size={16} /></span>
           <div>
             <h2 className="text-sm font-semibold leading-tight">Cue</h2>
             <p className="text-[11px] text-faint">{health?.assistant_mode === "claude" ? "AI editor · Claude" : "Test mode · add a Claude key for full chat"}</p>
