@@ -154,6 +154,23 @@ MIGRATIONS: list[str] = [
     ALTER TABLE jobs ADD COLUMN started_at REAL;
     ALTER TABLE jobs ADD COLUMN finished_at REAL;
     """,
+    # 3: speakers, processed-audio re-import, render provenance, project-level data (brief requirements)
+    """
+    ALTER TABLE transcript_segments ADD COLUMN speaker TEXT;
+    ALTER TABLE assets ADD COLUMN audio_override_id TEXT;
+    ALTER TABLE assets ADD COLUMN audio_offset REAL;
+    ALTER TABLE renders ADD COLUMN origin TEXT NOT NULL DEFAULT 'render';
+    ALTER TABLE renders ADD COLUMN parent_render_id TEXT;
+    ALTER TABLE renders ADD COLUMN audio_asset_id TEXT;
+    ALTER TABLE renders ADD COLUMN info_json TEXT;
+    CREATE TABLE project_data (
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        data_json TEXT NOT NULL,
+        updated_at REAL NOT NULL,
+        PRIMARY KEY (project_id, kind)
+    );
+    """,
 ]
 
 

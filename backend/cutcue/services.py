@@ -13,7 +13,8 @@ from .db import Database, dumps, loads, new_id, now
 from .documents import extract_text, parse_captions
 from .jobs import CloudWorker, JobContext, JobManager
 from . import media
-from .render import render_timeline
+from . import audio as audio_mod
+from .render import SourceAudio, remux_with_audio, render_timeline
 from .timeline import Clip, Timeline, TimelineError, clamp_to_duration, remove_pauses, timeline_duration, validate_timeline
 from . import transcribe as tx
 
@@ -61,6 +62,7 @@ class Services:
         self.jobs.register("proxy", self._job_proxy)
         self.jobs.register("transcribe", self._job_transcribe)
         self.jobs.register("render", self._job_render)
+        self.jobs.register("reimport", self._job_reimport)
         self.jobs.listeners.append(self._on_job_done)
         if start_workers:
             self.jobs.start()
@@ -289,6 +291,7 @@ class Services:
 
     def delete_asset(self, project_id: str, asset_id: str) -> None:
         asset = self.get_asset(project_id, asset_id)
+        self.db.execute("UPDATE assets SET audio_override_id = NULL, audio_offset = NULL WHERE audio_override_id = ?", [asset_id])
         self.db.execute("DELETE FROM assets WHERE id = ?", [asset_id])
         self.asset_path(asset).unlink(missing_ok=True)
         shutil.rmtree(self.project_dir(project_id) / "derived" / asset_id, ignore_errors=True)
@@ -579,21 +582,27 @@ class Services:
                                                        "status": "failed" if job["status"] == "failed" else "queued"})
         return self.get_render(project_id, render["id"])
 
+    @staticmethod
+    def _render_row(row: dict) -> dict:
+        row["info"] = loads(row.pop("info_json", None), {})
+        return row
+
     def get_render(self, project_id: str, render_id: str) -> dict:
         row = self.db.one("""SELECT r.*, j.status AS job_status, j.progress, j.message, j.error FROM renders r
                              LEFT JOIN jobs j ON j.id = r.job_id WHERE r.id = ? AND r.project_id = ?""",
                           [check_id(render_id, "rnd"), project_id])
         if not row:
             raise NotFound("Render not found")
-        return row
+        return self._render_row(row)
 
     def list_renders(self, project_id: str) -> list[dict]:
-        return self.db.all("""SELECT r.*, j.status AS job_status, j.progress, j.message, j.error, v.number AS version_number,
+        rows = self.db.all("""SELECT r.*, j.status AS job_status, j.progress, j.message, j.error, v.number AS version_number,
                                      s.name AS sequence_name
                               FROM renders r LEFT JOIN jobs j ON j.id = r.job_id
                               LEFT JOIN timeline_versions v ON v.id = r.version_id
                               LEFT JOIN sequences s ON s.id = r.sequence_id
                               WHERE r.project_id = ? ORDER BY r.created_at DESC""", [project_id])
+        return [self._render_row(r) for r in rows]
 
     def render_file(self, project_id: str, render_id: str, kind: str) -> Path:
         render = self.get_render(project_id, render_id)
@@ -614,25 +623,111 @@ class Services:
         timeline = self.checked_timeline(ctx.project_id, Timeline(**version["timeline"]))
         assets = self.project_assets_map(ctx.project_id)
         used = {c.asset_id for c in timeline.clips}
+        overrides = {}
+        for aid in used:
+            override_id = assets[aid].get("audio_override_id")
+            if override_id and override_id in assets:
+                overrides[aid] = SourceAudio(self.asset_path(assets[override_id]), assets[aid].get("audio_offset") or 0.0)
+        music_id = timeline.audio.music_asset_id
+        music_path = self.asset_path(assets[music_id]) if music_id else None
         encoder = media.pick_video_encoder(self.settings.video_encoder) if render["quality"] == "final" else "libx264"
         try:
             result = render_timeline(
                 timeline, assets, {aid: self.asset_path(assets[aid]) for aid in used}, self.segments_by_asset(used),
                 self.renders_dir(ctx.project_id), render["id"], quality=render["quality"], encoder=encoder,
-                want_wav=bool(ctx.payload.get("want_wav")), progress=lambda f, m: ctx.progress(f, m),
-                cancel=ctx.cancel, timeout=self.settings.render_timeout_s)
+                want_wav=bool(ctx.payload.get("want_wav")), audio_overrides=overrides, music_path=music_path,
+                progress=lambda f, m: ctx.progress(f, m), cancel=ctx.cancel, timeout=self.settings.render_timeout_s)
         except Exception:
             self.db.update("renders", "id", render["id"], {"status": "failed"})
             raise
         actual = media.probe(result.output)["duration"]
+        info = {**result.audio, "processed_audio_sources": sorted(overrides), "encoder": encoder}
         self.db.update("renders", "id", render["id"], {
             "status": "succeeded", "output_name": result.output.name, "srt_name": result.srt.name,
-            "wav_name": f"{render['id']}.wav" if ctx.payload.get("want_wav") else None, "duration": actual})
+            "wav_name": f"{render['id']}.wav" if ctx.payload.get("want_wav") else None, "duration": actual,
+            "info_json": dumps(info)})
         return {"output": result.output.name, "duration": actual, "expected_duration": result.duration,
-                "captions": result.cues, "encoder": encoder}
+                "captions": result.cues, "encoder": encoder, "audio": result.audio}
+
+    # --- processed audio (WAV hand-off and re-import) --------------------------------------------------
+    def export_source_wav(self, project_id: str, asset_id: str) -> Path:
+        """48 kHz stereo PCM WAV of a source's audio, for external processing (e.g. Trebble, Adobe Podcast)."""
+        asset = self.get_asset(project_id, asset_id)
+        if asset["kind"] not in ("video", "audio") or not asset["has_audio"]:
+            raise BadRequest("Asset has no audio to export")
+        dest = self.derived_dir(asset) / "source-audio.wav"
+        if not dest.is_file():
+            part = dest.with_suffix(".part.wav")
+            media.run_ffmpeg(["-i", str(self.asset_path(asset)), "-vn", "-map", "0:a:0", "-c:a", "pcm_s16le",
+                              "-ar", "48000", "-ac", "2", str(part)])
+            os.replace(part, dest)
+        return dest
+
+    def _check_processed_audio(self, reference: Path, ref_duration: float, candidate_asset: dict) -> tuple[float, float]:
+        if candidate_asset["kind"] not in ("audio", "video") or not candidate_asset["has_audio"] \
+                or candidate_asset["status"] != "ready":
+            raise BadRequest("Processed audio must be a ready audio file")
+        offset, corr = audio_mod.estimate_offset(reference, self.asset_path(candidate_asset))
+        if corr < 0.3:
+            raise BadRequest(f"Processed audio does not match this source (correlation {corr:.2f}). "
+                             "Upload the processed version of this exact file.")
+        drift = abs((candidate_asset["duration"] or 0) - offset - ref_duration)
+        if drift > 1.0:
+            raise BadRequest(f"Processed audio length differs by {drift:.2f}s after aligning; it must cover the whole source")
+        return offset, corr
+
+    def attach_processed_audio(self, project_id: str, media_asset_id: str, audio_asset_id: str) -> dict:
+        target = self.get_asset(project_id, media_asset_id)
+        processed = self.get_asset(project_id, audio_asset_id)
+        if target["kind"] not in ("video", "audio") or target["id"] == processed["id"]:
+            raise BadRequest("Attach processed audio to a different video or audio source")
+        offset, corr = self._check_processed_audio(self.asset_path(target), target["duration"] or 0, processed)
+        self.db.update("assets", "id", media_asset_id, {"audio_override_id": audio_asset_id, "audio_offset": offset})
+        return {"asset_id": media_asset_id, "audio_asset_id": audio_asset_id, "offset": offset, "correlation": corr}
+
+    def detach_processed_audio(self, project_id: str, media_asset_id: str) -> None:
+        self.get_asset(project_id, media_asset_id)
+        self.db.update("assets", "id", media_asset_id, {"audio_override_id": None, "audio_offset": None})
+
+    def reimport_render_audio(self, project_id: str, render_id: str, audio_asset_id: str) -> dict:
+        """New render = existing render's video (stream copy) + processed WAV."""
+        parent = self.get_render(project_id, render_id)
+        if parent["status"] != "succeeded":
+            raise BadRequest("Render is not finished")
+        processed = self.get_asset(project_id, audio_asset_id)
+        offset, corr = self._check_processed_audio(self.render_file(project_id, render_id, "mp4"), parent["duration"] or 0, processed)
+        render = {"id": new_id("rnd"), "project_id": project_id, "sequence_id": parent["sequence_id"],
+                  "version_id": parent["version_id"], "quality": parent["quality"], "status": "queued",
+                  "origin": "reimport", "parent_render_id": render_id, "audio_asset_id": audio_asset_id,
+                  "info_json": dumps({"offset": offset, "correlation": corr}), "created_at": now()}
+        self.db.insert("renders", render)
+        job = self.jobs.enqueue(self.get_project(project_id), "reimport", {"render_id": render["id"]}, "Waiting to re-import audio")
+        self.db.update("renders", "id", render["id"], {"job_id": job["id"]})
+        return self.get_render(project_id, render["id"])
+
+    def _job_reimport(self, ctx: JobContext) -> dict:
+        render = self.db.one("SELECT * FROM renders WHERE id = ? AND project_id = ?", [ctx.payload["render_id"], ctx.project_id])
+        if not render:
+            raise NotFound("Render was deleted")
+        self.db.update("renders", "id", render["id"], {"status": "running"})
+        parent = self.db.one("SELECT * FROM renders WHERE id = ?", [render["parent_render_id"]])
+        processed = self.db.one("SELECT * FROM assets WHERE id = ? AND project_id = ?", [render["audio_asset_id"], ctx.project_id])
+        if not parent or not processed:
+            raise NotFound("Source render or processed audio was deleted")
+        out_dir = self.renders_dir(ctx.project_id)
+        output = out_dir / f"{render['id']}.mp4"
+        offset = loads(render["info_json"], {}).get("offset", 0.0)
+        remux_with_audio(out_dir / parent["output_name"], self.asset_path(processed), output, offset, cancel=ctx.cancel)
+        if parent["srt_name"]:
+            shutil.copyfile(out_dir / parent["srt_name"], out_dir / f"{render['id']}.srt")
+        duration = media.probe(output)["duration"]
+        self.db.update("renders", "id", render["id"], {"status": "succeeded", "output_name": output.name,
+                                                       "srt_name": f"{render['id']}.srt" if parent["srt_name"] else None,
+                                                       "duration": duration})
+        return {"output": output.name, "duration": duration, "offset": offset}
 
     def _on_job_done(self, job: dict) -> None:
-        if job["type"] == "render" and job["status"] in ("cancelled", "failed"):
+        if job["type"] in ("render", "reimport") and job["status"] in ("cancelled", "failed"):
             payload = loads(job["payload_json"], {})
             self.db.execute("UPDATE renders SET status = ? WHERE id = ? AND status != 'succeeded'",
                             [job["status"], payload.get("render_id")])
@@ -651,7 +746,7 @@ class Services:
         job = self.db.one("SELECT * FROM jobs WHERE id = ? AND project_id = ?", [check_id(job_id, "job"), project_id])
         if not job:
             raise NotFound("Job not found")
-        if job["type"] == "render":
+        if job["type"] in ("render", "reimport"):
             payload = loads(job["payload_json"], {})
             self.db.execute("UPDATE renders SET status = 'queued' WHERE id = ?", [payload.get("render_id")])
         return self.jobs.retry(job_id)

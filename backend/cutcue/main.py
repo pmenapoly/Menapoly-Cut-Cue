@@ -70,6 +70,10 @@ class AttachIn(BaseModel):
     subtitle_asset_id: str
 
 
+class AudioAssetIn(BaseModel):
+    audio_asset_id: str
+
+
 def create_app(settings: Settings | None = None, services: Services | None = None,
                assistant: Assistant | None = None) -> FastAPI:
     settings = settings or default_settings
@@ -222,6 +226,20 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     def attach_captions(pid: str, aid: str, body: AttachIn):
         return {"segments": svc.attach_captions(pid, aid, body.subtitle_asset_id)}
 
+    @app.get("/api/projects/{pid}/assets/{aid}/audio.wav")
+    def export_source_wav(pid: str, aid: str):
+        path = svc.export_source_wav(pid, aid)
+        name = Path(svc.get_asset(pid, aid)["original_name"]).stem + "-audio.wav"
+        return FileResponse(path, media_type="audio/wav", filename=name)
+
+    @app.post("/api/projects/{pid}/assets/{aid}/processed-audio")
+    def attach_processed_audio(pid: str, aid: str, body: AudioAssetIn):
+        return svc.attach_processed_audio(pid, aid, body.audio_asset_id)
+
+    @app.delete("/api/projects/{pid}/assets/{aid}/processed-audio", status_code=204)
+    def detach_processed_audio(pid: str, aid: str):
+        svc.detach_processed_audio(pid, aid)
+
     @app.get("/api/projects/{pid}/search")
     def search(pid: str, q: str, limit: int = 30):
         return svc.search(pid, q, min(limit, 100))
@@ -301,6 +319,10 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     @app.post("/api/projects/{pid}/renders", status_code=201)
     def render(pid: str, body: RenderIn):
         return svc.request_render(pid, body.version_id, body.quality, body.wav)
+
+    @app.post("/api/projects/{pid}/renders/{rid}/reimport", status_code=201)
+    def reimport(pid: str, rid: str, body: AudioAssetIn):
+        return svc.reimport_render_audio(pid, rid, body.audio_asset_id)
 
     @app.get("/api/projects/{pid}/renders")
     def renders(pid: str):

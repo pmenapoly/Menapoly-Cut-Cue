@@ -24,6 +24,19 @@ class Clip(BaseModel):
     start: float = Field(description="Source in-point, seconds")
     end: float = Field(description="Source out-point, seconds")
     label: str = ""
+    focus_x: float = Field(0.5, ge=0.0, le=1.0, description="Horizontal framing when cropping (0 left, 1 right)")
+
+
+class AudioSettings(BaseModel):
+    """Finishing chain applied to the whole program audio (see cutcue.audio)."""
+    model_config = ConfigDict(extra="forbid")
+    denoise: Literal["off", "light", "strong"] = "off"
+    voice_eq: bool = False
+    compress: bool = False
+    loudness_target: float = Field(-16.0, ge=-24.0, le=-9.0, description="Integrated LUFS (-16 podcast, -14 social)")
+    music_asset_id: str | None = None
+    music_volume_db: float = Field(-18.0, ge=-40.0, le=0.0)
+    duck: bool = True
 
 
 class Timeline(BaseModel):
@@ -32,6 +45,8 @@ class Timeline(BaseModel):
     clips: list[Clip] = Field(default_factory=list)
     burn_captions: bool = False
     normalize_audio: bool = True
+    audio: AudioSettings = Field(default_factory=AudioSettings)
+    title: str = Field("", max_length=80, description="Optional on-screen title burned in for the first seconds")
 
 
 class TimelineError(ValueError):
@@ -69,6 +84,13 @@ def validate_timeline(timeline: Timeline, assets: dict[str, dict]) -> None:
             problems.append(f"{where}: end {clip.end} must be at least {MIN_CLIP_SECONDS}s after start {clip.start}")
         if clip.end > asset["duration"] + DURATION_TOLERANCE:
             problems.append(f"{where}: end {clip.end} exceeds source duration {asset['duration']:.3f}")
+    music_id = timeline.audio.music_asset_id
+    if music_id:
+        music = assets.get(music_id)
+        if music is None:
+            problems.append(f"music {music_id}: unknown asset for this project")
+        elif music["kind"] not in ("audio", "video") or not music.get("has_audio") or music["status"] != "ready":
+            problems.append(f"music {music_id}: must be a ready audio file")
     if timeline_duration(timeline) > MAX_TOTAL_SECONDS:
         problems.append("Timeline is longer than 6 hours")
     if problems:
@@ -140,6 +162,9 @@ def caption_cues(timeline: Timeline, segments_by_asset: dict[str, list[dict]], *
         if current:
             cues.append(current)
         offset += clip.end - clip.start
-    for cue in cues:
-        cue["start"], cue["end"] = round(cue["start"], 3), round(max(cue["end"], cue["start"] + 0.3), 3)
+    for i, cue in enumerate(cues):
+        end = max(cue["end"], cue["start"] + 0.3)
+        if i + 1 < len(cues):  # never overlap the next cue
+            end = min(end, cues[i + 1]["start"])
+        cue["start"], cue["end"] = round(cue["start"], 3), round(max(end, cue["start"] + 0.05), 3)
     return cues
