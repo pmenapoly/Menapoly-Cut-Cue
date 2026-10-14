@@ -26,7 +26,7 @@ export function AutoEditPanel({ pid, assets, onCreated }: { pid: string; assets:
   return (
     <div className="space-y-2 text-sm">
       <p className="text-muted">Speaker-aware rough cut: pauses shortened between words (turns and questions keep a natural beat), fillers and dead air removed. Only silent audio is cut.</p>
-      <select className="input w-full" value={target} onChange={(e) => setAssetId(e.target.value)}>
+      <select className="input" value={target} onChange={(e) => setAssetId(e.target.value)}>
         {media.map((a) => <option key={a.id} value={a.id}>{a.original_name}</option>)}
       </select>
       <div className="flex flex-wrap gap-3">
@@ -38,10 +38,10 @@ export function AutoEditPanel({ pid, assets, onCreated }: { pid: string; assets:
       </div>
       <div className="flex flex-wrap gap-3">
         <label className="flex items-center gap-1">Same-speaker pause
-          <input className="input w-16" type="number" step="0.05" min="0.1" max="2" value={opts.same_speaker_pause}
+          <input className="input w-20" type="number" step="0.05" min="0.1" max="2" value={opts.same_speaker_pause}
                  onChange={(e) => setOpts({ ...opts, same_speaker_pause: Number(e.target.value) })} />s</label>
         <label className="flex items-center gap-1">Turn pause
-          <input className="input w-16" type="number" step="0.05" min="0.1" max="3" value={opts.turn_pause}
+          <input className="input w-20" type="number" step="0.05" min="0.1" max="3" value={opts.turn_pause}
                  onChange={(e) => setOpts({ ...opts, turn_pause: Number(e.target.value) })} />s</label>
       </div>
       <button className="btn btn-primary" disabled={busy || !target} onClick={() => wrap(async () => {
@@ -67,7 +67,7 @@ export function ClipsPanel({ pid, onCreated }: { pid: string; onCreated: () => v
       <div className="flex flex-wrap gap-2">
         {(["count", "min_s", "max_s"] as const).map((k) => (
           <label key={k} className="flex items-center gap-1">{k === "count" ? "Clips" : k === "min_s" ? "Min s" : "Max s"}
-            <input className="input w-16" type="number" min={1} value={form[k] ?? ""}
+            <input className="input w-20" type="number" min={1} value={form[k] ?? ""}
                    onChange={(e) => setForm({ ...form, [k]: e.target.value ? Number(e.target.value) : undefined })} /></label>
         ))}
         <label className="flex items-center gap-1"><input type="checkbox" checked={form.titles} onChange={(e) => setForm({ ...form, titles: e.target.checked })} /> titles</label>
@@ -88,7 +88,7 @@ export function ClipsPanel({ pid, onCreated }: { pid: string; onCreated: () => v
               const picked = preview.chosen.some((x) => x.start === c.start && x.end === c.end);
               return (
                 <li key={`${c.start}-${c.end}`} className={`rounded border p-1.5 text-xs ${picked ? "border-accent" : "border-line"}`}>
-                  <div><span className="font-mono text-accent2">{fmtTime(c.start)}–{fmtTime(c.end)}</span> · ~{c.est_duration.toFixed(0)}s · score {c.score.toFixed(1)}</div>
+                  <div><span className="font-mono text-violet">{fmtTime(c.start)}–{fmtTime(c.end)}</span> · ~{c.est_duration.toFixed(0)}s · score {c.score.toFixed(1)}</div>
                   <div>“{c.first_line}”</div>
                   <div className="text-muted">{c.reasons.join(" · ")}</div>
                 </li>
@@ -123,10 +123,10 @@ export function BriefPanel({ pid, versionId }: { pid: string; versionId: string 
       {edit ? (
         <div className="space-y-1">
           <label className="block"><span className="label">CTA</span>
-            <input className="input w-full" value={edit.cta} onChange={(e) => setEdit({ ...edit, cta: e.target.value })} /></label>
+            <input className="input" value={edit.cta} onChange={(e) => setEdit({ ...edit, cta: e.target.value })} /></label>
           {listFields.map((k) => (
             <label key={k} className="block"><span className="label">{k.replace("_", " ")} (one per line)</span>
-              <textarea className="input w-full" rows={2} value={edit[k]} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} /></label>
+              <textarea className="input" rows={2} value={edit[k]} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} /></label>
           ))}
           <div className="flex gap-2">
             <button className="btn btn-primary btn-sm" onClick={() => wrap(async () => {
@@ -192,7 +192,7 @@ export function SourcePanel({ pid, asset, assets, onChanged }: { pid: string; as
             <ul className="mt-1 space-y-1">
               {Object.entries(speakers.labels).map(([key, l]) => (
                 <li key={key} className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-xs text-accent2">{key}</span>
+                  <span className="font-mono text-xs text-violet">{key}</span>
                   <input className="input w-28 py-0.5" defaultValue={l.name} onBlur={(e) => e.target.value !== l.name && patch(key, { name: e.target.value })} />
                   <span className="text-xs text-muted">{fmtTime(l.talk_seconds)}</span>
                   <label className="flex items-center gap-1 text-xs" title="Horizontal framing for vertical clips">frame

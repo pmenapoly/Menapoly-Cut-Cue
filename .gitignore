@@ -10,3 +10,6 @@ frontend/out/
 frontend/next-env.d.ts
 *.tsbuildinfo
 .DS_Store
+frontend/e2e/.fixtures-path
+frontend/test-results/
+frontend/playwright-report/

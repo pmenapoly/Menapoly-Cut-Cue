@@ -8,7 +8,13 @@ export type Health = {
 export type Project = {
   id: string; name: string; created_at: number; processing_mode: "local" | "cloud";
   cloud_approved: number; budget_usd: number; spent_usd: number; asset_count?: number;
+  thumb_asset_id?: string | null; active_jobs?: number; render_count?: number; last_activity?: number;
 };
+export type Activity = { kind: "render" | "proposal" | "upload"; project_id: string; project_name: string; at: number; status: string; detail: string };
+export type Preset = {
+  id: string; label: string; description: string; aspect?: Aspect; loudness_target?: number; burn_captions?: boolean; wav: boolean;
+};
+export type Waveform = { duration: number; peaks: number[] };
 export type Asset = {
   id: string; project_id: string; kind: "video" | "audio" | "image" | "document" | "subtitle";
   original_name: string; size: number; duration: number | null; has_video: number; has_audio: number;
@@ -68,12 +74,13 @@ export type Render = {
   id: string; sequence_id: string; version_id: string; job_id: string | null; quality: "preview" | "final";
   status: string; output_name: string | null; srt_name: string | null; wav_name: string | null;
   duration: number | null; created_at: number; progress: number | null; message: string | null; error: string | null;
-  version_number?: number; sequence_name?: string; origin?: string; parent_render_id?: string | null;
+  version_number?: number; sequence_name?: string; origin?: string; parent_render_id?: string | null; preset?: string | null;
   info?: { measured_input_lufs?: number; noise_floor_db?: number | null; chain?: string[]; duck?: boolean; offset?: number };
 };
 export type Job = {
   id: string; type: string; status: string; progress: number; message: string | null; error: string | null;
   worker: string; created_at: number; updated_at: number; payload: Record<string, unknown>;
+  started_at?: number | null; finished_at?: number | null;
 };
 export type Compare = {
   a: { id: string; number: number; duration: number; clips: number; aspect: Aspect };
@@ -110,6 +117,7 @@ export const api = {
 
 export const mediaUrl = (pid: string, aid: string) => `/api/projects/${pid}/assets/${aid}/media`;
 export const thumbUrl = (pid: string, aid: string) => `/api/projects/${pid}/assets/${aid}/thumbnail`;
+export const frameUrl = (pid: string, aid: string, t: number) => `/api/projects/${pid}/assets/${aid}/frame?t=${(Math.round(t * 2) / 2).toFixed(1)}`;
 export const renderUrl = (pid: string, rid: string, kind: "mp4" | "srt" | "wav", download = false) =>
   `/api/projects/${pid}/renders/${rid}/${kind}${download ? "?download=true" : ""}`;
 

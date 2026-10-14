@@ -592,10 +592,14 @@ class Services:
 
     def best_hook(self, project_id: str, asset_id: str, min_s: float = 6.0, max_s: float = 20.0) -> dict | None:
         """Strongest short moment to use as a cold open."""
-        found = self.find_moments(project_id, asset_id, 1, min_s, max_s)
-        if not found["chosen"]:
+        # Hooks are used untightened, so measure their real length (pause_cap = inf).
+        asset = self._primary_media(project_id, asset_id)
+        req = self.project_brief(project_id)["requirements"]
+        chosen, _ = moments_mod.find_moments(asset["id"], self.transcript(asset["id"]), req, count=1, min_s=min_s,
+                                             max_s=max_s, pause_cap=float("inf"))
+        if not chosen:
             return None
-        c = found["chosen"][0]
+        c = chosen[0].to_dict()
         return {"start": round(max(0.0, c["start"] - 0.15), 3), "end": round(c["end"] + 0.25, 3), "first_line": c["first_line"]}
 
     # --- AI clip factory (local moment finder) -----------------------------------------------------------

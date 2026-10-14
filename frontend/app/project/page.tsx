@@ -1,268 +1,377 @@
 "use client";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import AssetPanel from "@/components/AssetPanel";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuthGate from "@/components/AuthGate";
-import ChatPanel from "@/components/ChatPanel";
-import { JobsPanel, RendersPanel, VersionsPanel } from "@/components/OutputsPanel";
-import TimelineEditor from "@/components/TimelineEditor";
+import { CueChat } from "@/components/CueChat";
+import { ExportDialog, RenderRow } from "@/components/ExportDialog";
+import { Inspector } from "@/components/Inspector";
+import { FileList, UploadZone } from "@/components/MediaPanel";
+import { Player, PlayerHandle, PlayerSource } from "@/components/Player";
+import { Timeline } from "@/components/Timeline";
 import { AutoEditPanel, BriefPanel, ClipsPanel, SourcePanel } from "@/components/ToolsPanel";
-import TranscriptPanel from "@/components/TranscriptPanel";
-import {
-  api, ApiError, Asset, Clip, Health, Job, mediaUrl, Project, Proposal, Render, renderUrl, Sequence, Timeline,
-} from "@/lib/api";
+import { TranscriptEditor } from "@/components/TranscriptEditor";
+import { Dialog, Icon, Logo, Segmented, Spinner, Tabs, Toasts } from "@/components/ui";
+import { VersionsDialog } from "@/components/VersionsDialog";
+import { Mode, MobileTab, PreviewTarget, useWorkspace, WorkspaceCtx } from "@/components/workspace";
+import { api, Asset } from "@/lib/api";
+import { duration } from "@/lib/format";
+import { ProjectProvider, useStore } from "@/lib/project";
+import { outputTime, removeClip, splitAt } from "@/lib/timeline";
 
-type Source = { kind: "asset"; assetId: string } | { kind: "render"; render: Render } | null;
+function isTyping(el: EventTarget | null) {
+  const t = el as HTMLElement | null;
+  return !!t && (t.isContentEditable || ["TEXTAREA", "SELECT"].includes(t.tagName) || (t.tagName === "INPUT" && (t as HTMLInputElement).type !== "range"));
+}
 
-function Editor({ pid }: { pid: string }) {
-  const [health, setHealth] = useState<Health | null>(null);
-  const [project, setProject] = useState<Project | null>(null);
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [sequences, setSequences] = useState<Sequence[]>([]);
-  const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [renders, setRenders] = useState<Render[]>([]);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
-  const [seqId, setSeqId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Timeline | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [problems, setProblems] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
-  type Tab = "auto-edit" | "clips" | "brief" | "source" | "renders" | "versions" | "jobs";
-  const [tab, setTab] = useState<Tab>("auto-edit");
-  const [source, setSource] = useState<Source>(null);
-  const [time, setTime] = useState(0);
-  const [error, setError] = useState("");
-  const video = useRef<HTMLVideoElement>(null);
-  const stopAt = useRef<number | null>(null);
-  const pendingSeek = useRef<number | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const [p, a, s, pr, r, j] = await Promise.all([
-        api.get<Project>(`/projects/${pid}`), api.get<Asset[]>(`/projects/${pid}/assets`),
-        api.get<Sequence[]>(`/projects/${pid}/sequences`), api.get<Proposal[]>(`/projects/${pid}/proposals`),
-        api.get<Render[]>(`/projects/${pid}/renders`), api.get<Job[]>(`/projects/${pid}/jobs`),
-      ]);
-      setProject(p); setAssets(a); setSequences(s); setProposals(pr); setRenders(r); setJobs(j);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
-    }
-  }, [pid]);
-
-  useEffect(() => { api.get<Health>("/health").then(setHealth); refresh(); }, [refresh]);
-  useEffect(() => { const t = setInterval(refresh, 2000); return () => clearInterval(t); }, [refresh]);
-
-  // Keep the selected asset fresh (status, transcript) and pick defaults.
-  useEffect(() => {
-    if (selectedAsset) {
-      const fresh = assets.find((a) => a.id === selectedAsset.id);
-      if (!fresh) setSelectedAsset(null);
-      else if (fresh.status !== selectedAsset.status || fresh.has_transcript !== selectedAsset.has_transcript) selectAsset(fresh);
-    } else {
-      const firstMedia = assets.find((a) => a.kind === "video" || a.kind === "audio");
-      if (firstMedia) selectAsset(firstMedia);
-    }
-  }, [assets]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (!seqId && sequences.length) setSeqId(sequences[0].id);
-    if (seqId && !sequences.some((s) => s.id === seqId)) setSeqId(sequences[0]?.id ?? null);
-  }, [sequences, seqId]);
-
-  const seq = sequences.find((s) => s.id === seqId) ?? null;
-  useEffect(() => {
-    if (!dirty) { setDraft(seq?.timeline ?? null); setProblems([]); }
-  }, [seq?.current_version_id, seqId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const selectAsset = async (a: Asset) => {
-    const full = await api.get<Asset>(`/projects/${pid}/assets/${a.id}`);
-    setSelectedAsset(full);
-    if ((full.kind === "video" || full.kind === "audio") && (!source || source.kind === "asset")) setSource({ kind: "asset", assetId: full.id });
+/* ---------- Guided first project: Create → Upload → Brief → Analyze → Ask Cue → Review → Export ---------- */
+function Onboarding({ onDismiss }: { onDismiss: () => void }) {
+  const { assets, messages, proposals, sequences, renders, brief } = useStore();
+  const { setMobileTab, openExport } = useWorkspace();
+  const media = assets.filter((a) => a.kind === "video" || a.kind === "audio");
+  const steps = [
+    { id: "create", label: "Create", done: true },
+    { id: "upload", label: "Upload", done: media.length > 0 },
+    { id: "brief", label: "Add brief", done: !!brief?.has_brief, optional: true },
+    { id: "analyze", label: "Analyze", done: media.some((a) => a.has_transcript) },
+    { id: "ask", label: "Ask Cue", done: messages.length > 0 || proposals.length > 0 },
+    { id: "review", label: "Review", done: sequences.length > 0 },
+    { id: "export", label: "Export", done: renders.some((r) => r.quality === "final" && r.status === "succeeded") },
+  ];
+  const current = steps.find((s) => !s.done && !s.optional);
+  const hint: Record<string, string> = {
+    upload: "Drop your recording, and the client brief if you have one, into Files.",
+    analyze: "Cue is listening to your recording: transcribing and finding the speakers, right here on your Mac.",
+    ask: "Ask Cue for an edit, or tap a suggestion like “Make a tight rough cut with a hook”.",
+    review: "Preview Cue's proposal, then Approve it, or Revise it with a note.",
+    export: "Export it for YouTube, a podcast, TikTok, Reels or LinkedIn.",
   };
-
-  const seek = (assetId: string, t: number, until: number | null = null) => {
-    stopAt.current = until;
-    if (source?.kind === "asset" && source.assetId === assetId && video.current) {
-      video.current.currentTime = t;
-      video.current.play().catch(() => {});
-    } else {
-      pendingSeek.current = t;
-      setSource({ kind: "asset", assetId });
-    }
-  };
-
-  const editDraft = (t: Timeline) => { setDraft(t); setDirty(true); setProblems([]); };
-
-  const addClip = async (assetId: string, start: number, end: number, label: string) => {
-    const a = assets.find((x) => x.id === assetId);
-    const clip: Clip = { asset_id: assetId, start: Math.round(start * 1000) / 1000, end: Math.min(a?.duration ?? end, Math.round(end * 1000) / 1000), label };
-    if (!seq || !draft) {
-      try {
-        const created = await api.post<Sequence>(`/projects/${pid}/sequences`, {
-          name: "Main", timeline: { aspect: "16:9", clips: [clip], burn_captions: false, normalize_audio: true } });
-        setSeqId(created.id);
-        refresh();
-      } catch (err) { setError(err instanceof ApiError ? [err.message, ...err.problems].join("; ") : String(err)); }
-    } else {
-      editDraft({ ...draft, clips: [...draft.clips, clip] });
-    }
-  };
-
-  const save = async (label: string) => {
-    if (!seq || !draft) return;
-    setBusy(true);
-    try {
-      await api.post(`/projects/${pid}/sequences/${seq.id}/versions`, { timeline: draft, label });
-      setDirty(false);
-      await refresh();
-    } catch (err) {
-      setProblems(err instanceof ApiError ? (err.problems.length ? err.problems : [err.message]) : [String(err)]);
-    } finally { setBusy(false); }
-  };
-
-  const render = async (quality: "preview" | "final", wav: boolean) => {
-    if (!seq?.current_version_id) return;
-    setBusy(true);
-    try {
-      await api.post(`/projects/${pid}/renders`, { version_id: seq.current_version_id, quality, wav });
-      setTab("renders");
-      await refresh();
-    } catch (err) {
-      setProblems(err instanceof ApiError ? (err.problems.length ? err.problems : [err.message]) : [String(err)]);
-    } finally { setBusy(false); }
-  };
-
-  const setMode = async (patch: Partial<{ processing_mode: string; cloud_approved: boolean; budget_usd: number }>) => {
-    try { setProject(await api.patch<Project>(`/projects/${pid}`, patch)); }
-    catch (err) { setError(err instanceof ApiError ? err.message : String(err)); }
-  };
-
-  const src = source?.kind === "asset" ? mediaUrl(pid, source.assetId) : source?.kind === "render" ? renderUrl(pid, source.render.id, "mp4") : null;
-  const sourceAsset = source?.kind === "asset" ? assets.find((a) => a.id === source.assetId) : null;
-  const assetMap = Object.fromEntries(assets.map((a) => [a.id, a]));
-  const activeJobs = jobs.filter((j) => j.status === "running" || j.status === "queued").length;
-
+  if (!current) return null;
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2">
-        <Link href="/" className="text-sm text-muted hover:text-accent">← Projects</Link>
-        <h1 className="font-semibold">{project?.name ?? "…"}</h1>
-        <span className="text-xs text-muted">Menapoly Cut Cue</span>
-        <div className="ml-auto flex flex-wrap items-center gap-3 text-xs">
-          <label className="flex items-center gap-1">Processing
-            <select className="input py-0.5" value={project?.processing_mode ?? "local"}
-                    onChange={(e) => setMode({ processing_mode: e.target.value })}>
-              <option value="local">Local (this Mac)</option>
-              <option value="cloud" disabled={!health?.cloud_configured}>Cloud{health?.cloud_configured ? "" : " (not configured)"}</option>
-            </select>
-          </label>
-          {project?.processing_mode === "cloud" && (
-            <label className="flex items-center gap-1 text-accent">
-              <input type="checkbox" checked={!!project.cloud_approved} onChange={(e) => setMode({ cloud_approved: e.target.checked })} />
-              I approve uploading this project&apos;s footage to my cloud worker
-            </label>
-          )}
-          <label className="flex items-center gap-1" title="AI spend cap for this project">
-            AI ${project?.spent_usd.toFixed(2) ?? "0.00"} /
-            <input className="input w-16 py-0.5" type="number" min={0} step={1} defaultValue={project?.budget_usd}
-                   key={project?.budget_usd} onBlur={(e) => setMode({ budget_usd: Number(e.target.value) })} />
-          </label>
-          {activeJobs > 0 && <span className="text-accent">{activeJobs} job{activeJobs > 1 ? "s" : ""} running</span>}
-        </div>
-      </header>
-      {error && <div className="bg-danger/20 px-4 py-1 text-sm text-danger" onClick={() => setError("")}>{error} (click to dismiss)</div>}
-
-      <div className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[300px_minmax(0,1fr)_380px]">
-        <aside className="flex min-h-0 flex-col gap-3 lg:h-[calc(100vh-4.5rem)]">
-          <section className="card flex max-h-[45%] min-h-[180px] flex-col p-3">
-            <h2 className="label mb-2">Media & briefs</h2>
-            <AssetPanel pid={pid} assets={assets} selectedId={selectedAsset?.id ?? null} onSelect={selectAsset} onChange={refresh} />
-          </section>
-          <section className="card flex min-h-[240px] flex-1 flex-col p-3">
-            <h2 className="label mb-2 truncate">{selectedAsset ? `Transcript · ${selectedAsset.original_name}` : "Transcript"}</h2>
-            <TranscriptPanel pid={pid} asset={selectedAsset} assets={assets}
-                             currentTime={source?.kind === "asset" && source.assetId === selectedAsset?.id ? time : -1}
-                             onSeek={(aid, t) => seek(aid, t)} onAdd={addClip} />
-          </section>
-        </aside>
-
-        <main className="flex min-w-0 flex-col gap-3">
-          <section className="card p-3">
-            <div className="mb-2 flex items-center justify-between text-xs text-muted">
-              <span>{source?.kind === "render" ? `Render · ${source.render.sequence_name} v${source.render.version_number} (${source.render.quality})`
-                : sourceAsset ? `Source · ${sourceAsset.original_name}${sourceAsset.proxy_name ? " (proxy)" : ""}` : "Player"}</span>
-            </div>
-            {src ? (
-              <video ref={video} key={src} src={src} controls playsInline className="mx-auto max-h-[46vh] w-full rounded bg-black"
-                     onLoadedMetadata={() => {
-                       if (pendingSeek.current != null && video.current) {
-                         video.current.currentTime = pendingSeek.current;
-                         pendingSeek.current = null;
-                         video.current.play().catch(() => {});
-                       }
-                     }}
-                     onTimeUpdate={(e) => {
-                       const t = e.currentTarget.currentTime;
-                       setTime(t);
-                       if (stopAt.current != null && t >= stopAt.current) { e.currentTarget.pause(); stopAt.current = null; }
-                     }} />
-            ) : (
-              <div className="flex aspect-video items-center justify-center rounded bg-black text-sm text-muted">Upload a video or audio file to start.</div>
-            )}
-          </section>
-
-          <section className="card p-3">
-            <TimelineEditor sequences={sequences} seqId={seqId}
-                            onSelectSeq={(id) => { if (!dirty || confirm("Discard unsaved timeline changes?")) { setDirty(false); setSeqId(id); } }}
-                            draft={draft} setDraft={editDraft} dirty={dirty} assets={assetMap}
-                            playhead={{ assetId: source?.kind === "asset" ? source.assetId : null, time }}
-                            onSave={save} onRevert={() => { setDirty(false); setDraft(seq?.timeline ?? null); setProblems([]); }}
-                            onNewSequence={async (name) => { const s = await api.post<Sequence>(`/projects/${pid}/sequences`, { name }); setDirty(false); setSeqId(s.id); setDraft({ aspect: "16:9", clips: [], burn_captions: false, normalize_audio: true }); refresh(); }}
-                            onDeleteSequence={async (id) => { await api.del(`/projects/${pid}/sequences/${id}`); setDirty(false); refresh(); }}
-                            onPreviewClip={(c) => seek(c.asset_id, c.start, c.end)}
-                            onRender={render} busy={busy} problems={problems} />
-          </section>
-
-          <section className="card min-h-[200px] p-3">
-            <div className="mb-2 flex flex-wrap gap-2">
-              {(["auto-edit", "clips", "brief", "source", "renders", "versions", "jobs"] as const).map((t) => (
-                <button key={t} className={`btn btn-sm capitalize ${tab === t ? "border-accent text-accent" : ""}`} onClick={() => setTab(t)}>{t}</button>
-              ))}
-            </div>
-            {tab === "renders" && <RendersPanel pid={pid} renders={renders} assets={assets} onChanged={refresh} playingId={source?.kind === "render" ? source.render.id : null}
-                                                onPlay={(r) => { stopAt.current = null; setSource({ kind: "render", render: r }); }} />}
-            {tab === "versions" && <VersionsPanel pid={pid} seq={seq} onChanged={() => { setDirty(false); refresh(); }} />}
-            {tab === "jobs" && <JobsPanel pid={pid} jobs={jobs} onChanged={refresh} />}
-            {tab === "auto-edit" && <AutoEditPanel pid={pid} assets={assets} onCreated={refresh} />}
-            {tab === "clips" && <ClipsPanel pid={pid} onCreated={refresh} />}
-            {tab === "brief" && <BriefPanel pid={pid} versionId={dirty ? null : seq?.current_version_id ?? null} />}
-            {tab === "source" && <SourcePanel pid={pid} asset={selectedAsset} assets={assets}
-                                              onChanged={async () => { await refresh(); if (selectedAsset) selectAsset(selectedAsset); }} />}
-          </section>
-        </main>
-
-        <aside className="card flex min-h-[420px] flex-col p-3 lg:h-[calc(100vh-4.5rem)]">
-          <ChatPanel pid={pid} mode={health?.assistant_mode ?? "local-test"} proposals={proposals} onProposalsChanged={refresh} />
-        </aside>
-      </div>
-    </div>
+    <nav aria-label="Getting started" className="card flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 animate-fade-in" data-testid="onboarding">
+      <ol className="flex flex-wrap items-center gap-1 text-xs">
+        {steps.map((s, i) => (
+          <li key={s.id} className="flex items-center gap-1" aria-current={s.id === current.id ? "step" : undefined}>
+            <span className={`flex items-center gap-1 rounded-full px-2 py-1 ${s.done ? "text-ok" : s.id === current.id ? "bg-accent-soft font-semibold text-violet" : "text-faint"}`}>
+              {s.done ? <Icon name="check" size={12} /> : <span className="w-3 text-center">{i + 1}</span>}{s.label}{s.optional && !s.done ? " (optional)" : ""}
+            </span>
+            {i < steps.length - 1 && <Icon name="chevron" size={12} className="text-line2" />}
+          </li>
+        ))}
+      </ol>
+      <p className="min-w-[14rem] flex-1 text-sm text-muted" data-testid="onboarding-hint">{hint[current.id]}</p>
+      {current.id === "upload" && <button className="btn btn-sm lg:hidden" onClick={() => setMobileTab("files")}>Open files</button>}
+      {current.id === "export" && <button className="btn btn-primary btn-sm" onClick={openExport}><Icon name="download" size={14} /> Export</button>}
+      <button className="btn btn-ghost btn-sm text-faint" onClick={onDismiss} aria-label="Hide the getting-started guide">Hide</button>
+    </nav>
   );
 }
 
-function EditorRoute() {
-  const pid = useSearchParams().get("id");
-  if (!pid) return <p className="p-8 text-muted">Missing project id. <Link href="/" className="text-accent">Back to projects</Link></p>;
-  return <Editor pid={pid} />;
+/* ---------- Top bar ---------- */
+function TopBar() {
+  const { project, pid, run, canUndo, canRedo, undo, redo, seq, dirty } = useStore();
+  const { mode, setMode, openExport, openVersions } = useWorkspace();
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState("");
+  return (
+    <header className="sticky top-0 z-40 border-b border-line/70 bg-ink/80 backdrop-blur-xl">
+      <div className="flex items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-5">
+        <Link href="/" className="btn btn-ghost btn-icon shrink-0" aria-label="All projects"><Logo compact /></Link>
+        {renaming ? (
+          <form className="min-w-0 flex-1" onSubmit={async (e) => { e.preventDefault(); await run(() => api.patch(`/projects/${pid}`, { name })); setRenaming(false); }}>
+            <input className="input max-w-xs py-1" value={name} onChange={(e) => setName(e.target.value)} onBlur={() => setRenaming(false)} autoFocus aria-label="Project name" />
+          </form>
+        ) : (
+          <button className="min-w-0 truncate rounded-md px-1 text-left text-[15px] font-semibold tracking-tight hover:bg-panel2" title="Rename project"
+                  onClick={() => { setName(project?.name ?? ""); setRenaming(true); }}>{project?.name ?? "…"}</button>
+        )}
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <div className="hidden items-center gap-0.5 sm:flex">
+            <button className="btn btn-ghost btn-icon" onClick={undo} disabled={!canUndo} aria-label="Undo (⌘Z)" title="Undo"><Icon name="undo" /></button>
+            <button className="btn btn-ghost btn-icon" onClick={redo} disabled={!canRedo} aria-label="Redo (⇧⌘Z)" title="Redo"><Icon name="redo" /></button>
+            <button className="btn btn-ghost btn-icon" onClick={openVersions} disabled={!seq} aria-label="History and before/after" title="History"><Icon name="history" /></button>
+          </div>
+          <Segmented<Mode> label="Editing mode" value={mode} onChange={setMode}
+                           options={[{ id: "simple", label: "Simple", hint: "Chat with Cue" }, { id: "pro", label: "Pro", hint: "Timeline editor" }]} />
+          <button className="btn btn-primary" onClick={openExport} aria-label="Export"><Icon name="download" size={16} /><span className="hidden sm:inline">Export</span></button>
+        </div>
+      </div>
+      {dirty && mode === "simple" && (
+        <p className="border-t border-warn/30 bg-warn/10 px-5 py-1.5 text-xs text-warn">You have unsaved Pro changes. Switch to Pro to save or discard them.</p>
+      )}
+    </header>
+  );
+}
+
+/* ---------- "Your edit" card (Simple) ---------- */
+function EditCard() {
+  const { sequences, seq, setSeqId, renders, canUndo, canRedo, undo, redo } = useStore();
+  const { openVersions, openExport, setPreview } = useWorkspace();
+  if (!seq) return null;
+  const latest = renders.find((r) => r.version_id === seq.current_version_id);
+  return (
+    <section className="card space-y-3 p-4" aria-labelledby="edit-card-h" data-testid="edit-card">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 id="edit-card-h" className="label">Your edit</h2>
+        <span className="text-xs text-faint">version {seq.versions.find((v) => v.id === seq.current_version_id)?.number} · {duration(seq.duration)} · {seq.timeline?.aspect}</span>
+        <div className="ml-auto flex gap-0.5 sm:hidden">
+          <button className="btn btn-ghost btn-icon" onClick={undo} disabled={!canUndo} aria-label="Undo"><Icon name="undo" /></button>
+          <button className="btn btn-ghost btn-icon" onClick={redo} disabled={!canRedo} aria-label="Redo"><Icon name="redo" /></button>
+        </div>
+      </div>
+      {sequences.length > 1 && (
+        <div className="flex gap-1.5 overflow-x-auto scroll-thin" role="tablist" aria-label="Outputs">
+          {sequences.map((s) => (
+            <button key={s.id} role="tab" aria-selected={s.id === seq.id} onClick={() => { setSeqId(s.id); setPreview({ kind: "edit" }); }}
+                    className={`btn btn-sm shrink-0 ${s.id === seq.id ? "border-accent text-violet" : ""}`}>
+              {s.timeline?.aspect !== "16:9" && <span className="text-[10px] text-faint">{s.timeline?.aspect}</span>}{s.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {latest && latest.status !== "succeeded" && <ul><RenderRow r={latest} /></ul>}
+      <div className="flex flex-wrap gap-2">
+        <button className="btn btn-sm" onClick={() => setPreview({ kind: "edit" })}><Icon name="play" size={12} /> Preview</button>
+        {latest?.status === "succeeded" && <button className="btn btn-sm" onClick={() => setPreview({ kind: "render", id: latest.id })}><Icon name="film" size={13} /> Rendered preview</button>}
+        <button className="btn btn-sm" onClick={openVersions}><Icon name="compare" size={13} /> Before / after</button>
+        <button className="btn btn-primary btn-sm ml-auto" onClick={openExport}><Icon name="download" size={14} /> Export</button>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- The workspace ---------- */
+function Workspace({ initialMode, welcome }: { initialMode: Mode; welcome: boolean }) {
+  const store = useStore();
+  const { pid, loaded, draft, seq, proposals, renders, assets, segments, edit, save, discard, dirty, undo, redo, toasts, sequences } = store;
+  const router = useRouter();
+  const [mode, setModeState] = useState<Mode>(initialMode);
+  const [preview, setPreview] = useState<PreviewTarget>({ kind: "edit" });
+  const [mobileTab, setMobileTab] = useState<MobileTab>(welcome ? "files" : "cue");
+  const [dialog, setDialog] = useState<"" | "export" | "versions" | "brief">("");
+  const [guide, setGuide] = useState(true);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [playhead, setPlayhead] = useState(0);
+  const [leftTab, setLeftTab] = useState<"media" | "transcript" | "tools" | "brief" | "speakers">("media");
+  const [rightTab, setRightTab] = useState<"inspect" | "cue">("inspect");
+  const [sourceAsset, setSourceAsset] = useState<Asset | null>(null);
+  const player = useRef<PlayerHandle>(null);
+
+  useEffect(() => {
+    try { if (localStorage.getItem(`cutcue-guide-${pid}`) === "hidden") setGuide(false); } catch { /* storage unavailable */ }
+  }, [pid]);
+  const setMode = useCallback((m: Mode) => {
+    setModeState(m);
+    try { localStorage.setItem("cutcue-mode", m); } catch { /* ignore */ }
+    router.replace(`/project/?id=${pid}&mode=${m}`, { scroll: false });
+  }, [pid, router]);
+
+  const ws = useMemo(() => ({
+    mode, setMode, preview, setPreview, mobileTab, setMobileTab,
+    openBrief: () => setDialog("brief"), openExport: () => setDialog("export"), openVersions: () => setDialog("versions"),
+  }), [mode, setMode, preview, mobileTab]);
+
+  // What the player shows.
+  const source: PlayerSource = useMemo(() => {
+    if (preview.kind === "proposal") {
+      const s = proposals.find((x) => x.id === preview.id)?.plan.sequences[preview.index];
+      if (s) return { kind: "timeline", timeline: s.timeline, label: s.name };
+    }
+    if (preview.kind === "render") {
+      const r = renders.find((x) => x.id === preview.id);
+      if (r) {
+        const aspect = r.preset && ["tiktok", "reels"].includes(r.preset) ? "9:16" : r.preset === "linkedin" ? "1:1"
+          : r.preset === "youtube" ? "16:9" : sequences.find((s) => s.id === r.sequence_id)?.timeline?.aspect;
+        return { kind: "render", render: r, label: r.sequence_name ?? "Render", aspect };
+      }
+    }
+    if (draft?.clips.length) return { kind: "timeline", timeline: draft, label: seq?.name ?? "Edit" };
+    return { kind: "empty", label: assets.some((a) => a.kind === "video" || a.kind === "audio") ? "Ask Cue for an edit, then preview it here." : "Upload a recording to begin." };
+  }, [preview, proposals, renders, draft, seq, assets, sequences]);
+
+  // Editing shortcuts (undo/redo everywhere; split/delete/save in Pro).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e.target) || dialog) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+      if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redo(); return; }
+      if (mode !== "pro" || !draft) return;
+      if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); if (dirty) save(); return; }
+      if (mod || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() === "s") { e.preventDefault(); edit(splitAt(draft, playhead)); }
+      if ((e.key === "Delete" || e.key === "Backspace") && selected !== null) {
+        e.preventDefault(); edit(removeClip(draft, selected)); setSelected(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mode, draft, playhead, selected, dirty, dialog, edit, save, undo, redo]);
+
+  // Bring the player into view when something new is previewed (desktop scroll position, phone tab).
+  const monitor = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (preview.kind === "edit") return;
+    const el = monitor.current;
+    if (el && el.getBoundingClientRect().top < 64) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [preview]);
+
+  const seekSource = (assetId: string, t: number) => {
+    if (!draft) return;
+    const i = draft.clips.findIndex((c) => c.asset_id === assetId && t >= c.start && t <= c.end);
+    if (i >= 0) { setPreview({ kind: "edit" }); player.current?.seek(outputTime(draft, i, t)); }
+  };
+
+  if (!loaded) return <div className="grid min-h-dvh place-items-center text-muted"><Spinner size={22} /></div>;
+
+  const playerEl = <Player ref={player} pid={pid} source={source} assets={assets} segments={segments} onTime={setPlayhead} shortcuts={!dialog} />;
+  const previewBanner = preview.kind !== "edit" && (
+    <div className="flex items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent-soft px-3 py-2 text-xs" data-testid="preview-banner">
+      <span>{preview.kind === "proposal" ? "Previewing Cue's proposal: nothing is changed until you approve it." : "Playing a rendered file."}</span>
+      <button className="btn btn-ghost btn-sm" onClick={() => setPreview({ kind: "edit" })}>Back to your edit</button>
+    </div>
+  );
+  const pending = proposals.filter((p) => p.status === "pending").length;
+
+  return (
+    <WorkspaceCtx.Provider value={ws}>
+      <TopBar />
+      <main id="main" className="mx-auto w-full max-w-[1600px] space-y-3 px-3 pb-24 pt-3 sm:px-5 lg:pb-5">
+        {mode === "simple" && guide && <Onboarding onDismiss={() => { setGuide(false); try { localStorage.setItem(`cutcue-guide-${pid}`, "hidden"); } catch { /* */ } }} />}
+
+        {mode === "simple" ? (
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
+            <div className={`space-y-4 ${mobileTab === "cue" ? "hidden lg:block" : ""}`}>
+              <section ref={monitor} className={`card scroll-mt-20 space-y-3 p-3 sm:p-4 ${mobileTab === "files" ? "hidden lg:block" : ""}`} aria-label="Preview">
+                {previewBanner}
+                {playerEl}
+              </section>
+              <div className={mobileTab === "files" ? "hidden lg:block" : ""}><EditCard /></div>
+              <section className={`card space-y-3 p-4 ${mobileTab === "preview" ? "hidden lg:block" : ""}`} aria-labelledby="files-h">
+                <h2 id="files-h" className="label">Files</h2>
+                <UploadZone compact={assets.length > 0} />
+                <FileList />
+              </section>
+            </div>
+            <aside className={`card p-4 lg:sticky lg:top-[4.5rem] lg:block lg:h-[calc(100dvh-5.5rem)] ${mobileTab === "cue" ? "h-[calc(100dvh-10rem)]" : "hidden"}`}>
+              <CueChat />
+            </aside>
+          </div>
+        ) : (
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-3 lg:h-[calc(100dvh-4.75rem)] lg:grid-rows-[minmax(0,1fr)_auto]">
+            <div className="grid min-h-0 grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-2 lg:grid-cols-[340px_minmax(0,1fr)_320px]">
+              <section className="card flex min-h-0 flex-col gap-2 p-3 md:col-span-2 lg:col-span-1 lg:col-start-2 lg:row-start-1" aria-label="Program monitor">
+                {previewBanner}
+                <div className="min-h-0 flex-1">{playerEl}</div>
+              </section>
+              <aside className="card flex min-h-[340px] flex-col gap-3 p-3 lg:col-start-1 lg:row-start-1 lg:min-h-0" aria-label="Media and tools">
+                <Tabs label="Panels" value={leftTab} onChange={setLeftTab} size="sm" tabs={[
+                  { id: "media", label: "Media" }, { id: "transcript", label: "Transcript" }, { id: "tools", label: "Auto" },
+                  { id: "brief", label: "Brief" }, { id: "speakers", label: "Voices" }]} />
+                <div className="scroll-thin min-h-0 flex-1 overflow-y-auto" role="tabpanel" aria-labelledby={`tab-${leftTab}`}>
+                  {leftTab === "media" && (
+                    <div className="space-y-3">
+                      <UploadZone compact hint="Drag files here · drag a recording onto the timeline to add it" />
+                      <FileList selectable selected={sourceAsset?.id} onSelect={setSourceAsset} />
+                    </div>
+                  )}
+                  {leftTab === "transcript" && <TranscriptEditor playhead={playhead} onSeekSource={seekSource} />}
+                  {leftTab === "tools" && (
+                    <div className="space-y-5">
+                      <div><h3 className="label mb-2">Podcast auto-edit</h3><AutoEditPanel pid={pid} assets={assets} onCreated={() => { store.refresh(); setRightTab("cue"); }} /></div>
+                      <div><h3 className="label mb-2">Clip factory</h3><ClipsPanel pid={pid} onCreated={() => { store.refresh(); setRightTab("cue"); }} /></div>
+                    </div>
+                  )}
+                  {leftTab === "brief" && <BriefPanel pid={pid} versionId={dirty ? null : seq?.current_version_id ?? null} />}
+                  {leftTab === "speakers" && <SourcePanel pid={pid} asset={sourceAsset ?? assets.find((a) => a.kind === "video" || a.kind === "audio") ?? null} assets={assets} onChanged={store.refresh} />}
+                </div>
+              </aside>
+              <aside className="card flex min-h-[420px] flex-col gap-3 p-3 lg:col-start-3 lg:row-start-1 lg:min-h-0" aria-label="Inspector and Cue">
+                <Tabs label="Right panel" value={rightTab} onChange={setRightTab} size="sm" tabs={[
+                  { id: "inspect", label: "Inspector", icon: "sliders" }, { id: "cue", label: "Cue", icon: "sparkle", badge: pending }]} />
+                <div className="scroll-thin min-h-0 flex-1 overflow-y-auto" role="tabpanel">
+                  {rightTab === "inspect" ? (draft ? <Inspector timeline={draft} selected={selected} onEdit={edit} /> : <p className="text-sm text-faint">No edit yet.</p>) : <CueChat />}
+                </div>
+              </aside>
+            </div>
+            <section className="card flex flex-col gap-2 p-3" aria-label="Timeline">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex max-w-full gap-1.5 overflow-x-auto scroll-thin" role="tablist" aria-label="Outputs">
+                  {sequences.map((s) => (
+                    <button key={s.id} role="tab" aria-selected={s.id === seq?.id} className={`btn btn-sm shrink-0 ${s.id === seq?.id ? "border-accent text-violet" : ""}`}
+                            onClick={() => { store.setSeqId(s.id); setSelected(null); setPreview({ kind: "edit" }); }}>{s.name.replace(/^Clip (\d+): .*/, "Clip $1")}</button>
+                  ))}
+                </div>
+                <div className="ml-auto flex flex-wrap items-center gap-1.5">
+                  <button className="btn btn-sm" disabled={!draft} onClick={() => draft && edit(splitAt(draft, playhead))} title="Split at playhead (S)"><Icon name="scissors" size={14} /> Split</button>
+                  <button className="btn btn-sm" disabled={!draft || selected === null} title="Delete cut (⌫)"
+                          onClick={() => { if (draft && selected !== null) { edit(removeClip(draft, selected)); setSelected(null); } }}><Icon name="trash" size={14} /> Delete</button>
+                  <button className="btn btn-ghost btn-icon" onClick={undo} disabled={!store.canUndo} aria-label="Undo (⌘Z)"><Icon name="undo" /></button>
+                  <button className="btn btn-ghost btn-icon" onClick={redo} disabled={!store.canRedo} aria-label="Redo (⇧⌘Z)"><Icon name="redo" /></button>
+                  {dirty && <button className="btn btn-sm" onClick={discard}>Discard</button>}
+                  <button className="btn btn-primary btn-sm" disabled={!dirty} onClick={() => save()} title="Save version (⌘S)" data-testid="save-version">
+                    {dirty ? <><span className="h-1.5 w-1.5 rounded-full bg-white" /> Save version</> : "Saved"}
+                  </button>
+                </div>
+              </div>
+              {draft && draft.clips.length ? (
+                <div className="h-[210px]">
+                  <Timeline pid={pid} timeline={draft} assets={assets} segments={segments} playhead={playhead}
+                            onSeek={(t) => { setPreview({ kind: "edit" }); player.current?.seek(t); setPlayhead(t); }} onEdit={edit} selected={selected} onSelect={setSelected} />
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-line2 p-5 text-sm text-muted">
+                  No edit yet. Ask Cue for one, or start from the full recording.
+                  {assets.filter((a) => (a.kind === "video" || a.kind === "audio") && a.status === "ready").slice(0, 1).map((a) => (
+                    <button key={a.id} className="btn btn-sm" onClick={() => store.run(() => api.post(`/projects/${pid}/sequences`, {
+                      name: "Main edit", timeline: { aspect: "16:9", clips: [{ asset_id: a.id, start: 0, end: a.duration }], burn_captions: false, normalize_audio: true } }), "Started from the full recording")}>
+                      <Icon name="plus" size={14} /> Use {a.original_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+      </main>
+
+      {mode === "simple" && (
+        <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 border-t border-line bg-ink/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden" aria-label="Sections">
+          {([["cue", "Cue", "sparkle"], ["preview", "Preview", "play"], ["files", "Files", "upload"]] as const).map(([id, label, icon]) => (
+            <button key={id} onClick={() => setMobileTab(id)} aria-current={mobileTab === id ? "page" : undefined}
+                    className={`relative flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${mobileTab === id ? "text-violet" : "text-muted"}`}>
+              <Icon name={icon} size={20} />{label}
+              {id === "cue" && pending > 0 && <span className="absolute right-[calc(50%-18px)] top-2 h-2 w-2 rounded-full bg-violet" aria-label={`${pending} proposal waiting`} />}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      <ExportDialog open={dialog === "export"} onClose={() => setDialog("")} />
+      <VersionsDialog open={dialog === "versions"} onClose={() => setDialog("")} />
+      <Dialog open={dialog === "brief"} onClose={() => setDialog("")} title="Creative brief">
+        <BriefPanel pid={pid} versionId={seq?.current_version_id ?? null} />
+      </Dialog>
+      <Toasts toasts={toasts} />
+    </WorkspaceCtx.Provider>
+  );
+}
+
+function Route() {
+  const q = useSearchParams();
+  const pid = q.get("id");
+  const [mode, setMode] = useState<Mode | null>(null);
+  useEffect(() => {
+    const fromUrl = q.get("mode");
+    let stored: string | null = null;
+    try { stored = localStorage.getItem("cutcue-mode"); } catch { /* */ }
+    setMode((m) => m ?? (fromUrl === "pro" || fromUrl === "simple" ? fromUrl : stored === "pro" ? "pro" : "simple"));
+  }, [q]);
+  if (!pid) return <p className="p-8 text-muted">Missing project. <Link href="/" className="text-violet underline">Back to projects</Link></p>;
+  if (!mode) return null;
+  return <ProjectProvider pid={pid}><Workspace initialMode={mode} welcome={q.get("welcome") === "1"} /></ProjectProvider>;
 }
 
 export default function Page() {
-  return (
-    <AuthGate>
-      <Suspense fallback={<div className="p-8 text-muted">Loading…</div>}>
-        <EditorRoute />
-      </Suspense>
-    </AuthGate>
-  );
+  return <AuthGate><Suspense fallback={null}><Route /></Suspense></AuthGate>;
 }

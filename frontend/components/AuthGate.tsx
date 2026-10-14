@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
+import { Logo, Spinner } from "./ui";
 
 /** Single-user password gate, shown only when CUTCUE_PASSWORD is set on the server. */
 export default function AuthGate({ children }: { children: React.ReactNode }) {
@@ -14,34 +15,33 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       .catch(() => setState("down"));
   }, []);
 
-  if (state === "loading") return <div className="p-8 text-muted">Loading…</div>;
+  if (state === "loading") return <div className="grid min-h-dvh place-items-center text-muted"><Spinner size={22} /></div>;
   if (state === "down")
     return (
-      <div className="p-8">
-        <h1 className="text-xl font-semibold">Menapoly Cut Cue</h1>
-        <p className="mt-2 text-danger">The API server is not reachable. Start it with <code>make dev</code>.</p>
-      </div>
+      <main id="main" className="mx-auto grid min-h-dvh max-w-md place-items-center px-6 text-center">
+        <div className="space-y-3">
+          <div className="flex justify-center"><Logo /></div>
+          <p className="text-danger">Cut Cue&apos;s engine isn&apos;t running.</p>
+          <p className="text-sm text-muted">Start it on your Mac with <code className="kbd">make dev</code>, then reload this page.</p>
+        </div>
+      </main>
     );
   if (state === "out")
     return (
-      <form
-        className="mx-auto mt-24 flex max-w-sm flex-col gap-3 card p-6"
-        onSubmit={async (e) => {
+      <main id="main" className="grid min-h-dvh place-items-center px-4">
+        <form className="card w-full max-w-sm space-y-4 p-6 animate-rise" onSubmit={async (e) => {
           e.preventDefault();
-          try {
-            await api.post("/auth/login", { password });
-            setState("in");
-          } catch (err) {
-            setError(err instanceof ApiError ? err.message : "Sign in failed");
-          }
-        }}
-      >
-        <h1 className="text-lg font-semibold">Menapoly Cut Cue</h1>
-        <input className="input" type="password" placeholder="Password" value={password}
-               onChange={(e) => setPassword(e.target.value)} autoFocus />
-        {error && <p className="text-sm text-danger">{error}</p>}
-        <button className="btn btn-primary justify-center">Sign in</button>
-      </form>
+          try { await api.post("/auth/login", { password }); setState("in"); }
+          catch (err) { setError(err instanceof ApiError ? err.message : "Sign in failed"); }
+        }}>
+          <Logo />
+          <label className="block space-y-1.5"><span className="label">Password</span>
+            <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus autoComplete="current-password" />
+          </label>
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+          <button className="btn btn-primary w-full">Sign in</button>
+        </form>
+      </main>
     );
   return <>{children}</>;
 }

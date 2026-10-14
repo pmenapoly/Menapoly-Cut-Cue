@@ -4,6 +4,7 @@ Produces, in the output directory:
   market-mocha-interview.mp4        one speaker, 1280x720 test pattern + speech
   market-mocha-podcast.mp4          two speakers (host/guest voices), fillers, dead air, long pauses
   market-mocha-podcast-stereo.m4a   same podcast as audio, host panned hard left, guest hard right
+  market-mocha-podcast.wav          same podcast as plain WAV (plays in any browser; used by UI tests)
   music-bed.wav                     30 s 5.5 kHz tone (speech is band-limited below 3.8 kHz, so music level
                                     can be measured separately from speech, e.g. to verify ducking)
   market-mocha-brief.txt / .pdf     creative brief
@@ -196,6 +197,10 @@ def main(out_dir: Path) -> Path:
         run(["ffmpeg", "-y", "-i", str(host_mask), "-i", str(guest_mask), "-filter_complex",
              "[0:a][1:a]join=inputs=2:channel_layout=stereo[a]", "-map", "[a]", "-c:a", "aac", "-b:a", "192k", str(stereo)])
         write_transcript(out_dir, stereo, p_segments)
+        # Plain WAV copy: playable in any browser (Playwright's Chromium has no H.264/AAC), used by UI tests.
+        wav = out_dir / "market-mocha-podcast.wav"
+        run(["ffmpeg", "-y", "-i", str(p_audio), "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", str(wav)])
+        write_transcript(out_dir, wav, p_segments)
 
     run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=5500:sample_rate=48000:duration=30",
          "-ac", "2", str(out_dir / "music-bed.wav")])

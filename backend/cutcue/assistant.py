@@ -537,10 +537,9 @@ class Assistant:
             return " ".join(rationale), []
         proposal = self.s.create_proposal(project_id, "Local planner: " + ", ".join(s["name"] for s in sequences),
                                           " ".join(rationale), sequences, created_by="local-test", notes=notes)
-        summary = "\n".join(f"- {s['name']}: {s['clip_count']} clips, {s['duration']:.1f}s ({s['timeline']['aspect']})"
-                            + (f" - brief: {s['compliance']['summary']}" if s.get("compliance") else "")
-                            for s in proposal["plan"]["sequences"])
-        return f"Proposal ready for your approval:\n{summary}\n\n{proposal['rationale']}", [proposal["id"]]
+        names = ", ".join(s["name"] for s in proposal["plan"]["sequences"])
+        return (f"I've prepared a proposal ({names}). Preview it, then approve it or tell me what to change.",
+                [proposal["id"]])
 
     def proposal_summary(self, proposal: dict) -> dict:
         return {"id": proposal["id"], "title": proposal["title"], "status": proposal["status"],

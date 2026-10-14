@@ -52,7 +52,7 @@ def _contains(text: str, phrase: str) -> bool:
 
 
 def _tightened(window: list[dict], max_pause: float = 0.3) -> float:
-    """Estimated duration after the clip's own pause tightening."""
+    """Estimated duration after the clip's own pause tightening (max_pause=inf: untouched length)."""
     total = window[-1]["end"] - window[0]["start"]
     for a, b in zip(window, window[1:]):
         total -= max(0.0, b["start"] - a["end"] - max_pause)
@@ -110,7 +110,7 @@ def score_window(window: list[dict], req: dict, target: float) -> tuple[float, l
 
 def find_moments(asset_id: str, segments: list[dict], req: dict | None = None, *, count: int = 3, min_s: float = 15.0,
                  max_s: float = 60.0, target_s: float | None = None, exclude: list[tuple[float, float]] | None = None,
-                 max_candidates: int = 12) -> tuple[list[Candidate], list[Candidate]]:
+                 max_candidates: int = 12, pause_cap: float = 0.3) -> tuple[list[Candidate], list[Candidate]]:
     """Return (chosen, ranked_candidates). ``segments`` = transcript of one asset (with speakers if known)."""
     req = req or {}
     target = target_s or (min_s + max_s) / 2
@@ -123,7 +123,7 @@ def find_moments(asset_id: str, segments: list[dict], req: dict | None = None, *
             continue
         for j in range(i, len(segs)):
             window = segs[i: j + 1]
-            est = _tightened(window)
+            est = _tightened(window, pause_cap)
             if est > max_s:
                 break
             if est < min_s or not (TERMINAL.search(window[-1]["text"].strip()) or j == len(segs) - 1):
