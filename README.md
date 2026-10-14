@@ -25,7 +25,43 @@ make dev      # API :8000 + live-reload UI → open http://localhost:3000
 make start    # one process, built UI → open http://127.0.0.1:8000
 ```
 
-`make check` re-runs the dependency check. `make test` runs the automated test suite (about one minute; it does real FFmpeg renders).
+`make check` re-runs the dependency check. `make test` runs the backend test suite (a few minutes; it does real FFmpeg renders). `make ui-test` runs the browser interaction tests at desktop, tablet and phone sizes.
+
+## The interface
+
+Menapoly Cut Cue has two modes on the same project. Switch between them at any time from the top bar; your edit, history and exports are shared.
+
+- **Cue Simple** (default) is for anyone; no editing experience needed.
+  - A guided path: **Create → Upload → Add brief → Analyze → Ask Cue → Review → Export**.
+  - Drag in your recording and brief, then chat with Cue or tap a suggested request.
+  - Each proposal is explained in plain language, with what it removes and whether it meets the brief.
+  - **Preview** plays a proposal instantly, straight from your files, before you **Approve**, **Revise** (with a note) or **Reject** it.
+  - **Export** offers one-tap presets: YouTube, Podcast, TikTok, Instagram Reels, LinkedIn, or As edited.
+- **Cue Pro** is a timeline editor:
+  - video, audio (waveforms), music and caption tracks;
+  - drag to reorder, drag the edges to trim, split at the playhead;
+  - transcript editing: select words to cut them or add them, and fix the wording so the captions update;
+  - an inspector for format, framing, captions, title and the full audio chain;
+  - auto-edit, Clip Factory, brief and speaker panels;
+  - drag a recording from the media bin onto the timeline.
+- **Shared by both modes:**
+  - undo/redo, first through unsaved edits, then through saved versions;
+  - version history with a side-by-side **before/after** comparison and restore;
+  - processing status for each file, with progress and time left based on the job's actual speed.
+- **Phones:** bottom tabs (Cue · Preview · Files) cover uploading, chatting, previewing, approving and downloading. Cue Pro is designed for tablet and desktop.
+
+**Keyboard:**
+- Playback: <kbd>Space</kbd>/<kbd>K</kbd> play/pause · <kbd>J</kbd>/<kbd>L</kbd> ±5 s · <kbd>←</kbd>/<kbd>→</kbd> ±1 s · <kbd>M</kbd> mute · <kbd>C</kbd> captions · <kbd>F</kbd> full screen · <kbd>?</kbd> shortcut help.
+- Pro editing: <kbd>S</kbd> split · <kbd>⌫</kbd> delete · <kbd>⌘Z</kbd>/<kbd>⇧⌘Z</kbd> undo/redo · <kbd>⌘S</kbd> save · <kbd>Alt</kbd>+arrows move a cut · <kbd>Shift</kbd>+arrows trim.
+
+**Accessibility:**
+- visible focus rings and a skip link;
+- dialogs that trap focus and close with <kbd>Esc</kbd>;
+- labelled controls;
+- text contrast of at least 4.5:1;
+- reduced motion respected.
+
+Screenshots from the automated tests are in [`docs/screenshots/`](docs/screenshots/).
 
 ## Using it
 

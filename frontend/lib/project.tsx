@@ -20,7 +20,7 @@ type Store = {
   approve: (p: Proposal) => Promise<void>; reject: (p: Proposal) => Promise<void>;
   exportWith: (preset: string, wav?: boolean) => Promise<Render | null>;
   run: <T>(fn: () => Promise<T>, success?: string) => Promise<T | null>; toast: (text: string, tone?: Toast["tone"]) => void;
-  dismissUpload: (key: string) => void;
+  dismissUpload: (key: string) => void; reloadTranscript: (assetId: string) => Promise<void>;
 };
 
 const Ctx = createContext<Store | null>(null);
@@ -107,18 +107,21 @@ export function ProjectProvider({ pid, children }: { pid: string; children: Reac
     setSeqIdState(sequences[0]?.id ?? null);
   }, [sequences, seqId]);
   const seq = sequences.find((s) => s.id === seqId) ?? null;
-  const dirty = !!draft && !!seq && !sameTimeline(draft, seq.timeline);
+  // `base` is the saved timeline the draft started from; local edits = draft differs from it.
+  const [base, setBase] = useState<Timeline | null>(null);
+  const dirty = !!draft && !sameTimeline(draft, base);
 
-  // When the saved version changes and there are no local edits, follow it.
+  // When the saved version changes (approve, restore, undo/redo of versions) and there are no local edits, follow it.
   useEffect(() => {
-    if (!dirty) { setDraft(seq?.timeline ?? null); setPast([]); setFuture([]); }
+    if (!dirty) { setDraft(seq?.timeline ?? null); setBase(seq?.timeline ?? null); setPast([]); setFuture([]); }
   }, [seq?.current_version_id, seqId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const setSeqId = useCallback((id: string | null) => {
     if (dirty && !confirm("You have unsaved timeline changes. Discard them?")) return;
     setPast([]); setFuture([]);
     setSeqIdState(id);
-    setDraft(sequences.find((s) => s.id === id)?.timeline ?? null);
+    const tl = sequences.find((s) => s.id === id)?.timeline ?? null;
+    setDraft(tl); setBase(tl);
   }, [dirty, sequences]);
 
   const run = useCallback(async <T,>(fn: () => Promise<T>, success?: string): Promise<T | null> => {
@@ -163,12 +166,13 @@ export function ProjectProvider({ pid, children }: { pid: string; children: Reac
   const canUndo = past.length > 0 || versionIndex > 0;
   const canRedo = future.length > 0 || (seq ? versionIndex >= 0 && versionIndex < seq.versions.length - 1 : false);
 
-  const discard = useCallback(() => { setDraft(seq?.timeline ?? null); setPast([]); setFuture([]); }, [seq]);
+  const discard = useCallback(() => { setDraft(seq?.timeline ?? null); setBase(seq?.timeline ?? null); setPast([]); setFuture([]); }, [seq]);
 
   const save = useCallback(async (label = "Edited in Cue Pro") => {
     if (!seq || !draft) return;
-    const ok = await run(() => api.post(`/projects/${pid}/sequences/${seq.id}/versions`, { timeline: draft, label }), "Saved as a new version");
-    if (ok) { setPast([]); setFuture([]); }
+    const saved = draft;
+    const ok = await run(() => api.post(`/projects/${pid}/sequences/${seq.id}/versions`, { timeline: saved, label }), "Saved as a new version");
+    if (ok) { setBase(saved); setPast([]); setFuture([]); }
   }, [seq, draft, pid, run]);
 
   const upload = useCallback((files: FileList | File[]) => {
@@ -203,7 +207,7 @@ export function ProjectProvider({ pid, children }: { pid: string; children: Reac
   const approve = useCallback(async (p: Proposal) => {
     const res = await run(() => api.post<Proposal>(`/projects/${pid}/proposals/${p.id}/approve`), "Approved. Rendering a preview…");
     const first = res?.result?.created?.[0];
-    if (first) { setPast([]); setFuture([]); setSeqIdState(first.sequence_id); }
+    if (first) { setPast([]); setFuture([]); setDraft(null); setBase(null); setSeqIdState(first.sequence_id); }
   }, [pid, run]);
 
   const reject = useCallback(async (p: Proposal) => {
@@ -217,14 +221,18 @@ export function ProjectProvider({ pid, children }: { pid: string; children: Reac
   }, [seq, pid, run, toast]);
 
   const dismissUpload = useCallback((key: string) => setUploads((u) => u.filter((x) => x.key !== key)), []);
+  const reloadTranscript = useCallback(async (assetId: string) => {
+    const segs = await api.get<Segment[]>(`/projects/${pid}/assets/${assetId}/transcript`);
+    setSegments((s) => ({ ...s, [assetId]: segs }));
+  }, [pid]);
 
   const value = useMemo<Store>(() => ({
     pid, loaded, health, project, assets, sequences, proposals, renders, jobs, brief, presets, messages, segments, uploads, toasts,
     sending, seqId, setSeqId, seq, draft, dirty, canUndo, canRedo, edit, undo, redo, discard, save, refresh, upload, send, approve,
-    reject, exportWith, run, toast, dismissUpload,
+    reject, exportWith, run, toast, dismissUpload, reloadTranscript,
   }), [pid, loaded, health, project, assets, sequences, proposals, renders, jobs, brief, presets, messages, segments, uploads, toasts,
     sending, seqId, setSeqId, seq, draft, dirty, canUndo, canRedo, edit, undo, redo, discard, save, refresh, upload, send, approve,
-    reject, exportWith, run, toast, dismissUpload]);
+    reject, exportWith, run, toast, dismissUpload, reloadTranscript]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -10,9 +10,9 @@
   --color-line2: #3a3850;
   --color-text: #eeedf7;
   --color-muted: #a3a1bd;
-  --color-faint: #747291;
+  --color-faint: #9290ae;
   --color-accent: #8b7cf8;
-  --color-accent-strong: #7262f2;
+  --color-accent-strong: #5f4fe0;
   --color-accent-soft: #8b7cf826;
   --color-violet: #b18cff;
   --color-ok: #5ad69a;
@@ -58,9 +58,9 @@ body::before {
   }
   .btn-primary {
     @apply border-transparent text-white shadow-[0_6px_24px_-8px_#7262f2aa];
-    background-image: linear-gradient(135deg, #7262f2, #9a6cf5);
+    background-image: linear-gradient(135deg, #5f4fe0, #7346d9);
   }
-  .btn-primary:hover:not(:disabled) { background-image: linear-gradient(135deg, #7d6ef6, #a679f7); }
+  .btn-primary:hover:not(:disabled) { background-image: linear-gradient(135deg, #6858e6, #7c4fe0); }
   .btn-ghost { @apply border-transparent bg-transparent hover:bg-panel2; }
   .btn-danger { @apply border-danger/40 text-danger hover:bg-danger/10; }
   .btn-sm { @apply min-h-7 px-2.5 py-1 text-xs; }

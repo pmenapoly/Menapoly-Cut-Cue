@@ -11,7 +11,7 @@ import { Icon } from "./ui";
 const SPEAKER_COLORS = ["text-violet", "text-audio", "text-[#f1a58f]", "text-[#d6c56b]"];
 
 export function TranscriptEditor({ playhead, onSeekSource }: { playhead: number; onSeekSource: (assetId: string, t: number) => void }) {
-  const { pid, assets, segments, draft, edit, run } = useStore();
+  const { pid, assets, segments, draft, edit, run, reloadTranscript } = useStore();
   const media = assets.filter((a) => (a.kind === "video" || a.kind === "audio") && a.has_transcript);
   const [assetId, setAssetId] = useState<string>("");
   const asset: Asset | undefined = media.find((a) => a.id === assetId) ?? media[0];
@@ -71,6 +71,7 @@ export function TranscriptEditor({ playhead, onSeekSource }: { playhead: number;
                 <form className="flex gap-2" onSubmit={async (e) => {
                   e.preventDefault();
                   await run(() => api.patch(`/projects/${pid}/assets/${asset.id}/transcript/${s.idx}`, { text }), "Transcript corrected; captions updated");
+                  await reloadTranscript(asset.id);
                   setEditing(null);
                 }}>
                   <input className="input text-sm" value={text} onChange={(e) => setText(e.target.value)} autoFocus aria-label="Corrected text" />

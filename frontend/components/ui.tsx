@@ -74,9 +74,14 @@ export function Dialog({ open, onClose, title, children, wide = false }: {
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // Remember what had focus *before* opening (children with autoFocus move focus during commit).
+  const opener = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  if (open && !wasOpen.current && typeof document !== "undefined") opener.current = document.activeElement as HTMLElement | null;
+  wasOpen.current = open;
   useEffect(() => {
     if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
+    const previous = opener.current;
     const node = ref.current;
     const focusables = () => Array.from(node?.querySelectorAll<HTMLElement>(
       'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])') ?? []);
@@ -129,7 +134,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, label, size = "m
                 className={`flex shrink-0 items-center gap-1.5 rounded-lg font-medium transition-colors ${size === "sm" ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"} ${
                   value === t.id ? "bg-panel3 text-text shadow-sm" : "text-muted hover:text-text"}`}>
           {t.icon && <Icon name={t.icon} size={15} />}{t.label}
-          {!!t.badge && <span className="rounded-full bg-accent px-1.5 text-[10px] text-white">{t.badge}</span>}
+          {!!t.badge && <span className="rounded-full bg-accent-strong px-1.5 text-[10px] text-white">{t.badge}</span>}
         </button>
       ))}
     </div>
@@ -168,7 +173,7 @@ export function Segmented<T extends string>({ options, value, onChange, label }:
       {options.map((o) => (
         <button key={o.id} role="radio" aria-checked={value === o.id} title={o.hint} onClick={() => onChange(o.id)}
                 className={`rounded-[10px] px-3 py-1.5 text-sm font-medium transition-all ${
-                  value === o.id ? "bg-gradient-to-br from-accent-strong to-[#9a6cf5] text-white shadow" : "text-muted hover:text-text"}`}>
+                  value === o.id ? "bg-[linear-gradient(135deg,#5f4fe0,#7346d9)] text-white shadow" : "text-muted hover:text-text"}`}>
           {o.label}
         </button>
       ))}

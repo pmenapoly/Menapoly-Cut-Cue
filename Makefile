@@ -3,7 +3,7 @@ PY ?= python3
 VENV := backend/.venv
 VPY := $(VENV)/bin/python
 
-.PHONY: setup check dev start build test validate fixture whisper-model clean
+.PHONY: setup check dev start build test ui-test validate fixture whisper-model clean
 
 setup: ## Install backend + frontend dependencies and create .env
 	test -d $(VENV) || $(PY) -m venv $(VENV)
@@ -27,6 +27,9 @@ start: build ## Single process: API + built UI on http://127.0.0.1:8000
 
 test: ## Backend unit, integration and end-to-end tests (real FFmpeg renders)
 	cd backend && .venv/bin/python -m pytest -q
+
+ui-test: build ## Browser interaction tests (Playwright) at desktop, tablet and phone sizes; screenshots -> docs/screenshots
+	cd frontend && npx playwright test
 
 validate: ## Real-world validation on this machine: make validate MEDIA=~/Movies/episode.mp4 [CLIP_MINUTES=10] [BRIEF=brief.pdf]
 	$(VPY) scripts/validate.py $(if $(MEDIA),--media "$(MEDIA)") $(if $(CLIP_MINUTES),--clip-minutes $(CLIP_MINUTES)) $(if $(BRIEF),--brief "$(BRIEF)")

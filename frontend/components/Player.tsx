@@ -168,7 +168,12 @@ export const Player = forwardRef<PlayerHandle, {
                  onError={() => setError("This browser can't play this file. Try Chrome or Safari, or play the exported MP4.")}
                  onClick={toggle} />
         ) : (
-          <div className="grid h-full place-items-center p-6 text-center text-sm text-muted">{source.label}</div>
+          <div className="grid h-full place-items-center bg-gradient-to-br from-[#17142b] via-[#100e1c] to-[#1a1230] p-6 text-center">
+            <div className="space-y-3">
+              <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-accent-soft text-violet"><Icon name="film" size={26} /></div>
+              <p className="text-sm text-muted">{source.label}</p>
+            </div>
+          </div>
         )}
         {audioOnly && (
           <div className="pointer-events-none absolute inset-0 grid place-items-center bg-gradient-to-br from-[#1c1838] to-[#0f0d1c]">
@@ -205,21 +210,21 @@ export const Player = forwardRef<PlayerHandle, {
       {error && <p role="alert" className="text-center text-xs text-warn">{error}</p>}
 
       <div className="flex items-center gap-1.5 sm:gap-2" aria-label="Playback controls">
-        <button className="btn btn-ghost btn-icon" onClick={() => seek(time - 5)} aria-label="Back 5 seconds (J)" disabled={!src}><Icon name="back5" /></button>
+        {!compact && <button className="btn btn-ghost btn-icon" onClick={() => seek(time - 5)} aria-label="Back 5 seconds (J)" disabled={!src}><Icon name="back5" /></button>}
         <button className="btn btn-icon border-transparent bg-text text-ink hover:bg-white" onClick={toggle} aria-label={playing ? "Pause (Space)" : "Play (Space)"} disabled={!src}
                 data-testid="play-toggle" data-playing={playing}>
           <Icon name={playing ? "pause" : "play"} />
         </button>
-        <button className="btn btn-ghost btn-icon" onClick={() => seek(time + 5)} aria-label="Forward 5 seconds (L)" disabled={!src}><Icon name="fwd5" /></button>
+        {!compact && <button className="btn btn-ghost btn-icon" onClick={() => seek(time + 5)} aria-label="Forward 5 seconds (L)" disabled={!src}><Icon name="fwd5" /></button>}
         <span className="w-[5.5rem] shrink-0 text-center font-mono text-xs tabular-nums text-muted" data-testid="player-time">{fmt(time)} / {fmt(total)}</span>
         <input type="range" className="h-1.5 min-w-0 flex-1 cursor-pointer accent-[#8b7cf8]" min={0} max={Math.max(total, 0.01)} step={0.05}
                value={Math.min(time, total)} onChange={(e) => seek(Number(e.target.value))} aria-label="Seek" disabled={!src}
                aria-valuetext={`${fmt(time)} of ${fmt(total)}`} />
-        <button className="btn btn-ghost btn-icon hidden sm:inline-flex" onClick={() => setMuted((m) => !m)} aria-label={muted ? "Unmute (M)" : "Mute (M)"} aria-pressed={muted}>
+        <button className={`btn btn-ghost btn-icon hidden ${compact ? "" : "sm:inline-flex"}`} onClick={() => setMuted((m) => !m)} aria-label={muted ? "Unmute (M)" : "Mute (M)"} aria-pressed={muted}>
           <Icon name={muted ? "mute" : "volume"} /></button>
-        {timeline && <button className={`btn btn-ghost btn-sm ${cc ? "text-violet" : ""}`} onClick={() => setCc((c) => !c)} aria-pressed={cc} aria-label="Captions (C)">CC</button>}
-        <button className="btn btn-ghost btn-icon hidden sm:inline-flex" onClick={() => frame.current?.requestFullscreen?.().catch(() => {})} aria-label="Full screen (F)"><Icon name="maximize" /></button>
-        <button className="btn btn-ghost btn-icon hidden md:inline-flex" onClick={() => setShowHelp((h) => !h)} aria-label="Keyboard shortcuts (?)" aria-expanded={showHelp}><Icon name="keyboard" /></button>
+        {timeline && !compact && <button className={`btn btn-ghost btn-sm ${cc ? "text-violet" : ""}`} onClick={() => setCc((c) => !c)} aria-pressed={cc} aria-label="Captions (C)">CC</button>}
+        <button className={`btn btn-ghost btn-icon hidden ${compact ? "" : "sm:inline-flex"}`} onClick={() => frame.current?.requestFullscreen?.().catch(() => {})} aria-label="Full screen (F)"><Icon name="maximize" /></button>
+        <button className={`btn btn-ghost btn-icon hidden ${compact ? "" : "md:inline-flex"}`} onClick={() => setShowHelp((h) => !h)} aria-label="Keyboard shortcuts (?)" aria-expanded={showHelp}><Icon name="keyboard" /></button>
       </div>
       {showHelp && (
         <div className="rounded-xl border border-line bg-panel2 p-3 text-xs text-muted animate-rise" role="note">

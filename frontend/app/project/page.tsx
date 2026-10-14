@@ -186,6 +186,9 @@ function Workspace({ initialMode, welcome }: { initialMode: Mode; welcome: boole
       }
     }
     if (draft?.clips.length) return { kind: "timeline", timeline: draft, label: seq?.name ?? "Edit" };
+    // Nothing approved yet: show the newest proposal waiting for review.
+    const waiting = [...proposals].reverse().find((p) => p.status === "pending");
+    if (waiting?.plan.sequences[0]) return { kind: "timeline", timeline: waiting.plan.sequences[0].timeline, label: waiting.title };
     return { kind: "empty", label: assets.some((a) => a.kind === "video" || a.kind === "audio") ? "Ask Cue for an edit, then preview it here." : "Upload a recording to begin." };
   }, [preview, proposals, renders, draft, seq, assets, sequences]);
 
@@ -225,10 +228,11 @@ function Workspace({ initialMode, welcome }: { initialMode: Mode; welcome: boole
   if (!loaded) return <div className="grid min-h-dvh place-items-center text-muted"><Spinner size={22} /></div>;
 
   const playerEl = <Player ref={player} pid={pid} source={source} assets={assets} segments={segments} onTime={setPlayhead} shortcuts={!dialog} />;
-  const previewBanner = preview.kind !== "edit" && (
+  const showingProposal = preview.kind === "proposal" || (preview.kind === "edit" && !draft?.clips.length && proposals.some((p) => p.status === "pending"));
+  const previewBanner = (showingProposal || preview.kind === "render") && (
     <div className="flex items-center justify-between gap-2 rounded-xl border border-accent/40 bg-accent-soft px-3 py-2 text-xs" data-testid="preview-banner">
-      <span>{preview.kind === "proposal" ? "Previewing Cue's proposal: nothing is changed until you approve it." : "Playing a rendered file."}</span>
-      <button className="btn btn-ghost btn-sm" onClick={() => setPreview({ kind: "edit" })}>Back to your edit</button>
+      <span>{showingProposal ? "Previewing Cue's proposal: nothing is changed until you approve it." : "Playing a rendered file."}</span>
+      {(preview.kind !== "edit" && !!draft?.clips.length) && <button className="btn btn-ghost btn-sm" onClick={() => setPreview({ kind: "edit" })}>Back to your edit</button>}
     </div>
   );
   const pending = proposals.filter((p) => p.status === "pending").length;
