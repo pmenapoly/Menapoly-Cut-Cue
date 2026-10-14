@@ -18,6 +18,7 @@ from . import diarize as diarize_mod
 from . import podcast
 from . import brief as brief_mod
 from . import moments as moments_mod
+from .presets import PRESETS, apply_overrides
 from .render import SourceAudio, remux_with_audio, render_timeline
 from .timeline import Clip, Timeline, TimelineError, clamp_to_duration, remove_pauses, timeline_duration, validate_timeline
 from . import transcribe as tx
@@ -103,8 +104,31 @@ class Services:
         return project
 
     def list_projects(self) -> list[dict]:
-        return self.db.all("""SELECT p.*, (SELECT COUNT(*) FROM assets a WHERE a.project_id = p.id) AS asset_count
-                              FROM projects p ORDER BY created_at DESC""")
+        return self.db.all("""SELECT p.*,
+                (SELECT COUNT(*) FROM assets a WHERE a.project_id = p.id) AS asset_count,
+                (SELECT a.id FROM assets a WHERE a.project_id = p.id AND a.thumb_name IS NOT NULL ORDER BY a.created_at LIMIT 1) AS thumb_asset_id,
+                (SELECT COUNT(*) FROM jobs j WHERE j.project_id = p.id AND j.status IN ('queued','running')) AS active_jobs,
+                (SELECT COUNT(*) FROM renders r WHERE r.project_id = p.id AND r.status = 'succeeded') AS render_count,
+                MAX(p.created_at,
+                    COALESCE((SELECT MAX(updated_at) FROM jobs j WHERE j.project_id = p.id), 0),
+                    COALESCE((SELECT MAX(created_at) FROM proposals x WHERE x.project_id = p.id), 0),
+                    COALESCE((SELECT MAX(created_at) FROM chat_messages c WHERE c.project_id = p.id), 0)) AS last_activity
+                FROM projects p ORDER BY last_activity DESC""")
+
+    def activity(self, limit: int = 12) -> list[dict]:
+        """Recent things that happened across projects, newest first (for the dashboard)."""
+        rows = self.db.all("""
+            SELECT 'render' AS kind, r.project_id, p.name AS project_name, r.created_at AS at, r.status AS status,
+                   COALESCE(s.name, '') AS detail
+              FROM renders r JOIN projects p ON p.id = r.project_id LEFT JOIN sequences s ON s.id = r.sequence_id
+            UNION ALL
+            SELECT 'proposal', x.project_id, p.name, x.created_at, x.status, x.title
+              FROM proposals x JOIN projects p ON p.id = x.project_id
+            UNION ALL
+            SELECT 'upload', a.project_id, p.name, a.created_at, a.status, a.original_name
+              FROM assets a JOIN projects p ON p.id = a.project_id
+            ORDER BY at DESC LIMIT ?""", [limit])
+        return rows
 
     def get_project(self, project_id: str) -> dict:
         project = self.db.one("SELECT * FROM projects WHERE id = ?", [check_id(project_id, "prj")])
@@ -781,6 +805,75 @@ class Services:
         self.get_sequence(project_id, sequence_id)
         self.db.execute("DELETE FROM sequences WHERE id = ?", [sequence_id])
 
+    def step_version(self, project_id: str, sequence_id: str, direction: int) -> dict:
+        """Undo (-1) / redo (+1): move the sequence's current version along its history (nothing is deleted)."""
+        seq = self.get_sequence(project_id, sequence_id)
+        versions = self.db.all("SELECT id, number FROM timeline_versions WHERE sequence_id = ? ORDER BY number", [sequence_id])
+        ids = [v["id"] for v in versions]
+        if seq["current_version_id"] not in ids:
+            raise BadRequest("Sequence has no versions")
+        idx = ids.index(seq["current_version_id"]) + direction
+        if not 0 <= idx < len(ids):
+            raise BadRequest("Nothing to undo" if direction < 0 else "Nothing to redo")
+        self.db.update("sequences", "id", sequence_id, {"current_version_id": ids[idx]})
+        return next(s for s in self.list_sequences(project_id) if s["id"] == sequence_id)
+
+    def update_segment_text(self, project_id: str, asset_id: str, idx: int, text: str) -> dict:
+        """Correct transcript wording. Word timings are redistributed across the segment's original span."""
+        self.get_asset(project_id, asset_id)
+        text = " ".join((text or "").split())[:2000]
+        if not text:
+            raise BadRequest("Text cannot be empty")
+        row = self.db.one("SELECT * FROM transcript_segments WHERE asset_id = ? AND idx = ?", [asset_id, idx])
+        if not row:
+            raise NotFound("Segment not found")
+        old_words = loads(row["words_json"], [])
+        start = old_words[0]["start"] if old_words else row["start"]
+        end = old_words[-1]["end"] if old_words else row["end"]
+        speaker = old_words[0].get("speaker") if old_words else row["speaker"]
+        tokens = text.split()
+        step = (end - start) / len(tokens)
+        words = [{"start": round(start + i * step, 3), "end": round(start + (i + 1) * step, 3), "word": " " + w,
+                  **({"speaker": speaker} if speaker else {})} for i, w in enumerate(tokens)]
+        self.db.execute("DELETE FROM transcript_segments WHERE id = ?", [row["id"]])  # keeps the FTS index in sync
+        self.db.insert("transcript_segments", {"project_id": row["project_id"], "asset_id": asset_id, "idx": idx,
+                                               "start": row["start"], "end": row["end"], "text": text,
+                                               "words_json": dumps(words), "source": row["source"] + "+edited",
+                                               "speaker": row["speaker"]})
+        return next(s for s in self.transcript(asset_id) if s["idx"] == idx)
+
+    def waveform(self, project_id: str, asset_id: str, points: int = 1000) -> dict:
+        """Peak envelope (0..1) for drawing waveforms; computed once at 20 peaks/s and cached."""
+        asset = self.get_asset(project_id, asset_id)
+        if not asset["has_audio"]:
+            raise BadRequest("Asset has no audio")
+        cache = self.derived_dir(asset) / "waveform.json"
+        if cache.is_file():
+            peaks = loads(cache.read_text())["peaks"]
+        else:
+            peaks = audio_mod.peak_envelope(self.asset_path(asset), per_second=20)
+            cache.write_text(dumps({"peaks": peaks}))
+        points = max(10, min(int(points), 8000))
+        if len(peaks) > points:
+            step = len(peaks) / points
+            peaks = [max(peaks[int(i * step): max(int((i + 1) * step), int(i * step) + 1)]) for i in range(points)]
+        return {"duration": asset["duration"], "peaks": peaks}
+
+    def frame(self, project_id: str, asset_id: str, t: float, width: int = 160) -> Path:
+        """JPEG still at time t (rounded to 0.5 s, cached) for timeline thumbnails."""
+        asset = self.get_asset(project_id, asset_id)
+        if not asset["has_video"]:
+            raise BadRequest("Asset has no video")
+        width = 320 if width > 160 else 160
+        t = max(0.0, min(round(float(t) * 2) / 2, max(0.0, (asset["duration"] or 0) - 0.1)))
+        folder = self.derived_dir(asset) / "frames"
+        folder.mkdir(exist_ok=True)
+        path = folder / f"{width}-{t:.1f}.jpg"
+        if not path.is_file():
+            media.run_ffmpeg(["-ss", f"{t:.2f}", "-i", str(self.asset_path(asset)), "-frames:v", "1",
+                              "-vf", f"scale={width}:-2", "-q:v", "5", str(path)], timeout=60)
+        return path
+
     # --- proposals (AI or local planner) -> require explicit approval ------------------------------
     def create_proposal(self, project_id: str, title: str, rationale: str, sequences: list[dict], created_by: str,
                         notes: dict | None = None) -> dict:
@@ -866,16 +959,24 @@ class Services:
         return self.get_proposal(project_id, proposal_id)
 
     # --- renders ----------------------------------------------------------------------------------
-    def request_render(self, project_id: str, version_id: str, quality: str = "preview", want_wav: bool = False) -> dict:
+    def request_render(self, project_id: str, version_id: str, quality: str = "preview", want_wav: bool = False,
+                       preset: str | None = None) -> dict:
         if quality not in ("preview", "final"):
             raise BadRequest("quality must be preview or final")
+        overrides = {}
+        if preset:
+            if preset not in PRESETS:
+                raise BadRequest(f"Unknown export preset '{preset}'")
+            quality, overrides = "final", PRESETS[preset]["overrides"]
+            want_wav = want_wav or PRESETS[preset].get("wav", False)
         version = self.get_version(project_id, version_id)
         self.checked_timeline(project_id, Timeline(**version["timeline"]))  # assets may have changed
         render = {"id": new_id("rnd"), "project_id": project_id, "sequence_id": version["sequence_id"],
-                  "version_id": version_id, "quality": quality, "status": "queued", "created_at": now()}
+                  "version_id": version_id, "quality": quality, "status": "queued", "preset": preset, "created_at": now()}
         self.db.insert("renders", render)
         job = self.jobs.enqueue(self.get_project(project_id), "render",
-                                {"render_id": render["id"], "want_wav": want_wav}, f"Waiting to render ({quality})")
+                                {"render_id": render["id"], "want_wav": want_wav, "overrides": overrides},
+                                f"Waiting to render ({PRESETS[preset]['label'] if preset else quality})")
         self.db.update("renders", "id", render["id"], {"job_id": job["id"],
                                                        "status": "failed" if job["status"] == "failed" else "queued"})
         return self.get_render(project_id, render["id"])
@@ -918,7 +1019,8 @@ class Services:
             raise NotFound("Render was deleted")
         self.db.update("renders", "id", render["id"], {"status": "running"})
         version = self.get_version(ctx.project_id, render["version_id"])
-        timeline = self.checked_timeline(ctx.project_id, Timeline(**version["timeline"]))
+        timeline = Timeline(**apply_overrides(version["timeline"], ctx.payload.get("overrides") or {}))
+        timeline = self.checked_timeline(ctx.project_id, timeline)
         assets = self.project_assets_map(ctx.project_id)
         used = {c.asset_id for c in timeline.clips}
         overrides = {}

@@ -203,3 +203,31 @@ def estimate_offset(reference: Path, candidate: Path, max_shift: float = 2.0, an
         if c > best:
             best, best_lag = c, lag
     return round(best_lag * hop / rate, 3), round(best, 3)
+
+
+def peak_envelope(path: Path, per_second: int = 20) -> list[float]:
+    """Normalised peak per 1/per_second s (streamed decode, so long episodes stay cheap)."""
+    rate = 8000
+    hop = rate // per_second
+    proc = subprocess.Popen(["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-i", str(path), "-vn", "-ac", "1",
+                             "-ar", str(rate), "-f", "f32le", "-"], stdout=subprocess.PIPE)
+    assert proc.stdout
+    peaks: list[np.ndarray] = []
+    carry = np.zeros(0, dtype=np.float32)
+    while True:
+        raw = proc.stdout.read(hop * 4 * 2000)
+        data = np.concatenate([carry, np.frombuffer(raw, dtype=np.float32)]) if raw else carry
+        n = len(data) // hop
+        if n:
+            peaks.append(np.abs(data[: n * hop]).reshape(n, hop).max(axis=1))
+            carry = data[n * hop:]
+        if not raw:
+            if len(carry):
+                peaks.append(np.array([np.abs(carry).max()]))
+            break
+    proc.wait()
+    if not peaks:
+        return []
+    env = np.concatenate(peaks)
+    top = float(env.max()) or 1.0
+    return [round(float(v) / top, 3) for v in env]

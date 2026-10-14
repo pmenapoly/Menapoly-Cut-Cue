@@ -171,6 +171,10 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (project_id, kind)
     );
     """,
+    # 4: export presets on renders
+    """
+    ALTER TABLE renders ADD COLUMN preset TEXT;
+    """,
 ]
 
 

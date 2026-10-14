@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 from . import __version__, media
 from .assistant import Assistant, timeline_stats
 from .config import ROOT, Settings, settings as default_settings
+from .presets import PRESETS
 from .services import BadRequest, NotFound, Services
 from .timeline import Timeline, TimelineError
 
@@ -56,6 +57,11 @@ class RenderIn(BaseModel):
     version_id: str
     quality: str = "preview"
     wav: bool = False
+    preset: str | None = None
+
+
+class SegmentTextIn(BaseModel):
+    text: str
 
 
 class ChatIn(BaseModel):
@@ -170,6 +176,15 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
         response.delete_cookie(COOKIE)
         return {"signed_in": False}
 
+    @app.get("/api/presets")
+    def presets():
+        return [{"id": k, "label": v["label"], "description": v["description"], **v["overrides"],
+                 "wav": bool(v.get("wav"))} for k, v in PRESETS.items()]
+
+    @app.get("/api/activity")
+    def activity(limit: int = 12):
+        return svc.activity(min(max(limit, 1), 50))
+
     # --- projects -------------------------------------------------------------------------------
     @app.get("/api/projects")
     def list_projects():
@@ -249,6 +264,19 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     def asset_transcript(pid: str, aid: str, start: float | None = None, end: float | None = None):
         svc.get_asset(pid, aid)
         return svc.transcript(aid, start, end)
+
+    @app.patch("/api/projects/{pid}/assets/{aid}/transcript/{idx}")
+    def edit_segment(pid: str, aid: str, idx: int, body: SegmentTextIn):
+        return svc.update_segment_text(pid, aid, idx, body.text)
+
+    @app.get("/api/projects/{pid}/assets/{aid}/waveform")
+    def waveform(pid: str, aid: str, points: int = 1000):
+        return svc.waveform(pid, aid, points)
+
+    @app.get("/api/projects/{pid}/assets/{aid}/frame")
+    def frame(pid: str, aid: str, t: float = 0.0, w: int = 160):
+        return FileResponse(svc.frame(pid, aid, t, w), media_type="image/jpeg",
+                            headers={"Cache-Control": "private, max-age=86400"})
 
     @app.post("/api/projects/{pid}/assets/{aid}/captions")
     def attach_captions(pid: str, aid: str, body: AttachIn):
@@ -332,6 +360,14 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     def save_version(pid: str, sid: str, body: VersionIn):
         return svc.save_version(pid, sid, body.timeline, body.label, "manual")
 
+    @app.post("/api/projects/{pid}/sequences/{sid}/undo")
+    def undo(pid: str, sid: str):
+        return svc.step_version(pid, sid, -1)
+
+    @app.post("/api/projects/{pid}/sequences/{sid}/redo")
+    def redo(pid: str, sid: str):
+        return svc.step_version(pid, sid, 1)
+
     @app.get("/api/projects/{pid}/versions/{vid}")
     def get_version(pid: str, vid: str):
         version = svc.get_version(pid, vid)
@@ -384,7 +420,7 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     # --- renders & jobs --------------------------------------------------------------------------------
     @app.post("/api/projects/{pid}/renders", status_code=201)
     def render(pid: str, body: RenderIn):
-        return svc.request_render(pid, body.version_id, body.quality, body.wav)
+        return svc.request_render(pid, body.version_id, body.quality, body.wav, body.preset)
 
     @app.post("/api/projects/{pid}/renders/{rid}/reimport", status_code=201)
     def reimport(pid: str, rid: str, body: AudioAssetIn):
