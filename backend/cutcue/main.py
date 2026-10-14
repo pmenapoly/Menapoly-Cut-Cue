@@ -82,6 +82,11 @@ class DiarizeIn(BaseModel):
     num_speakers: int | None = None
 
 
+class BriefPatch(BaseModel):
+    fields: dict
+    replace: bool = False
+
+
 class AutoEditIn(BaseModel):
     asset_id: str
     options: dict = {}
@@ -265,6 +270,18 @@ def create_app(settings: Settings | None = None, services: Services | None = Non
     @app.post("/api/projects/{pid}/assets/{aid}/diarize", status_code=201)
     def diarize(pid: str, aid: str, body: DiarizeIn):
         return svc.rediarize(pid, aid, body.num_speakers)
+
+    @app.get("/api/projects/{pid}/brief")
+    def get_brief(pid: str):
+        return svc.project_brief(pid)
+
+    @app.patch("/api/projects/{pid}/brief")
+    def patch_brief(pid: str, body: BriefPatch):
+        return svc.update_brief(pid, body.fields, "manual", body.replace)
+
+    @app.get("/api/projects/{pid}/versions/{vid}/compliance")
+    def compliance(pid: str, vid: str):
+        return svc.version_compliance(pid, vid)
 
     @app.post("/api/projects/{pid}/auto-edit", status_code=201)
     def auto_edit(pid: str, body: AutoEditIn):

@@ -16,6 +16,7 @@ from . import media
 from . import audio as audio_mod
 from . import diarize as diarize_mod
 from . import podcast
+from . import brief as brief_mod
 from .render import SourceAudio, remux_with_audio, render_timeline
 from .timeline import Clip, Timeline, TimelineError, clamp_to_duration, remove_pauses, timeline_duration, validate_timeline
 from . import transcribe as tx
@@ -243,6 +244,7 @@ class Services:
         try:
             text = extract_text(self.asset_path(asset), Path(asset["stored_name"]).suffix)
             self._set_analysis(asset["id"], "text", {"text": text, "chars": len(text)})
+            self._set_analysis(asset["id"], "brief", brief_mod.extract_requirements(text))
             self.db.update("assets", "id", asset["id"], {"status": "ready"})
         except Exception as exc:
             self.db.update("assets", "id", asset["id"], {"status": "error", "error": f"Could not read document: {exc}"})
@@ -404,6 +406,72 @@ class Services:
         self.db.executemany("""INSERT INTO transcript_segments (project_id, asset_id, idx, start, end, text, words_json, source)
                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""", rows)
 
+    # --- creative brief intelligence ------------------------------------------------------------------
+    def _project_data(self, project_id: str, kind: str) -> dict | None:
+        row = self.db.one("SELECT data_json FROM project_data WHERE project_id = ? AND kind = ?", [project_id, kind])
+        return loads(row["data_json"]) if row else None
+
+    def _set_project_data(self, project_id: str, kind: str, data: dict) -> None:
+        self.db.execute("INSERT OR REPLACE INTO project_data (project_id, kind, data_json, updated_at) VALUES (?, ?, ?, ?)",
+                        [project_id, kind, dumps(data), now()])
+
+    def project_brief(self, project_id: str) -> dict:
+        self.get_project(project_id)
+        sources = []
+        for a in self.db.all("SELECT id, original_name FROM assets WHERE project_id = ? AND kind = 'document' AND status = 'ready' "
+                             "ORDER BY created_at", [project_id]):
+            extracted = self.analysis(a["id"], "brief")
+            if extracted:
+                sources.append({"asset_id": a["id"], "name": a["original_name"], "extracted": extracted})
+        overrides = self._project_data(project_id, "brief_overrides") or {}
+        requirements = brief_mod.merge([s["extracted"] for s in sources], overrides.get("fields"))
+        return {"requirements": requirements, "sources": [{k: v for k, v in s.items() if k != "extracted"} for s in sources],
+                "overrides": overrides.get("fields", {}), "override_source": overrides.get("source"),
+                "has_brief": bool(sources or overrides.get("fields"))}
+
+    def update_brief(self, project_id: str, fields: dict, source: str = "manual", replace: bool = False) -> dict:
+        self.get_project(project_id)
+        try:
+            cleaned = brief_mod.clean_overrides(fields)
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise BadRequest(f"Invalid brief fields: {exc}") from exc
+        current = {} if replace else (self._project_data(project_id, "brief_overrides") or {}).get("fields", {})
+        self._set_project_data(project_id, "brief_overrides", {"fields": {**current, **cleaned}, "source": source})
+        return self.project_brief(project_id)
+
+    def cut_text(self, timeline: Timeline) -> str:
+        """Transcript words that survive in the cut, in output order."""
+        parts = []
+        cache: dict[str, list[dict]] = {}
+        for clip in timeline.clips:
+            segs = cache.setdefault(clip.asset_id, self.transcript(clip.asset_id))
+            for seg in segs:
+                if seg["end"] <= clip.start or seg["start"] >= clip.end:
+                    continue
+                if seg["words"]:
+                    parts += [w["word"].strip() for w in seg["words"]
+                              if (w["start"] + w["end"]) / 2 >= clip.start and (w["start"] + w["end"]) / 2 <= clip.end]
+                else:
+                    parts.append(seg["text"])
+        return " ".join(parts)
+
+    def _kind_counts(self, project_id: str, extra: list[Timeline] = ()) -> dict:
+        counts = {"clip": 0, "full": 0}
+        req = self.project_brief(project_id)["requirements"]
+        timelines = [Timeline(**s["timeline"]) for s in self.list_sequences(project_id) if s["timeline"]] + list(extra)
+        for tl in timelines:
+            counts[brief_mod.classify(tl.aspect, timeline_duration(tl), req)] += 1
+        return counts
+
+    def compliance(self, project_id: str, timeline: Timeline, req: dict | None = None, counts: dict | None = None) -> dict:
+        req = req if req is not None else self.project_brief(project_id)["requirements"]
+        return brief_mod.compliance(timeline.model_dump(), timeline_duration(timeline), self.cut_text(timeline), req,
+                                    counts if counts is not None else self._kind_counts(project_id))
+
+    def version_compliance(self, project_id: str, version_id: str) -> dict:
+        version = self.get_version(project_id, version_id)
+        return self.compliance(project_id, Timeline(**version["timeline"]))
+
     # --- speakers ----------------------------------------------------------------------------------
     def _job_diarize(self, ctx: JobContext) -> dict:
         asset = self._job_asset(ctx)
@@ -475,13 +543,22 @@ class Services:
         clips, report = self.auto_edit(project_id, asset_id, options)
         if not clips:
             raise BadRequest(report.get("note", "Nothing left after auto-edit"))
+        req = self.project_brief(project_id)["requirements"]
+        full = next((d for d in req.get("deliverables", []) if d["kind"] == "full"), None)
+        if full and full.get("max_s") and report.get("output_duration", 0) > full["max_s"]:
+            report["brief_note"] = (f"Edit is {report['output_duration'] / 60:.1f} min; the brief asks for at most "
+                                    f"{full['max_s'] / 60:.1f} min. Ask the editor which sections to drop.")
+        if audio is None:
+            # Podcast standard -16 LUFS, unless the brief's full edit is going to YouTube or social (-14).
+            loud_platforms = brief_mod.SOCIAL | {"YouTube"}
+            target = -14.0 if full and set(full.get("platforms", [])) & loud_platforms else -16.0
+            audio = {"voice_eq": True, "compress": True, "loudness_target": target}
         clip_specs = [c.model_dump() for c in clips]
         if hook:
             clip_specs.insert(0, {"asset_id": asset_id, "start": hook["start"], "end": hook["end"], "label": "Hook"})
-        spec = {"name": name, "aspect": aspect, "clips": clip_specs,
-                "audio": audio or {"voice_eq": True, "compress": True, "loudness_target": -16.0}}
-        return self.create_proposal(project_id, name, podcast.summarize(report), [spec], created_by=created_by,
-                                    notes={"auto_edit": report})
+        spec = {"name": name, "aspect": aspect, "clips": clip_specs, "audio": audio}
+        rationale = podcast.summarize(report) + (f" {report['brief_note']}" if report.get("brief_note") else "")
+        return self.create_proposal(project_id, name, rationale, [spec], created_by=created_by, notes={"auto_edit": report})
 
     # --- transcripts ---------------------------------------------------------------------------
     def transcript(self, asset_id: str, start: float | None = None, end: float | None = None) -> list[dict]:
@@ -616,6 +693,12 @@ class Services:
                 problems.append(f"sequence {n}: {exc}")
         if problems:
             raise TimelineError(problems)
+        brief_info = self.project_brief(project_id)
+        if brief_info["has_brief"]:
+            new_timelines = [Timeline(**e["timeline"]) for e in expanded if not e["sequence_id"]]
+            counts = self._kind_counts(project_id, new_timelines)
+            for e in expanded:
+                e["compliance"] = self.compliance(project_id, Timeline(**e["timeline"]), brief_info["requirements"], counts)
         proposal = {"id": new_id("prp"), "project_id": project_id, "title": (title or "Edit proposal")[:200],
                     "rationale": (rationale or "")[:4000],
                     "plan_json": dumps({"sequences": expanded, "notes": notes or {}}),
