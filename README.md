@@ -63,6 +63,18 @@ Docs in `docs/cue2/`:
 
 Cue Text (SMS) receives and processes texts but **never sends** anything yet.
 
+## Remote access from your phone (hybrid cloud + your Mac), built but not deployed
+
+Use Menapoly Cue from your phone while your Intel Mac does the work. A small Cloudflare Worker behind Cloudflare Access
+holds projects and job status. Footage goes straight from the phone to a private R2 bucket in resumable, original-quality
+uploads. The Mac runs `python -m cutcue.agent`, which connects **out** over HTTPS (no open ports), picks up jobs,
+runs the same FFmpeg/Whisper pipeline, and uploads the results. Suggested edits still need your approval before export;
+clients get short-lived review links. Paid cloud processing is off.
+
+Try it locally with `make cloud-setup && make cloud-dev`; tests: `make test` and `make cloud-ui-test`. Deployment
+needs your approval. See [docs/cloud/](docs/cloud/README.md): architecture, costs (~$6–12/month), setup, rollback,
+test results and blockers.
+
 ## The interface
 
 Menapoly Cut Cue has two modes on the same project. Switch between them at any time from the top bar; your edit, history and exports are shared.
@@ -246,4 +258,4 @@ Each step is marked **PASS** only if it really ran and passed its checks. Missin
 | Audio enhancement | Verified on fixture | Loudness within 1 LU of target; noise in pauses −13 to −27 dB with speech unchanged (< 0.1 dB); music ducked > 6 dB under speech; re-imported audio in sync within 20 ms |
 | Brief intelligence | Verified on sample briefs | Same requirements from TXT, DOCX and PDF; compliance pass/fail on real cuts. **Your real client briefs may phrase things differently**: check the Brief tab |
 
-**Not implemented yet:** the remote cloud worker (interface and opt-in contract only, see `docs/cloud-worker.md`); OTIO/Premiere/Resolve export; multicam and face-tracked framing (framing is a per-speaker manual setting); B-roll; image clips on the timeline; and resuming an upload after a browser reload. Payments, teams and multi-tenancy are out of scope by design.
+**Not implemented yet:** the remote cloud worker (interface and opt-in contract only, see `docs/cloud-worker.md`); OTIO/Premiere/Resolve export; multicam and face-tracked framing (framing is a per-speaker manual setting); B-roll; image clips on the timeline; and (in the desktop editor) resuming an upload after a browser reload; the cloud app does resume. Payments, teams and multi-tenancy are out of scope by design.

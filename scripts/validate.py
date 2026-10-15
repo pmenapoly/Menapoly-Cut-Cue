@@ -4,6 +4,8 @@ Runs the actual app (real server process, real HTTP API, real FFmpeg, real faste
 live Claude API, real Google Chrome) through the acceptance workflow and writes a report.
 A step is VERIFIED only if it really ran and its checks passed. Missing prerequisites give
 BLOCKED, inputs you did not provide give SKIPPED, never VERIFIED.
+Steps 19-20 cover the hybrid cloud: 19 runs the real Mac worker agent against a local control plane (wrangler dev +
+local S3, needs `make cloud-setup`); 20 only checks the deployed control plane if CUE_CLOUD_URL is set.
 
 Usage (from the repo root):
     make validate MEDIA=~/Movies/episode.mp4 [CLIP_MINUTES=10]
@@ -12,6 +14,7 @@ Usage (from the repo root):
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import platform
@@ -290,6 +293,107 @@ def playback_verdict(report: dict | None, render_ids: list[str]) -> tuple[str, l
         else:
             details.append(f"{rid}: played to {r['reached']:.1f}s, {r['width']}x{r['height']}, duration {r['duration']:.2f}s")
     return status, details
+
+
+CONTENT_TYPES = {".mp4": "video/mp4", ".mov": "video/quicktime", ".m4v": "video/x-m4v", ".webm": "video/webm",
+                 ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac"}
+
+
+def remote_worker_step(out: Path, media: Path, settings) -> tuple:
+    """Step 19: the full remote workflow on this Mac against a LOCAL control plane (wrangler dev + local S3):
+    resumable upload straight to storage, real agent with your Whisper/FFmpeg settings, approval, export, download."""
+    import hashlib
+
+    import cloud_stack as cs
+    title = "Hybrid cloud: Mac worker agent runs a remote job end to end (local control plane)"
+    problem = cs.available()
+    if problem:
+        return ("19", title, NOT_VERIFIED, [problem, "run: make cloud-setup"])
+    ctype = CONTENT_TYPES.get(media.suffix.lower())
+    if not ctype:
+        return ("19", title, NOT_VERIFIED, [f"{media.suffix} is not an accepted cloud upload type"])
+    work = out / "cloud"
+    work.mkdir(exist_ok=True)
+    moto = cp = None
+    details: list[str] = []
+    try:
+        moto = cs.Moto(work)
+        cp = cs.ControlPlane(work, moto.url)
+        pid = cp.api("POST", "/v1/projects", json={"name": "Validation (remote)"}).json()["id"]
+        size, sha = media.stat().st_size, hashlib.sha256()
+        with media.open("rb") as fh:
+            for block in iter(lambda: fh.read(8 << 20), b""):
+                sha.update(block)
+        session = cp.api("POST", f"/v1/projects/{pid}/uploads", json={"filename": media.name, "content_type": ctype, "size": size,
+                                                                     "sha256": sha.hexdigest(), "part_size": 16 << 20}).json()
+        t0 = time.time()
+        with media.open("rb") as fh:
+            for start in range(1, session["part_count"] + 1, 20):
+                numbers = list(range(start, min(start + 20, session["part_count"] + 1)))
+                for item in cp.api("POST", f"/v1/uploads/{session['id']}/parts", json={"parts": numbers}).json()["urls"]:
+                    fh.seek((item["part"] - 1) * session["part_size"])
+                    r = httpx.put(item["url"], content=fh.read(session["part_size"]), trust_env=False, timeout=300,
+                                  headers={"content-type": "application/octet-stream"})
+                    r.raise_for_status()
+        done = cp.api("POST", f"/v1/uploads/{session['id']}/complete")
+        if done.status_code != 200:
+            return ("19", title, FAIL, [f"upload completion: {done.status_code} {done.text[:200]}"])
+        details.append(f"upload: {size / 1e6:.1f} MB in {session['part_count']} parts, {time.time() - t0:.1f}s (local storage)")
+        token = cp.api("POST", "/v1/workers", json={"name": "Validation Mac"}).json()["token"]
+        from cutcue.agent import Agent, AgentConfig
+        from cutcue.services import Services
+        agent_settings = dataclasses.replace(settings, data_dir=work / "agent-data")
+        agent = Agent(AgentConfig(url=cp.url, token=token, data_dir=work / "agent", min_free_mem_gb=0.5, min_free_disk_gb=1),
+                      services=Services(agent_settings))
+        agent.heartbeat()
+        asset = done.json()["asset_id"]
+
+        def run_job(body: dict) -> dict:
+            jid = cp.api("POST", f"/v1/projects/{pid}/jobs", json=body).json()["id"]
+            started = time.time()
+            agent.run_once()
+            job = cp.api("GET", f"/v1/jobs/{jid}").json()
+            details.append(f"{body['type']}: {job['status']} in {time.time() - started:.1f}s"
+                           + (f" ({job['error']})" if job.get("error") else ""))
+            return job
+
+        if run_job({"type": "auto_edit", "asset_id": asset})["status"] != "succeeded":
+            return ("19", title, FAIL, details)
+        version = cp.api("GET", f"/v1/projects/{pid}").json()["versions"][0]
+        cp.api("POST", f"/v1/versions/{version['id']}/decision", json={"decision": "approved"})
+        job = run_job({"type": "render", "version_id": version["id"], "preset": "youtube"})
+        if job["status"] != "succeeded":
+            return ("19", title, FAIL, details)
+        mp4 = next(a for a in cp.api("GET", f"/v1/projects/{pid}").json()["assets"]
+                   if a["source_job_id"] == job["id"] and a["content_type"] == "video/mp4")
+        url = cp.api("GET", f"/v1/assets/{mp4['id']}/url?download=1").json()["url"]
+        final = work / "remote-export.mp4"
+        final.write_bytes(httpx.get(url, trust_env=False, timeout=300).content)
+        info = ffprobe(final)
+        codecs = sorted(st["codec_name"] for st in info["streams"])
+        ok = hashlib.sha256(final.read_bytes()).hexdigest() == mp4["sha256"] and "h264" in codecs and "aac" in codecs
+        details += [f"downloaded export: {final.name}, codecs {codecs}, {float(info['format']['duration']):.1f}s, checksum "
+                    + ("matches" if ok else "MISMATCH"), "storage here is a local S3 stand-in; Cloudflare R2/Access are step 20"]
+        return ("19", title, PASS if ok else FAIL, details)
+    except Exception as exc:
+        return ("19", title, FAIL, details + [f"{type(exc).__name__}: {exc}"])
+    finally:
+        if cp:
+            cp.stop()
+        if moto:
+            moto.stop()
+
+
+def live_control_plane_step() -> tuple:
+    """Step 20: only if you deployed the control plane and set CUE_CLOUD_URL + CUE_WORKER_TOKEN."""
+    title = "Hybrid cloud: this Mac reaches the deployed control plane (Cloudflare)"
+    url, token = os.environ.get("CUE_CLOUD_URL", ""), os.environ.get("CUE_WORKER_TOKEN", "")
+    if not url or not token:
+        return ("20", title, NOT_VERIFIED, ["not deployed / not configured (CUE_CLOUD_URL, CUE_WORKER_TOKEN)"])
+    r = subprocess.run([sys.executable, "-m", "cutcue.agent", "--check"], cwd=ROOT / "backend", capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        return ("20", title, FAIL, [(r.stderr or r.stdout).strip()[-300:]])
+    return ("20", title, PARTIAL, [r.stdout.strip(), "connection and worker auth only; run a job from your phone to verify the rest"])
 
 
 def main() -> int:
@@ -855,6 +959,10 @@ def main() -> int:
                          [f"test email: {r['status']} {r.get('error') or ''}", f"check {email['to']}'s inbox (and spam folder)"])
             except Exception as exc:
                 run.step("18", "Email notifications", FAIL, [f"{type(exc).__name__}: {exc}"])
+
+        # 19-20. Hybrid cloud: the Mac worker agent ------------------------------------------------------------
+        run.step(*remote_worker_step(out, media, settings))
+        run.step(*live_control_plane_step())
 
         # 7. Measurements --------------------------------------------------------------------------------------
         project = app.api("GET", f"/projects/{pid}")

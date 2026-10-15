@@ -3,7 +3,7 @@ PY ?= python3
 VENV := backend/.venv
 VPY := $(VENV)/bin/python
 
-.PHONY: setup check dev start build test ui-test validate fixture whisper-model clean backup backup-db restore
+.PHONY: setup check dev start build test ui-test validate fixture whisper-model clean backup backup-db restore cloud-setup cloud-check cloud-dev cloud-ui-test agent agent-check agent-install
 
 setup: ## Install backend + frontend dependencies and create .env
 	test -d $(VENV) || $(PY) -m venv $(VENV)
@@ -48,6 +48,27 @@ fixture: ## Generate the synthetic Market Mocha interview + brief in data/fixtur
 
 whisper-model: ## Pre-download the Whisper model named in .env (CUTCUE_WHISPER_MODEL)
 	cd backend && .venv/bin/python -c "from cutcue.config import settings as s; from faster_whisper import WhisperModel; WhisperModel(s.whisper_model, device='cpu', compute_type=s.whisper_compute_type); print('Whisper model ready:', s.whisper_model)"
+
+cloud-setup: ## Install the cloud control-plane tooling (Wrangler, TypeScript) - local only, deploys nothing
+	cd cloud/control-plane && npm ci --no-audit --no-fund
+
+cloud-check: ## Control plane: typecheck, unit tests, Wrangler dry-run build (no deploy)
+	cd cloud/control-plane && npx tsc --noEmit && npm test && npx wrangler deploy --dry-run --outdir .wrangler/dry
+
+cloud-dev: ## Run the cloud app locally (wrangler dev + local S3) -> prints the URL; state in data/cloud-dev.json
+	$(VPY) scripts/cloud_dev.py --port 8787
+
+cloud-ui-test: ## Phone-size browser tests of the cloud app with the real Mac agent; screenshots -> docs/cloud/screenshots
+	cd frontend && npx playwright test -c playwright.cloud.config.ts
+
+agent: ## Run the Mac worker agent in the foreground (needs CUE_CLOUD_URL and CUE_WORKER_TOKEN in .env)
+	cd backend && .venv/bin/python -m cutcue.agent
+
+agent-check: ## Check the agent configuration and that the control plane accepts this Mac
+	cd backend && .venv/bin/python -m cutcue.agent --check
+
+agent-install: ## Install the launchd service so the agent starts at login (macOS)
+	./scripts/install_agent_launchd.sh
 
 clean:
 	rm -rf frontend/.next frontend/out backend/.pytest_cache

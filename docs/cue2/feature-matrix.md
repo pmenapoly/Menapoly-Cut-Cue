@@ -110,3 +110,17 @@ Legend:
 | Connections page (ready / not set up / unavailable / awaiting authorization; no secrets) | Done | `/connections/`; `test_connections.py`; e2e test |
 | First-run setup (computer, AI, privacy, email, backup, first project) | Done | `/setup/`; e2e test |
 | End-to-end launch workflow (create → upload → AI edit → review → client approval → H.264/AAC exports → email → backup) | Done | `test_launch_workflow.py` |
+
+## Private remote access: hybrid cloud + Intel Mac (2026-10-15, fourth round)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Phase 0 security gate (Relay) | Checked read-only. Still open: Relay deploy workflow active, Access secrets missing. Nothing deployed. | `docs/cloud/blockers.md` |
+| Versioned control-plane API (projects, assets, uploads, jobs, leases, events, versions, review links, notifications, workers, costs, audit) | Done, local | `cloud/control-plane`; `test_cloud_e2e.py` |
+| Direct-to-R2 resumable multipart uploads (signed URLs, type/size/extension limits, SHA-256, resume, orphan cleanup) | Done, local (moto) | upload tests; phone test with dropped connection and closed tab |
+| Mac worker agent (leases, verified inputs, real pipeline, progress, restart recovery, launchd) | Done (Linux-tested) | `backend/cutcue/agent.py`; crash-release and dead-letter tests; **Intel Mac run pending** |
+| Phone workflow (create, upload, offline Mac → reconnect, approve, export, preview, download, client review, inbox) | Done, local | `frontend/e2e-cloud`; `docs/cloud/screenshots` |
+| Access JWT verification, roles, no dev fallback in production | Done | `cloud/control-plane/test/access.test.ts`; production-mode e2e tests |
+| Budget controls (cloud processing off, owner authorization, per-project budget, monthly costs) | Done | `docs/cloud/costs.md` |
+| Deployment to Cloudflare | **Not done**, awaiting approval | `docs/cloud/setup.md` §3 |
+

@@ -23,3 +23,9 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
 - Production round: relay.py (Relay connector: approval-gated publish_to_relay, idempotent by deterministic file name),
   mailer.py (SMTP email outbox, one email per notification), backup.py (checksummed backup/restore; restore moves data
   aside). Harness statuses: VERIFIED / FAILED / NEEDS REVIEW / SKIPPED / BLOCKED. Shortcuts live in frontend/lib/shortcuts.ts.
+- Hybrid cloud (docs/cloud/): cloud/control-plane (Cloudflare Worker, TS: D1 metadata, presigned S3/R2 URLs only, never
+  proxies media, Access JWT + allowlists, worker bearer tokens, hashed review tokens; schema changes = new migration file),
+  cloud/web (plain-JS PWA, no build), backend/cutcue/agent.py (outbound-only Mac worker; own data dir; AI edits go
+  through create_proposal and stay proposed until approved in the cloud). Tests: tests/test_cloud_e2e.py and
+  `make cloud-ui-test` (wrangler dev + moto via scripts/cloud_stack.py), `make cloud-check`. Never deploy, create
+  Cloudflare resources, or enable CLOUD_RENDERING without the owner's explicit approval.

@@ -1,0 +1,23 @@
+{
+  "name": "menapoly-cue-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Menapoly Cue 2.0 cloud control plane (Cloudflare Worker): projects, uploads, jobs, leases, reviews. Never handles media bytes.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --test-scheduled --port 8787",
+    "typecheck": "tsc --noEmit",
+    "dry-run": "wrangler deploy --dry-run --outdir .wrangler/dry",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "test": "esbuild test/access.test.ts --bundle --platform=node --format=esm --outfile=.wrangler/test/access.test.mjs --log-level=warning --external:cloudflare:* && node --test .wrangler/test/access.test.mjs test/sha256.test.mjs"
+  },
+  "dependencies": {
+    "aws4fetch": "1.0.20"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260702.1",
+    "esbuild": "0.27.3",
+    "typescript": "5.9.3",
+    "wrangler": "4.92.0"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  // Menapoly Cue cloud control plane. NOT deployed: deploying needs the owner's approval and the secrets listed in
+  // docs/cloud/accounts-and-secrets.md. Separate from MenapolyRelay; it never touches Relay's Worker, D1 or R2.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "menapoly-cue-cloud",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,                       // only reachable through the custom domain behind Cloudflare Access
+  "assets": {
+    "directory": "../web",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // /__scheduled only exists under `wrangler dev --test-scheduled` (local cron tests); in production it is a 404.
+    "run_worker_first": ["/v1/*", "/__scheduled"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "menapoly-cue-cloud", "migrations_dir": "migrations" }
+  ],
+  "queues": {
+    "producers": [{ "binding": "EVENTS", "queue": "menapoly-cue-events" }],
+    "consumers": [{
+      "queue": "menapoly-cue-events",
+      "max_batch_size": 10,
+      "max_retries": 3,
+      "dead_letter_queue": "menapoly-cue-events-dlq"
+    }]
+  },
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "vars": {
+    // Production defaults. Local development overrides these in .dev.vars (never committed).
+    "ENVIRONMENT": "production",
+    "CLOUD_RENDERING": "disabled",            // paid cloud workers are off; jobs target the Mac
+    "S3_REGION": "auto",
+    "S3_BUCKET": "menapoly-cue-media",       // private R2 bucket (no public access, no r2.dev URL)
+    "MAX_VIDEO_GB": "20",
+    "LEASE_SECONDS": "180",
+    "UPLOAD_SESSION_HOURS": "24"
+  },
+  "observability": { "enabled": true }
+}

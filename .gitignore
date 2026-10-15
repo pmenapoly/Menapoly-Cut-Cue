@@ -14,3 +14,6 @@ frontend/e2e/.fixtures-path
 frontend/test-results/
 frontend/playwright-report/
 backups/
+frontend/e2e-cloud/.stack.json
+frontend/e2e-cloud/.fixtures/
+frontend/e2e-cloud/.tmp/
