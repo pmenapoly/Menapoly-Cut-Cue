@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "dry-run": "wrangler deploy --dry-run --outdir .wrangler/dry",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
-    "test": "esbuild test/access.test.ts --bundle --platform=node --format=esm --outfile=.wrangler/test/access.test.mjs --log-level=warning --external:cloudflare:* && node --test .wrangler/test/access.test.mjs test/sha256.test.mjs"
+    "test": "esbuild test/access.test.ts --bundle --platform=node --format=esm --outfile=.wrangler/test/access.test.mjs --log-level=warning --external:cloudflare:* && node --test .wrangler/test/access.test.mjs test/sha256.test.mjs test/config.test.mjs"
   },
   "dependencies": {
     "aws4fetch": "1.0.20"

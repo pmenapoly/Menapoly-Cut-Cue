@@ -1,0 +1,12 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": ["https://cue.menapoly-digital.com"],
+        "methods": ["GET", "PUT", "HEAD"],
+        "headers": ["content-type", "range"]
+      },
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

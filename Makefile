@@ -3,7 +3,7 @@ PY ?= python3
 VENV := backend/.venv
 VPY := $(VENV)/bin/python
 
-.PHONY: setup check dev start build test ui-test validate fixture whisper-model clean backup backup-db restore cloud-setup cloud-check cloud-dev cloud-ui-test agent agent-check agent-install
+.PHONY: setup check dev start build test ui-test validate fixture whisper-model clean backup backup-db restore cloud-setup cloud-check cloud-dev cloud-ui-test agent agent-check agent-install pilot-preflight pilot-acceptance
 
 setup: ## Install backend + frontend dependencies and create .env
 	test -d $(VENV) || $(PY) -m venv $(VENV)
@@ -66,6 +66,12 @@ agent: ## Run the Mac worker agent in the foreground (needs CUE_CLOUD_URL and CU
 
 agent-check: ## Check the agent configuration and that the control plane accepts this Mac
 	cd backend && .venv/bin/python -m cutcue.agent --check
+
+pilot-preflight: ## Read-only pilot check of Cloudflare (needs CLOUDFLARE_ACCOUNT_ID + read-only CLOUDFLARE_API_TOKEN) [STAGE=before-deploy]
+	$(VPY) cloud/control-plane/pilot/preflight.py --stage $(or $(STAGE),before-provision)
+
+pilot-acceptance: ## First-project acceptance test: make pilot-acceptance VIDEO=~/Movies/real.mp4 [URL=https://cue.menapoly-digital.com]
+	$(VPY) scripts/pilot_acceptance.py --url $(or $(URL),https://cue.menapoly-digital.com) --video "$(VIDEO)" --phone
 
 agent-install: ## Install the launchd service so the agent starts at login (macOS)
 	./scripts/install_agent_launchd.sh

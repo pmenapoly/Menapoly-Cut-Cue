@@ -20,7 +20,7 @@ export default defineConfig({
     { name: "phone-390", use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } } },
   ],
   webServer: {
-    command: `../backend/.venv/bin/python ../scripts/cloud_dev.py --port ${PORT} --state-file e2e-cloud/.stack.json --fixture-dir e2e-cloud/.fixtures`,
+    command: `../backend/.venv/bin/python ../scripts/cloud_dev.py --port ${PORT} --state-file e2e-cloud/.stack.json --fixture-dir e2e-cloud/.fixtures --public-review`,
     url: `http://localhost:${PORT}/v1/health`,
     reuseExistingServer: false,
     timeout: 240_000,

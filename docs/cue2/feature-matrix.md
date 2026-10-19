@@ -123,4 +123,5 @@ Legend:
 | Access JWT verification, roles, no dev fallback in production | Done | `cloud/control-plane/test/access.test.ts`; production-mode e2e tests |
 | Budget controls (cloud processing off, owner authorization, per-project budget, monthly costs) | Done | `docs/cloud/costs.md` |
 | Deployment to Cloudflare | **Not done**, awaiting approval | `docs/cloud/setup.md` §3 |
+| Private pilot preparation (cue.menapoly-digital.com): security gate analysis, Access design, read-only preflight, provisioning script, Mac/Android guides, acceptance test, exact charges, approval checklist | Prepared, **not executed** | `docs/cloud/pilot/APPROVAL-CHECKLIST.md` |
 

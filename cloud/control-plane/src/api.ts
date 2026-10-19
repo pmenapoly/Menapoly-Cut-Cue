@@ -1,8 +1,8 @@
 // Owner/editor API (Cloudflare Access) and the public, token-scoped review API. Versioned under /v1.
 import { Person, requireOwner } from "./auth";
 import * as s3 from "./s3";
-import { audit, body, emit, Env, HttpError, idempotent, jobEvent, json, newId, now, randomToken, rateLimit, safeName,
-         sha256Hex, str } from "./util";
+import { audit, body, emit, Env, HttpError, idempotent, jobEvent, json, newId, now, publicReviewEnabled, randomToken, rateLimit,
+         safeName, sha256Hex, str } from "./util";
 
 const MiB = 1024 * 1024;
 const TYPES: Record<string, { media: string; maxBytes: (env: Env) => number }> = {};
@@ -303,6 +303,7 @@ export async function getVersion(env: Env, id: string) {
 
 // --- review links (owner) and public review ----------------------------------------------------------------
 export async function createReviewLink(request: Request, env: Env, me: Person, projectId: string) {
+  if (!publicReviewEnabled(env)) throw new HttpError(409, "Client review links are turned off for this deployment.");
   await project(env, projectId);
   const b = await body(request);
   const a = await env.DB.prepare("SELECT * FROM assets WHERE id = ? AND project_id = ? AND status = 'ready' AND media_type = 'video'")
@@ -325,6 +326,8 @@ export async function revokeReviewLink(env: Env, me: Person, id: string) {
 }
 
 async function linkByToken(env: Env, token: string) {
+  // Off means off: even an old, unexpired link stops working (checked before the token is looked up).
+  if (!publicReviewEnabled(env)) throw new HttpError(403, "Client review links are turned off.");
   if (!/^rv_[A-Za-z0-9_-]{30,60}$/.test(token)) throw new HttpError(404, "This review link isn't valid.");
   const l = await env.DB.prepare("SELECT * FROM review_links WHERE token_hash = ?").bind(await sha256Hex(token)).first<Record<string, any>>();
   if (!l) throw new HttpError(404, "This review link isn't valid.");
@@ -418,7 +421,8 @@ export async function status(env: Env) {
   const workers = await env.DB.prepare("SELECT COUNT(*) AS n FROM workers WHERE revoked_at IS NULL AND last_seen_at > ?").bind(now() - 120).first<{ n: number }>();
   const { results } = await env.DB.prepare("SELECT status, COUNT(*) AS n FROM jobs GROUP BY status").all();
   return json({ workers_online: workers?.n ?? 0, jobs: Object.fromEntries(results.map((r: any) => [r.status, r.n])),
-                cloud_rendering: env.CLOUD_RENDERING, environment: env.ENVIRONMENT });
+                cloud_rendering: env.CLOUD_RENDERING, public_review: publicReviewEnabled(env) ? "enabled" : "disabled",
+                environment: env.ENVIRONMENT });
 }
 
 export async function auditLog(env: Env, me: Person) {

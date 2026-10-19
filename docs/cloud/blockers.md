@@ -2,17 +2,15 @@
 
 ## Needs your decision or action (nothing below was done)
 
-1. **Relay's deploy workflow is still active and `main` would deploy the vulnerable build.** The Access secrets
-   `CF_ACCESS_AUD`, `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD_PREVIEW` and `CF_ACCESS_SERVICE_TOKENS` are still missing in
-   MenapolyRelay (readiness run, Oct 14). Until the hotfix branch `hotfix/access-identity-minimal` is approved and the
-   secrets exist, **any push to Relay's `main` deploys a Worker that trusts identity headers.** Recommended: disable
-   "Deploy Menapoly Cue to Cloudflare" in GitHub Actions until then. This is the Phase 0 gate; the new control plane
-   doesn't depend on Relay, but I did not deploy anything while this risk is open.
-2. **Approval to deploy** the control plane (Workers Paid $5/month, R2, D1, Queues). See [costs.md](costs.md) and
-   [setup.md §3](setup.md).
-3. **Choose the hostname** (e.g. `cue.<your-domain>`) and create the Access application with bypass paths.
-4. **R2 API token** scoped to the one bucket, stored with `wrangler secret put`.
-5. `database_id` for D1 goes into `wrangler.jsonc` after `wrangler d1 create`.
+The pilot's single list of approvals is [pilot/APPROVAL-CHECKLIST.md](pilot/APPROVAL-CHECKLIST.md). In short:
+
+1. **Security gate (S1):** Relay's "Deploy Menapoly Cue to Cloudflare" **and** "Deploy Preview" workflows are still
+   active (re-checked 2026-10-19), and Relay `main` is still the build that trusts identity headers. Disable both
+   workflows ([security-gate.md](pilot/security-gate.md)). The pilot deploy script refuses to run until they're disabled.
+2. **Domain:** confirm `menapoly-digital.com` is an active zone in your Cloudflare account and `cue` is free (C1–C3).
+   This sandbox can't do DNS lookups or reach Cloudflare's API, so it couldn't be checked from here.
+3. **Paid services (PAID-1..3)** and **production changes (PROD-1..6)**, each approved separately.
+4. Relay hotfix merge/deploy (R1) stays a separate, later decision.
 
 ## Verified only locally (labelled unverified until done for real)
 
@@ -23,7 +21,7 @@
 | Queues / cron | workerd local Queues and `/__scheduled` | Cloudflare-hosted delivery, DLQ, cron timing |
 | Email notifications | code path only (`send_email` binding) | any real email |
 | Mac agent on macOS | Linux, real FFmpeg, fixture transcriber, real H.264/AAC in and out | **Intel Mac** with faster-whisper, launchd install, sleep/wake, a 20 GB upload |
-| Phone | Chromium at 390×844 (Pixel 7 profile) | real iPhone Safari / Android Chrome, Add to Home Screen, background tab behaviour, cellular hand-offs |
+| Phone | Chromium at 390×844 (Pixel 7 profile); install steps in pilot/android.md | real iPhone Safari / Android Chrome, Add to Home Screen, background tab behaviour, cellular hand-offs |
 | In-browser H.264 playback | URL serves the real MP4 (`ftyp` checked) | actual playback: this Chromium build has no H.264 codec |
 
 ## Not built yet (by design or next milestones)

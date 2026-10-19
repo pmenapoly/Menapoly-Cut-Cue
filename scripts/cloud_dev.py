@@ -29,6 +29,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--state-file", default=str(ROOT / "data" / "cloud-dev.json"))
+    parser.add_argument("--public-review", action="store_true", help="turn client review links on (off in the pilot)")
     parser.add_argument("--fixture-dir", default="", help="generate/use synthesized fixture media for the agent (tests)")
     args = parser.parse_args()
     problem = cs.available()
@@ -36,7 +37,8 @@ def main() -> None:
         sys.exit(problem)
     work = Path(tempfile.mkdtemp(prefix="cue-cloud-dev-"))
     moto = cs.Moto(work, new_session=False)
-    cp = cs.ControlPlane(work, moto.url, port=args.port, new_session=False)
+    cp = cs.ControlPlane(work, moto.url, port=args.port, new_session=False,
+                         PUBLIC_REVIEW="enabled" if args.public_review else None)
     worker = cp.api("POST", "/v1/workers", json={"name": "Local Mac"}).json()
     agent_env = {"CUE_CLOUD_URL": cp.url, "CUE_WORKER_TOKEN": worker["token"], "CUE_AGENT_DATA_DIR": str(work / "agent"),
                  "CUE_AGENT_POLL_SECONDS": "1", "CUE_AGENT_MIN_FREE_MEM_GB": "0.2", "CUE_AGENT_MIN_FREE_DISK_GB": "0.5"}

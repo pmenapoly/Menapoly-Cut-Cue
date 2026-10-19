@@ -40,6 +40,10 @@ Whisper, model size, CPU threads and video encoder come from the normal `CUTCUE_
 
 ## 3. Deploy the control plane (needs your explicit approval; not done)
 
+**For the private pilot on `cue.menapoly-digital.com`, follow [pilot/deployment-plan.md](pilot/deployment-plan.md)
+and [pilot/APPROVAL-CHECKLIST.md](pilot/APPROVAL-CHECKLIST.md) instead of the generic steps below.** The pilot has no
+public paths at all (no Bypass policies; the Mac uses an Access service token).
+
 Each command below creates or changes something in your Cloudflare account. Run them only after you approve.
 
 ```sh
@@ -62,9 +66,10 @@ for s in CF_ACCESS_AUD CF_ACCESS_TEAM_DOMAIN OWNER_EMAILS S3_ENDPOINT S3_ACCESS_
   "headers": ["content-type"] }, "maxAgeSeconds": 3600 } ] }
 ```
 
-Then in Zero Trust → Access → Applications: add a self-hosted app for `cue.<your-domain>` allowing your email, plus a
-**Bypass** policy (or separate app) for `/review.html`, `/review.js`, `/styles.css`, `/icon.svg`, `/v1/public/*` and
-`/v1/worker/*`. Those routes do their own token checks.
+Then in Zero Trust → Access → Applications: add a self-hosted app for `cue.<your-domain>` allowing your email, and a
+second app for `cue.<your-domain>/v1/worker` with a Service Auth policy for the Mac's service token. Only when you
+later decide to turn client review links on (`PUBLIC_REVIEW=enabled`, off by default) would `/review.html`,
+`/review.js`, `/styles.css`, `/icon.svg` and `/v1/public/*` need a Bypass policy. Those routes do their own token checks.
 
 Add a custom domain route for `cue.<your-domain>` to the Worker (it has `workers_dev: false`, so there's no public
 `*.workers.dev` URL), then deploy: `npx wrangler deploy`. Verify:

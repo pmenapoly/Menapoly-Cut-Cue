@@ -7,6 +7,7 @@ export interface Env {
   EMAIL?: { send(message: unknown): Promise<void> };
   ENVIRONMENT: string;
   CLOUD_RENDERING: string;
+  PUBLIC_REVIEW?: string;        // "enabled" turns on client review links; anything else (the default) keeps them off
   S3_ENDPOINT?: string;
   S3_REGION: string;
   S3_BUCKET: string;
@@ -34,6 +35,9 @@ export class HttpError extends Error {
 }
 
 export const now = () => Date.now() / 1000;
+
+/** Client review links (the only route family meant for people outside Access) are off unless explicitly enabled. */
+export const publicReviewEnabled = (env: Env) => env.PUBLIC_REVIEW === "enabled";
 
 export function newId(prefix: string): string {
   const bytes = crypto.getRandomValues(new Uint8Array(8));

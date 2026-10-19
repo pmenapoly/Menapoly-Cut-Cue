@@ -120,6 +120,7 @@ async function projectPage(id, nav) {
   const exports = assets.filter((a) => a.kind === "output" && a.status === "ready" && a.media_type === "video");
   const active = jobs.some((j) => ["queued", "leased", "running", "awaiting_authorization"].includes(j.status));
   const workerOnline = Boolean(status?.workers_online);
+  const reviewOn = status?.public_review === "enabled";
 
   const uploadsBox = h("div", { class: "uploads", "aria-live": "polite" });
   const picker = h("input", { type: "file", id: "file-input", multiple: true, class: "visually-hidden",
@@ -170,7 +171,7 @@ async function projectPage(id, nav) {
   const exportRow = (a) => h("li", { class: "row" },
     h("div", { class: "grow" }, h("strong", { class: "name" }, a.name), h("span", { class: "meta" }, `${fmtBytes(a.size)} · ${ago(a.created_at)} · checksum verified`)),
     h("div", { class: "actions" }, button("Play", () => preview(a)), button("Download", () => download(a)),
-      button("Share for review", () => shareDialog(id, a), "btn primary")));
+      reviewOn ? button("Share for review", () => shareDialog(id, a), "btn primary") : null));
 
   const linkRow = (l) => h("li", { class: "row" },
     h("div", { class: "grow" }, h("strong", {}, l.label), h("span", { class: "meta" },
@@ -326,6 +327,7 @@ async function settingsPage(nav) {
       } }, h("label", { for: "worker-name" }, "Add a Mac"), name, h("button", { class: "btn", type: "submit" }, "Create worker token")), tokenBox));
   }
   if (status) sections.push(h("section", { class: "card" }, h("h2", {}, "System"),
+    h("p", { class: "meta" }, `Client review links: ${status.public_review === "enabled" ? "on" : "off"}.`),
     h("p", { class: "meta" }, `Environment: ${status.environment}. Jobs: ${Object.entries(status.jobs).map(([k, v]) => `${v} ${k}`).join(", ") || "none"}.`)));
   shell("Settings", sections, { nav });
 }

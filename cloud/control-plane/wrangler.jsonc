@@ -7,6 +7,10 @@
   "compatibility_date": "2026-05-22",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,                       // only reachable through the custom domain behind Cloudflare Access
+  "preview_urls": false,                      // no per-version preview URLs either (they would sit outside Access)
+  // Private pilot hostname. Cloudflare creates the DNS record and certificate when the Worker is deployed;
+  // the zone menapoly-digital.com must be active in the same Cloudflare account. Access must exist BEFORE deploy.
+  "routes": [{ "pattern": "cue.menapoly-digital.com", "custom_domain": true }],
   "assets": {
     "directory": "../web",
     "binding": "ASSETS",
@@ -31,6 +35,7 @@
     // Production defaults. Local development overrides these in .dev.vars (never committed).
     "ENVIRONMENT": "production",
     "CLOUD_RENDERING": "disabled",            // paid cloud workers are off; jobs target the Mac
+    "PUBLIC_REVIEW": "disabled",              // client review links off for the private pilot (no public routes at all)
     "S3_REGION": "auto",
     "S3_BUCKET": "menapoly-cue-media",       // private R2 bucket (no public access, no r2.dev URL)
     "MAX_VIDEO_GB": "20",

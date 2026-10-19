@@ -82,7 +82,9 @@ class ControlPlane:
         if s3_url:
             settings["S3_ENDPOINT"] = s3_url
         settings.update(vars)
+        # --local-upstream keeps request URLs on localhost (the config routes to cue.menapoly-digital.com in production).
         args = [npx, "wrangler", "dev", "--local", "--test-scheduled", "--ip", "127.0.0.1", "--port", str(self.port),
+                "--local-upstream", f"localhost:{self.port}", "--upstream-protocol", "http",
                 "--inspector-port", str(free_port()), "--persist-to", str(self.persist), "--show-interactive-dev-session=false"]
         for k, v in settings.items():
             if v is not None:

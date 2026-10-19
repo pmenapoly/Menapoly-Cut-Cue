@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(cs.available() is not None, reason=cs.available(
 def stack(tmp_path_factory):
     work = tmp_path_factory.mktemp("cloud")
     moto = cs.Moto(work)
-    cp = cs.ControlPlane(work, moto.url)
+    cp = cs.ControlPlane(work, moto.url, PUBLIC_REVIEW="enabled")  # review-link tests need it; the pilot keeps it off
     try:
         yield cp
     finally:
@@ -80,7 +80,7 @@ def test_production_mode_has_no_unauthenticated_fallback(tmp_path):
             assert r.status_code == 503, (path, r.status_code, r.text)
         assert cp.api("POST", "/v1/worker/lease").status_code == 401
         assert cp.worker("POST", "/v1/worker/lease", "cqw_wkr_0000000000000000.notarealsecretnotarealsecret").status_code == 401
-        assert cp.api("GET", "/v1/public/review/rv_" + "x" * 43).status_code == 404
+        assert cp.api("GET", "/v1/public/review/rv_" + "x" * 43).status_code == 403  # client links off by default
     finally:
         cp.stop()
 
@@ -92,6 +92,21 @@ def test_production_mode_with_access_rejects_bad_tokens(tmp_path):
         assert cp.api("GET", "/v1/projects").status_code == 401
         assert cp.api("GET", "/v1/projects", headers={"cf-access-jwt-assertion": "garbage"}).status_code == 401
         assert cp.api("GET", "/v1/projects", user="owner@example.test").status_code == 401
+    finally:
+        cp.stop()
+
+
+def test_client_review_links_are_off_by_default(tmp_path):
+    """wrangler.jsonc ships PUBLIC_REVIEW=disabled: no link can be created and no token is even looked up."""
+    cp = cs.ControlPlane(tmp_path, None)
+    try:
+        assert cp.api("GET", "/v1/status").json()["public_review"] == "disabled"
+        pid = new_project(cp, "No public access")
+        r = cp.api("POST", f"/v1/projects/{pid}/review-links", json={"asset_id": "ast_0000000000000000"})
+        assert r.status_code == 409 and "turned off" in r.json()["error"]
+        token = "rv_" + "A" * 43
+        assert cp.api("GET", f"/v1/public/review/{token}").status_code == 403
+        assert cp.api("POST", f"/v1/public/review/{token}/events", json={"kind": "approved", "author": "x"}).status_code == 403
     finally:
         cp.stop()
 

@@ -9,10 +9,15 @@ export async function api(path, { method = "GET", body, idempotencyKey } = {}) {
   if (idempotencyKey) headers["idempotency-key"] = idempotencyKey;
   let res;
   try {
-    res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), credentials: "same-origin" });
+    // redirect: "manual": an expired Cloudflare Access session answers API calls with a redirect to the login page,
+    // which fetch can't follow cross-origin; we turn it into a clear "sign in again" message instead.
+    res = await fetch(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+                              credentials: "same-origin", redirect: "manual" });
   } catch {
     throw new ApiError(0, navigator.onLine ? "Can't reach Menapoly Cue right now." : "You're offline.", null);
   }
+  if (res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400))
+    throw new ApiError(401, "Your sign-in expired. Reload the page to sign in again.", null);
   if (res.status === 204) return null;
   const type = res.headers.get("content-type") || "";
   if (!type.includes("application/json")) {

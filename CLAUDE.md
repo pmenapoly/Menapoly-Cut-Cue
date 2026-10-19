@@ -28,4 +28,6 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
   cloud/web (plain-JS PWA, no build), backend/cutcue/agent.py (outbound-only Mac worker; own data dir; AI edits go
   through create_proposal and stay proposed until approved in the cloud). Tests: tests/test_cloud_e2e.py and
   `make cloud-ui-test` (wrangler dev + moto via scripts/cloud_stack.py), `make cloud-check`. Never deploy, create
-  Cloudflare resources, or enable CLOUD_RENDERING without the owner's explicit approval.
+  Cloudflare resources, or enable CLOUD_RENDERING / PUBLIC_REVIEW without the owner's explicit approval. Pilot
+  (cue.menapoly-digital.com): docs/cloud/pilot/ (APPROVAL-CHECKLIST.md), cloud/control-plane/pilot/ (read-only preflight,
+  provision.sh that prints unless --execute), scripts/pilot_acceptance.py; test/config.test.mjs guards the pilot config.

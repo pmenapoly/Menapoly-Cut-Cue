@@ -393,7 +393,8 @@ def live_control_plane_step() -> tuple:
     r = subprocess.run([sys.executable, "-m", "cutcue.agent", "--check"], cwd=ROOT / "backend", capture_output=True, text=True, timeout=60)
     if r.returncode != 0:
         return ("20", title, FAIL, [(r.stderr or r.stdout).strip()[-300:]])
-    return ("20", title, PARTIAL, [r.stdout.strip(), "connection and worker auth only; run a job from your phone to verify the rest"])
+    return ("20", title, PARTIAL, [r.stdout.strip(), "connection and worker auth only; the full check is "
+                                   "`make pilot-acceptance VIDEO=…` (docs/cloud/pilot/acceptance-test.md)"])
 
 
 def main() -> int:

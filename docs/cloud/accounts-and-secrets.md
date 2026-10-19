@@ -20,7 +20,8 @@ Names only. **No values are stored in the repository**; never paste them into ch
 | R2 API token | — | Object Read & Write, **this bucket only** |
 | Queue + DLQ | `menapoly-cue-events`, `menapoly-cue-events-dlq` | |
 | Access application | the app hostname | policy: allow your email(s) |
-| Access bypass paths | `/review.html`, `/review.js`, `/styles.css`, `/icon.svg`, `/v1/public/*`, `/v1/worker/*` | these routes do their own token auth; optionally use a service-token policy for `/v1/worker/*` instead of bypass |
+| Access app for `/v1/worker` | Service Auth policy with the service token `menapoly-mac` | the Mac's way in; no Bypass anywhere in the pilot |
+| Access bypass paths | none in the pilot | only if client review links are turned on later: `/review.html`, `/review.js`, `/styles.css`, `/icon.svg`, `/v1/public/*` |
 
 ## Worker secrets (`wrangler secret put NAME`)
 
@@ -39,8 +40,8 @@ Never set `DEV_OWNER_EMAIL` in production. It is ignored there anyway: the dev i
 
 ## On the Mac (`.env`, chmod 600)
 
-`CUE_CLOUD_URL`, `CUE_WORKER_TOKEN` (shown once on Settings → Mac workers), optional `CUE_ACCESS_CLIENT_ID` /
-`CUE_ACCESS_CLIENT_SECRET`. The token is never printed by the agent; revoke it from Settings if the Mac is lost.
+`CUE_CLOUD_URL`, `CUE_WORKER_TOKEN` (shown once on Settings → Mac workers), `CUE_ACCESS_CLIENT_ID` /
+`CUE_ACCESS_CLIENT_SECRET` (the Access service token; required in the pilot). The token is never printed by the agent; revoke it from Settings if the Mac is lost.
 
 ## Not needed
 

@@ -71,3 +71,19 @@ private URL returns the real MP4 and records playback as unverified rather than 
 - `scripts/validate.py` step 19 (remote worker end to end against a local control plane) ran here: VERIFIED
   (fixture transcriber; on the Mac it uses your real Whisper settings). Step 20 reports BLOCKED until a deployment exists.
 - Full backend suite (`make test`, includes the 13 cloud tests): 106 passed, 1 skipped (7 min 10 s).
+
+## Pilot preparation (2026-10-19)
+
+- Relay hotfix `fc8457e` re-verified: typecheck, lint, `npm test`, 10/10 identity tests, Wrangler dry-run
+  (`CUE_AUTH_MODE=cloudflare-access` bound). Every Relay data route returns 401 without a verified Access JWT.
+- Live Relay state (read-only): deploy and preview workflows both **active**; `main` unchanged at `e5a904d`.
+- Control plane: 9 unit tests, including the new config guard (custom domain only, no workers.dev/preview URLs,
+  cloud processing and client links off, separate from Relay). Wrangler dry-run with the
+  `cue.menapoly-digital.com` route.
+- New: client review links off by default (`PUBLIC_REVIEW=disabled`): no link can be created, and old tokens are
+  refused before lookup (`test_client_review_links_are_off_by_default`).
+- New: `scripts/pilot_acceptance.py` passes end to end against the local stack with the real agent process
+  (`test_pilot_acceptance.py`: steps 2–10 VERIFIED; 1 and 11 need the real deployment and phone).
+- Preflight Access-policy rules (Bypass, Everyone, IP ranges, Service Auth placement): `test_pilot_tools.py`.
+- Phone-size browser tests: 4/4 pass after the changes.
+- Full backend suite after pilot preparation: 111 passed, 1 skipped (9 min 46 s).
