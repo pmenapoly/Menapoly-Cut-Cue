@@ -12,7 +12,14 @@ Checked on 2026-10-19, read-only (GitHub Actions API, the Relay repository, the 
 | 4 | Relay's Access secrets are still missing (`CF_ACCESS_AUD`, `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD_PREVIEW`, `CF_ACCESS_SERVICE_TOKENS`); the API token and account ID are set. | last readiness run (Oct 14); no runs since |
 | 5 | No CI deployment of Relay has ever succeeded. Whether a Worker was deployed by hand can only be seen in your dashboard. | Actions history |
 
-## 1. Prepared: disable the unsafe Relay deployment workflows
+## 1. Done: disable the unsafe Relay deployment workflows
+
+**Executed 2026-10-20 with the owner's approval (S1)** via `gh workflow disable 350419547` and
+`gh workflow disable 355167474`. Verified afterwards with `gh workflow list --all` and the GitHub workflow API: both
+`disabled_manually`. No files were deleted and nothing was merged. To re-enable later (only after the Relay hotfix and
+its Access secrets are in place): Actions → workflow → **Enable workflow**.
+
+The original preparation notes follow.
 
 This is a production change to the Relay repository (it changes what pushes do), so it waits for your approval
 (checklist item **S1**). It changes no code and is reversible with one click.

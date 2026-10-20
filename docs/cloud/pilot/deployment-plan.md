@@ -31,11 +31,12 @@ This sandbox can't look up DNS or reach Cloudflare's API, so this check is yours
 5. Run the preflight:
 
    ```sh
-   export CLOUDFLARE_ACCOUNT_ID=…  CLOUDFLARE_API_TOKEN=…      # the read-only token
+   export CLOUDFLARE_ACCOUNT_ID=…                     # 32 hex characters (not secret)
+   read -rs CLOUDFLARE_API_TOKEN && export CLOUDFLARE_API_TOKEN   # paste the read-only token; hidden, not in shell history
    backend/.venv/bin/python cloud/control-plane/pilot/preflight.py --stage before-provision
    ```
 
-   Expected now: zone active and in this account, no `cue` record, Relay workflows (PROBLEM until S1 is done), Access
+   Expected now: zone active and in this account, no `cue` record, Relay workflows OK (S1 done 2026-10-20), Access
    and resources "NOT YET".
 
 ## Step 1: Cloudflare Access (dashboard; free; checklist PROD-1)

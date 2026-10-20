@@ -17,10 +17,16 @@ and asks for a typed confirmation before changing anything.
 
 | ✔ | Code | Change | How (exact) | Undo |
 |---|---|---|---|---|
-| ☐ | **S1** | Disable Relay's two deploy workflows: "Deploy Menapoly Cue to Cloudflare" and "Deploy Preview (menapoly-cue-preview)". No code changes; CI checks stay on. | GitHub → MenapolyRelay → Actions → each workflow → **⋯ → Disable workflow** ([details](security-gate.md#1-prepared-disable-the-unsafe-relay-deployment-workflows)) | **⋯ → Enable workflow** |
+| ✅ | **S1** | **Done 2026-10-20 (approved by the owner).** Disable Relay's two deploy workflows: "Deploy Menapoly Cue to Cloudflare" and "Deploy Preview (menapoly-cue-preview)". No code changes; CI checks stay on. | GitHub → MenapolyRelay → Actions → each workflow → **⋯ → Disable workflow** ([details](security-gate.md#1-done-disable-the-unsafe-relay-deployment-workflows)) | **⋯ → Enable workflow** |
 
 **Gate resolved when:** `preflight.py` shows both workflows as `disabled_manually`. The deploy script refuses to
 run until then.
+
+**S1 result:** both workflows are `disabled_manually` (IDs 350419547 and 355167474). This was confirmed with the
+GitHub CLI and separately with the GitHub workflow API (updated 2026-10-19 21:15 ET). The workflow files are kept,
+nothing was merged, Relay `main` is still `e5a904d`, and no workflow run has started since. **The security gate is
+resolved for the pilot.** The other three workflows (CI Checks, Verify Cue, Security readiness) never deploy and stay
+active.
 
 Not part of the pilot (separate decision, later):
 
@@ -37,7 +43,7 @@ Not part of the pilot (separate decision, later):
 |---|---|---|---|
 | ☐ | **C1** | Cloudflare → Websites: `menapoly-digital.com` is **Active** in the account you'll use | Active (not "Pending") |
 | ☐ | **C2** | DNS → Records: no record named `cue` | none |
-| ☐ | **C3** | Create the read-only API token ([permissions](deployment-plan.md#step-0-confirm-domain-ownership-and-dns-access-you-read-only-5-minutes)) and run `preflight.py --stage before-provision` | zone OK, `cue` free; Access and resources "NOT YET"; the only PROBLEM lines are the Relay workflows until S1 |
+| ☐ | **C3** | Create the read-only API token ([permissions](deployment-plan.md#step-0-confirm-domain-ownership-and-dns-access-you-read-only-5-minutes)) and run `preflight.py --stage before-provision` | zone OK, `cue` free; Access and resources "NOT YET"; no PROBLEM lines (the Relay workflows now show OK) |
 
 If C1 fails, the pilot hostname can't be used yet (domain not on Cloudflare or in another account). Tell me and I'll
 adjust the plan.

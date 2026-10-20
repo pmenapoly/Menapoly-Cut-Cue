@@ -4,9 +4,8 @@
 
 The pilot's single list of approvals is [pilot/APPROVAL-CHECKLIST.md](pilot/APPROVAL-CHECKLIST.md). In short:
 
-1. **Security gate (S1):** Relay's "Deploy Menapoly Cue to Cloudflare" **and** "Deploy Preview" workflows are still
-   active (re-checked 2026-10-19), and Relay `main` is still the build that trusts identity headers. Disable both
-   workflows ([security-gate.md](pilot/security-gate.md)). The pilot deploy script refuses to run until they're disabled.
+1. ~~Security gate (S1)~~ **Resolved 2026-10-20:** both Relay deploy workflows are disabled (verified). Relay `main`
+   is still the build that trusts identity headers, but nothing can deploy it now. The hotfix (R1) stays a later decision.
 2. **Domain:** confirm `menapoly-digital.com` is an active zone in your Cloudflare account and `cue` is free (C1–C3).
    This sandbox can't do DNS lookups or reach Cloudflare's API, so it couldn't be checked from here.
 3. **Paid services (PAID-1..3)** and **production changes (PROD-1..6)**, each approved separately.
