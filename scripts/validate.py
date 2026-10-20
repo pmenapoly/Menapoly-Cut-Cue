@@ -5,7 +5,8 @@ live Claude API, real Google Chrome) through the acceptance workflow and writes 
 A step is VERIFIED only if it really ran and its checks passed. Missing prerequisites give
 BLOCKED, inputs you did not provide give SKIPPED, never VERIFIED.
 Steps 19-20 cover the hybrid cloud: 19 runs the real Mac worker agent against a local control plane (wrangler dev +
-local S3, needs `make cloud-setup`); 20 only checks the deployed control plane if CUE_CLOUD_URL is set.
+local S3, needs `make cloud-setup`); 20 only checks the deployed control plane if CUE_CLOUD_URL is set; 21 stops,
+freezes (sleep), wakes and restarts the real agent process mid-job.
 
 Usage (from the repo root):
     make validate MEDIA=~/Movies/episode.mp4 [CLIP_MINUTES=10]
@@ -58,30 +59,45 @@ class Run:
 
 
 class MemorySampler(threading.Thread):
-    """Peak RSS of the server process tree (API + Whisper + FFmpeg children), per phase."""
+    """Peak RSS and CPU of the server process tree (API + Whisper + FFmpeg children), per phase.
+    CPU is the sum over the tree, in % of one core (400% = four cores busy); average and peak per phase."""
 
     def __init__(self, pid: int):
         super().__init__(daemon=True)
         self.proc = psutil.Process(pid)
         self.phase = "startup"
         self.peaks: dict[str, float] = {}
+        self.cpu_peak: dict[str, float] = {}
+        self.cpu_sum: dict[str, float] = {}
+        self.cpu_n: dict[str, int] = {}
         self.stop = threading.Event()
+        self._known: dict[int, psutil.Process] = {}
 
     def run(self) -> None:
         while not self.stop.is_set():
             try:
                 procs = [self.proc, *self.proc.children(recursive=True)]
-                rss = 0
+                rss, cpu = 0, 0.0
                 for p in procs:
                     try:
                         rss += p.memory_info().rss
+                        known = self._known.setdefault(p.pid, p)
+                        cpu += known.cpu_percent(None)  # first call per process primes it (returns 0)
                     except psutil.Error:
                         pass
                 mb = rss / 1024**2
-                self.peaks[self.phase] = max(self.peaks.get(self.phase, 0.0), mb)
+                ph = self.phase
+                self.peaks[ph] = max(self.peaks.get(ph, 0.0), mb)
+                self.cpu_peak[ph] = max(self.cpu_peak.get(ph, 0.0), cpu)
+                self.cpu_sum[ph] = self.cpu_sum.get(ph, 0.0) + cpu
+                self.cpu_n[ph] = self.cpu_n.get(ph, 0) + 1
             except psutil.Error:
                 return
-            time.sleep(0.25)
+            time.sleep(0.5)
+
+    def cpu_summary(self) -> dict[str, dict[str, int]]:
+        return {ph: {"avg_pct": round(self.cpu_sum[ph] / max(1, self.cpu_n[ph])), "peak_pct": round(self.cpu_peak[ph])}
+                for ph in self.cpu_n}
 
 
 def free_port() -> int:
@@ -378,6 +394,97 @@ def remote_worker_step(out: Path, media: Path, settings) -> tuple:
     except Exception as exc:
         return ("19", title, FAIL, details + [f"{type(exc).__name__}: {exc}"])
     finally:
+        if cp:
+            cp.stop()
+        if moto:
+            moto.stop()
+
+
+def worker_restart_step(out: Path, media: Path, settings) -> tuple:
+    """Step 21: the real agent process is stopped mid-job, frozen (as when the Mac sleeps) past its lease, woken, and
+    restarted. Checks that work is released or requeued, never lost or duplicated, and that the phone sees offline at once."""
+    import hashlib
+    import signal as sig
+
+    import cloud_stack as cs
+    title = "Mac worker: shutdown, sleep, wake and restart without losing or duplicating work"
+    problem = cs.available()
+    if problem:
+        return ("21", title, NOT_VERIFIED, [problem, "run: make cloud-setup"])
+    ctype = CONTENT_TYPES.get(media.suffix.lower())
+    if not ctype:
+        return ("21", title, NOT_VERIFIED, [f"{media.suffix} is not an accepted cloud upload type"])
+    work = out / "worker-restart"
+    work.mkdir(exist_ok=True)
+    moto = cp = agent = None
+    details: list[str] = []
+    try:
+        moto = cs.Moto(work)
+        cp = cs.ControlPlane(work, moto.url, LEASE_SECONDS="30")
+        pid = cp.api("POST", "/v1/projects", json={"name": "Worker restart"}).json()["id"]
+        data = media.read_bytes()
+        up = cs.upload_file(cp, pid, data=data, name=media.name, content_type=ctype)
+        token = cp.api("POST", "/v1/workers", json={"name": "Validation Mac"}).json()["token"]
+        env = {**os.environ, "CUE_CLOUD_URL": cp.url, "CUE_WORKER_TOKEN": token, "CUE_AGENT_DATA_DIR": str(work / "agent"),
+               "CUE_AGENT_POLL_SECONDS": "1", "CUE_AGENT_MIN_FREE_MEM_GB": "0.5", "CUE_AGENT_MIN_FREE_DISK_GB": "1",
+               "CUTCUE_TRANSCRIBER": settings.transcriber, "NO_PROXY": "*", "no_proxy": "*"}
+        log = (work / "agent.log").open("a")
+
+        def start():
+            return subprocess.Popen([sys.executable, "-m", "cutcue.agent"], cwd=ROOT / "backend", env=env, stdout=log, stderr=subprocess.STDOUT)
+
+        def job():
+            return cp.api("GET", f"/v1/jobs/{jid}").json()
+
+        def wait(pred, timeout, what):
+            end = time.time() + timeout
+            while time.time() < end:
+                j = job()
+                if pred(j):
+                    return j
+                time.sleep(0.5)
+            raise RuntimeError(f"timed out waiting for {what} (status {job()['status']})")
+
+        jid = cp.api("POST", f"/v1/projects/{pid}/jobs", json={"type": "transcribe", "asset_id": up["asset_id"]}).json()["id"]
+        # 1. Clean shutdown mid-job: the lease is handed back at once and the phone sees "Mac offline" at once.
+        agent = start()
+        wait(lambda j: j["status"] in ("leased", "running", "succeeded"), 120, "the job to start")
+        if job()["status"] == "succeeded":
+            return ("21", title, PARTIAL, ["the job finished before it could be interrupted; use a longer --media file"])
+        t0 = time.time()
+        agent.send_signal(sig.SIGTERM)
+        agent.wait(90)
+        released = job()
+        online = cp.api("GET", "/v1/status").json()["workers_online"]
+        ok1 = released["status"] == "queued" and released["attempts"] == 0 and online == 0
+        details.append(f"shutdown: agent exited in {time.time() - t0:.1f}s; job {released['status']} (attempts {released['attempts']}); "
+                       f"workers online {online}")
+        # 2. Restart, then "sleep" (process frozen) past the lease; recovery requeues; wake; no duplicate result.
+        agent = start()
+        wait(lambda j: j["status"] in ("leased", "running", "succeeded"), 120, "the job to restart")
+        slept = job()["status"] != "succeeded"
+        if slept:
+            agent.send_signal(sig.SIGSTOP)
+            time.sleep(35)
+            cp.scheduled()
+            after = job()
+            details.append(f"sleep: after the 30 s lease ran out, recovery set the job to {after['status']}")
+            agent.send_signal(sig.SIGCONT)
+        done = wait(lambda j: j["status"] in ("succeeded", "failed", "dead"), 1800, "the job to finish")
+        outputs = cp.sql("SELECT COUNT(*) FROM assets WHERE source_job_id = ? AND status = 'ready'", (jid,))[0][0]
+        kinds = [e["kind"] for e in done["events"]]
+        ok2 = done["status"] == "succeeded" and outputs == 1
+        details.append(f"restart{' + sleep/wake' if slept else ''}: job {done['status']} after {done['attempts']} attempt(s); "
+                       f"{outputs} transcript output (must be exactly 1); events: {', '.join(kinds)}")
+        agent.send_signal(sig.SIGTERM)
+        agent.wait(90)
+        agent = None
+        return ("21", title, PASS if ok1 and ok2 else FAIL, details)
+    except Exception as exc:
+        return ("21", title, FAIL, details + [f"{type(exc).__name__}: {exc}"])
+    finally:
+        if agent and agent.poll() is None:
+            agent.kill()
         if cp:
             cp.stop()
         if moto:
@@ -964,10 +1071,12 @@ def main() -> int:
         # 19-20. Hybrid cloud: the Mac worker agent ------------------------------------------------------------
         run.step(*remote_worker_step(out, media, settings))
         run.step(*live_control_plane_step())
+        run.step(*worker_restart_step(out, media, settings))
 
         # 7. Measurements --------------------------------------------------------------------------------------
         project = app.api("GET", f"/projects/{pid}")
         run.metrics["peak_memory_mb"] = {k: round(v) for k, v in app.mem.peaks.items()}
+        run.metrics["cpu_percent_of_one_core"] = app.mem.cpu_summary()
         run.metrics["claude"] = {"turns": chat_costs, "project_spend_usd": round(project["spent_usd"], 4),
                                  "live": claude_live}
         tr = run.metrics.get("transcription")
@@ -978,6 +1087,8 @@ def main() -> int:
                    f"final 9:16: {run.metrics.get('final_vertical_render')}",
                    f"final 16:9: {run.metrics.get('final_16x9_render')}",
                    f"peak memory (server + Whisper + FFmpeg) by phase, MB: {run.metrics['peak_memory_mb']}",
+                   f"CPU (% of one core; {psutil.cpu_count()} logical cores) by phase, avg/peak: "
+                   + ", ".join(f"{k} {v['avg_pct']}/{v['peak_pct']}" for k, v in run.metrics['cpu_percent_of_one_core'].items()),
                    f"Claude spend: ${project['spent_usd']:.4f} over {len(chat_costs)} turns (estimated from token usage)"
                    if claude_live else "Claude spend: not measured (no live Claude)"]
         measured = all(run.metrics.get(k) for k in ("transcription", "preview_render_seconds", "final_vertical_render"))

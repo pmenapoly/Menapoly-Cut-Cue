@@ -413,14 +413,38 @@ class Agent:
         self._save_state()
         return asset
 
-    def _mirror_all(self, lease: dict, local_pid: str, reporter: Reporter) -> dict[str, str]:
+    def _mirror_all(self, lease: dict, local_pid: str, reporter: Reporter, need_transcript: bool = False) -> dict[str, str]:
         mapping = {inp["id"]: self._mirror(local_pid, inp, reporter)["id"] for inp in lease["inputs"]}
         self._wait_local(local_pid, reporter)
         for cloud_id, local_id in mapping.items():
+            self._finish_pipeline(local_pid, local_id, reporter, need_transcript)
             asset = self.services.get_asset(local_pid, local_id)
             if asset["status"] == "error":
                 raise JobError(f"{asset['original_name']}: {asset.get('error') or 'could not be analysed'}", retryable=False)
         return mapping
+
+    def _finish_pipeline(self, local_pid: str, local_id: str, reporter: Reporter, need_transcript: bool) -> None:
+        """A cached file may carry work that a shutdown, sleep or crash cut short (its local jobs were cancelled, or marked
+        failed when the agent restarted). Run that work again instead of reporting a missing transcript as "no speech"."""
+        def latest(job_type):
+            return next((j for j in self.services.list_jobs(local_pid, 200)
+                         if j["type"] == job_type and j["payload"].get("asset_id") == local_id), None)
+
+        def rerun(job_type, message):
+            prior = latest(job_type)
+            if prior and prior["status"] in ("queued", "running"):
+                return
+            if prior and prior["status"] in ("cancelled", "failed"):
+                log.info("re-running interrupted local %s for %s", job_type, local_id)
+                self.services.retry_job(local_pid, prior["id"])
+            else:
+                self.services.jobs.enqueue(self.services.get_project(local_pid), job_type, {"asset_id": local_id}, message)
+            self._wait_local(local_pid, reporter)
+
+        if self.services.get_asset(local_pid, local_id)["status"] == "processing":
+            rerun("analyze", "Waiting to analyze")
+        if need_transcript and self.settings.transcriber != "none" and not self.services.transcript(local_id):
+            rerun("transcribe", "Waiting to transcribe")
 
     def _work_dir(self, job: dict) -> Path:
         d = self.cfg.data_dir / "outputs" / job["id"]
@@ -430,7 +454,7 @@ class Agent:
     def _transcribe(self, job: dict, lease: dict, local_pid: str, reporter: Reporter):
         if self.settings.transcriber == "none":
             raise JobError("Transcription is turned off on this Mac (CUTCUE_TRANSCRIBER=none).", retryable=False)
-        mapping = self._mirror_all(lease, local_pid, reporter)
+        mapping = self._mirror_all(lease, local_pid, reporter, need_transcript=True)
         cloud_id, local_id = next(iter(mapping.items()))
         segments = self.services.transcript(local_id)
         if not segments:
@@ -443,7 +467,7 @@ class Agent:
                                   "duration": self.services.get_asset(local_pid, local_id).get("duration")}}
 
     def _auto_edit(self, job: dict, lease: dict, local_pid: str, reporter: Reporter):
-        mapping = self._mirror_all(lease, local_pid, reporter)
+        mapping = self._mirror_all(lease, local_pid, reporter, need_transcript=True)
         cloud_id, local_id = next(iter(mapping.items()))
         reporter.set("planning the edit")
         hook = self.services.best_hook(local_pid, local_id) if job["params"].get("hook") else None

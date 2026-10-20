@@ -3,7 +3,7 @@ PY ?= python3
 VENV := backend/.venv
 VPY := $(VENV)/bin/python
 
-.PHONY: setup check dev start build test ui-test validate fixture whisper-model clean backup backup-db restore cloud-setup cloud-check cloud-dev cloud-ui-test agent agent-check agent-install pilot-preflight pilot-acceptance
+.PHONY: setup check dev start build test ui-test validate fixture whisper-model clean backup backup-db restore cloud-setup cloud-check cloud-dev cloud-ui-test agent agent-check agent-install pilot-preflight pilot-acceptance mac-setup mac-start mac-stop mac-status worker-start worker-stop
 
 setup: ## Install backend + frontend dependencies and create .env
 	test -d $(VENV) || $(PY) -m venv $(VENV)
@@ -48,6 +48,24 @@ fixture: ## Generate the synthetic Market Mocha interview + brief in data/fixtur
 
 whisper-model: ## Pre-download the Whisper model named in .env (CUTCUE_WHISPER_MODEL)
 	cd backend && .venv/bin/python -c "from cutcue.config import settings as s; from faster_whisper import WhisperModel; WhisperModel(s.whisper_model, device='cpu', compute_type=s.whisper_compute_type); print('Whisper model ready:', s.whisper_model)"
+
+mac-setup: ## Guided Intel Mac setup: checks macOS, Homebrew, Python, Node, FFmpeg; installs only what you approve
+	scripts/mac_setup.sh
+
+mac-start: ## Start Menapoly Cut Cue and open it in Chrome (http://127.0.0.1:8000)
+	scripts/cue_mac.sh start
+
+mac-stop: ## Stop the desktop app
+	scripts/cue_mac.sh stop
+
+mac-status: ## Is the app running? Is the Mac worker running?
+	scripts/cue_mac.sh status
+
+worker-start: ## Start the Mac worker (needs CUE_CLOUD_URL + CUE_WORKER_TOKEN in .env)
+	scripts/cue_mac.sh worker-start
+
+worker-stop: ## Stop the Mac worker gracefully (its job goes back to the queue)
+	scripts/cue_mac.sh worker-stop
 
 cloud-setup: ## Install the cloud control-plane tooling (Wrangler, TypeScript) - local only, deploys nothing
 	cd cloud/control-plane && npm ci --no-audit --no-fund
