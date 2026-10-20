@@ -44,8 +44,13 @@ jobs:
           REF: ${{ github.ref }}
           ACTION: ${{ inputs.action }}
           CONFIRM: ${{ inputs.confirm }}
+          PRIVATE: ${{ github.event.repository.private }}
         run: |
           set -eu
+          # On GitHub Free, a private repository silently ignores environment approvals (and their protected values).
+          if [ "$PRIVATE" != "false" ]; then
+            echo "::error::This repository is private, so the owner-approval environment would be ignored. Nothing was run."; exit 1
+          fi
           if [ "$REF" != "refs/heads/menapoly-cue-2.0" ]; then
             echo "::error::This workflow only runs from the menapoly-cue-2.0 branch (got $REF)."; exit 1
           fi
@@ -80,10 +85,13 @@ jobs:
       D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
       WRANGLER_SEND_METRICS: "false"
     steps:
-      - name: Refuse anything but the pilot branch (again, inside the protected job)
+      - name: Refuse anything but the pilot branch and a public repository (again, inside the protected job)
         env:
           REF: ${{ github.ref }}
-        run: '[ "$REF" = "refs/heads/menapoly-cue-2.0" ] || { echo "::error::wrong branch"; exit 1; }'
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          [ "$REF" = "refs/heads/menapoly-cue-2.0" ] || { echo "::error::wrong branch"; exit 1; }
+          [ "$PRIVATE" = "false" ] || { echo "::error::private repository: environment approval would be ignored"; exit 1; }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: menapoly-cue-2.0

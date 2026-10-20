@@ -51,8 +51,8 @@ cd cloud/control-plane
 npx wrangler login
 npx wrangler d1 create menapoly-cue-cloud            # put the printed database_id into wrangler.jsonc
 npx wrangler r2 bucket create menapoly-cue-media
-npx wrangler queues create menapoly-cue-events
-npx wrangler queues create menapoly-cue-events-dlq
+npx wrangler queues create menapoly-cue-events --message-retention-period-secs 86400
+npx wrangler queues create menapoly-cue-events-dlq --message-retention-period-secs 86400
 npx wrangler r2 bucket cors set menapoly-cue-media --file r2-cors.json   # see below
 npx wrangler d1 migrations apply DB --remote
 for s in CF_ACCESS_AUD CF_ACCESS_TEAM_DOMAIN OWNER_EMAILS S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY; do

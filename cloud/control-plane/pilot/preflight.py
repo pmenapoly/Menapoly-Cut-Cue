@@ -73,6 +73,20 @@ def policy_problems(policies: list[dict], allow_service_token: bool) -> list[str
     return out
 
 
+def database_id_check(real_id: str, ci: bool) -> tuple[bool, str, str]:
+    """The Worker must be bound to the pilot D1 database. In GitHub Actions the committed wrangler.jsonc stays id-free and
+    ci.py fills the id in from the D1_DATABASE_ID secret, so compare the secret; locally, compare the file."""
+    if not real_id:
+        return False, "D1 database id", "the pilot database doesn't exist"
+    if ci:
+        same = os.environ.get("D1_DATABASE_ID", "") == real_id
+        return same, "D1_DATABASE_ID secret matches the D1 database", "yes" if same else "missing or different: copy the id the provision run printed"
+    cfg = (HERE.parent / "wrangler.jsonc").read_text()
+    m = re.search(r'"database_id"\s*:\s*"([0-9a-f-]{36})"', cfg)
+    same = bool(m) and m.group(1) == real_id
+    return same, "wrangler.jsonc database_id matches the D1 database", "yes" if same else "add the database_id printed by `wrangler d1 create`"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", choices=["before-provision", "before-deploy", "after-deploy"], default="before-provision")
@@ -160,8 +174,10 @@ def main() -> int:
         report(OK if team else TODO, "Zero Trust team domain (CF_ACCESS_TEAM_DOMAIN)", team or "Zero Trust not set up yet")
         if args.ci:
             want_team = os.environ.get("CF_ACCESS_TEAM_DOMAIN", "").replace("https://", "").strip("/").lower()
-            report(OK if team and want_team == team.lower() else BAD, "CF_ACCESS_TEAM_DOMAIN secret matches the team domain",
-                   "yes" if team and want_team == team.lower() else "missing or different")
+            # Before Zero Trust exists this is "not yet" (later stages still fail closed on it); once it exists the
+            # secret must match exactly.
+            report(TODO if not team else OK if want_team == team.lower() else BAD, "CF_ACCESS_TEAM_DOMAIN secret matches the team domain",
+                   "set up Access first" if not team else "yes" if want_team == team.lower() else "missing or different")
         apps = cf(client, f"/accounts/{account}/access/apps")
         people = [a for a in apps if a.get("domain", "").rstrip("/") == HOST]
         workers = [a for a in apps if a.get("domain", "").rstrip("/") == f"{HOST}/v1/worker"]
@@ -197,22 +213,19 @@ def main() -> int:
     code, out = wrangler("d1", "list", "--json")
     if code == 0:
         names = {d.get("name"): d.get("uuid") for d in json.loads(out[out.index("["):])}
-        report(OK if (D1 in names) == want else (TODO if want else BAD), f"D1 database {D1}",
-               "exists" if D1 in names else "not created")
+        report(resource(D1 in names, want), f"D1 database {D1}", "exists" if D1 in names else "not created")
         if "menapoly-cue-production" in names:
             report(INFO, "Relay's D1 database exists separately", "menapoly-cue-production (left untouched)")
-        cfg = (HERE.parent / "wrangler.jsonc").read_text()
-        has_id = bool(re.search(r'"database_id"\s*:\s*"[0-9a-f-]{36}"', cfg))
         if want:
-            report(OK if has_id and names.get(D1, "") in cfg else BAD, "wrangler.jsonc database_id matches the D1 database",
-                   "yes" if has_id else "add the database_id printed by `wrangler d1 create`")
+            ok, what, detail = database_id_check(names.get(D1, ""), args.ci)
+            report(OK if ok else BAD, what, detail)
     else:
         report(BAD if args.ci else TODO, "D1 list", "wrangler can't read D1 (token permission D1:Read/Edit missing?)" if args.ci
                else "wrangler not signed in (npx wrangler login) or no access")
     code, out = wrangler("r2", "bucket", "list")
     if code == 0:
         exists = re.search(rf"name:\s+{BUCKET}\b", out) is not None
-        report(OK if exists == want else (TODO if want else BAD), f"R2 bucket {BUCKET}", "exists" if exists else "not created")
+        report(resource(exists, want), f"R2 bucket {BUCKET}", "exists" if exists else "not created")
         if exists:
             _, dev = wrangler("r2", "bucket", "dev-url", "get", BUCKET)
             public = "enabled" in dev.lower() and "disabled" not in dev.lower()
@@ -224,7 +237,7 @@ def main() -> int:
     if code == 0:
         for q in QUEUES:
             exists = q in out
-            report(OK if exists == want else (TODO if want else BAD), f"Queue {q}", "exists" if exists else "not created")
+            report(resource(exists, want), f"Queue {q}", "exists (reused)" if exists and not want else "exists" if exists else "not created")
 
     # --- 5. After deploy: nothing answers without Access --------------------------------------------------------
     if args.stage == "after-deploy":
@@ -245,6 +258,12 @@ def main() -> int:
 
 CI = False
 STAGE = "before-provision"
+
+
+def resource(exists: bool, want: bool) -> str:
+    """Before provisioning, a pilot resource that already exists (a provision run that stopped half-way) is reused by
+    name, so it's information, not a problem. After provisioning, a missing one is "not yet" (blocks CI)."""
+    return OK if exists == want else TODO if want else INFO
 
 
 def summary() -> int:

@@ -3,7 +3,7 @@
 Pilot: `https://cue.menapoly-digital.com`, for you only (Cloudflare Access), with your Intel Mac doing the work.
 Status on 2026-10-19: **everything prepared and tested locally; nothing purchased, merged, created or deployed.**
 
-**Browser-first launch (2026-10-20, current priority):** [browser-first.md](browser-first.md) has the
+**Launch request (GH-A, Workers Free): [LAUNCH-REQUEST.md](LAUNCH-REQUEST.md).** **Browser-first launch (2026-10-20, current priority):** [browser-first.md](browser-first.md) has the
 working/blocked matrix, the shortest path to a private URL, the exact approvals (including **GH-A**, which adds only
 the manual workflow file to the default branch instead of changing it) and the costs. No Mac setup is needed for it.
 

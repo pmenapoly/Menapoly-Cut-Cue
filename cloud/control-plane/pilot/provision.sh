@@ -40,8 +40,8 @@ resources)
   run $W r2 bucket dev-url disable menapoly-cue-media --force
   run $W r2 bucket cors set menapoly-cue-media --file pilot/r2-cors.json --force
   run $W r2 bucket lifecycle add menapoly-cue-media abort-incomplete-uploads --abort-multipart-days 2 --force
-  run $W queues create menapoly-cue-events
-  run $W queues create menapoly-cue-events-dlq
+  run $W queues create menapoly-cue-events --message-retention-period-secs 86400
+  run $W queues create menapoly-cue-events-dlq --message-retention-period-secs 86400
   echo
   echo "NEXT (manual): put the database_id printed by 'd1 create' into wrangler.jsonc under d1_databases[0],"
   echo "then apply the schema:"

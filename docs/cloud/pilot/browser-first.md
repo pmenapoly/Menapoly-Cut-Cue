@@ -4,6 +4,8 @@ Goal: open Cue in **Chrome on your Intel iMac** and **Chrome on your Android pho
 need to install FFmpeg, Python or anything else on the Mac first. Cue stays private (Cloudflare Access, your email
 only). Video work waits in a queue until a Mac worker connects later.
 
+**Ready to launch: see [LAUNCH-REQUEST.md](LAUNCH-REQUEST.md)** (verified checks, the four approval groups, next action, approval text).
+
 Status on 2026-10-20: the browser app and the cloud API are built and tested **on a local copy of the stack** (details
 in §7). **Nothing is deployed, purchased or changed** in Cloudflare, DNS or GitHub settings.
 
@@ -169,11 +171,11 @@ See [phone-only.md §3](phone-only.md#3-proposal-a-mac-free-worker-on-github-act
 
 | Test | Kind | Result |
 |---|---|---|
-| Control plane unit tests (Access JWT, SHA-256, pilot config guard) | automated | see run below |
-| Cloud end-to-end (real Worker under wrangler dev, moto for R2, real Mac agent on Linux, real FFmpeg) | automated, local | see run below |
-| Browser UI, Chrome **Android profile at 375 px and 430 px** | automated (Playwright Chromium, Pixel 7 emulation) | see run below |
-| Browser UI, **desktop Chrome at 1440 × 900** (iMac stand-in) | automated (Playwright Chromium) | see run below |
-| PWA install checks (manifest, icons, service worker, offline launch) | automated | see run below |
+| Control plane unit tests (Access JWT, SHA-256, pilot config guard) | automated | 9/9 passed |
+| Cloud end-to-end (real Worker under wrangler dev, moto for R2, real Mac agent on Linux, real FFmpeg) | automated, local | full backend suite 121 passed, 1 skipped; pilot workflow and preflight 16/16 |
+| Browser UI, Chrome **Android profile at 375 px and 430 px** | automated (Playwright Chromium, Pixel 7 emulation) | 20/20 passed (10 flows × 2 widths) |
+| Browser UI, **desktop Chrome at 1440 × 900** (iMac stand-in) | automated (Playwright Chromium) | 10/10 passed |
+| PWA install checks (manifest, icons, service worker, offline launch) | automated | passed on all 3 profiles |
 | **Chrome on your Intel iMac** | **real device** | **Not run.** Needs the deployment (PROD-3) or your Mac. Nothing here claims it |
 | **Chrome on your Android phone + installed app** | **real device** | **Not run.** Needs the deployment |
 | Live Claude API | real service | **Not run.** No authorized call was made; not claimed |

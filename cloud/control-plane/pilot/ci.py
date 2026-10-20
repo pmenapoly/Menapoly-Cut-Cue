@@ -78,7 +78,8 @@ def provision() -> None:
     queues = wrangler("queues", "list", capture=True).stdout
     for q in QUEUES:
         if q not in queues:
-            wrangler("queues", "create", q)
+            # 24 h retention: the most Workers Free allows (its default of 4 days is refused there); also fine on Paid.
+            wrangler("queues", "create", q, "--message-retention-period-secs", "86400")
     cfg = ci_config(db_id)
     wrangler("d1", "migrations", "apply", "DB", "--remote", "--config", cfg.name)
     cfg.unlink()

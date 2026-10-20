@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+CP = ROOT / "cloud" / "control-plane"
 WF = yaml.safe_load((ROOT / ".github" / "workflows" / "pilot.yml").read_text())
 sys.path.insert(0, str(ROOT / "cloud" / "control-plane" / "pilot"))
 import ci  # noqa: E402
@@ -78,3 +79,55 @@ def test_relay_gate_in_ci_fails_closed(monkeypatch):
     monkeypatch.delenv("RELAY_ACTIONS_TOKEN")
     monkeypatch.setattr(sys, "argv", ["preflight.py", "--ci", "--stage", "before-deploy"])
     assert preflight.main() == 1 and any("RELAY_ACTIONS_TOKEN" in r[2] for r in preflight.results)
+
+
+def test_deploy_stage_checks_the_database_secret_not_the_id_free_config(monkeypatch):
+    """Regression: in CI the committed wrangler.jsonc has no database_id (ci.py fills it in), so the before-/after-deploy
+    preflight must compare the D1_DATABASE_ID secret. Comparing the file failed every deploy and removed the Worker."""
+    real = "0f0e0d0c-0b0a-4908-8706-050403020100"
+    assert '"database_id"' not in (CP / "wrangler.jsonc").read_text()
+    monkeypatch.setenv("D1_DATABASE_ID", real)
+    assert preflight.database_id_check(real, ci=True)[0]
+    monkeypatch.setenv("D1_DATABASE_ID", "11111111-2222-4333-8444-555555555555")
+    assert not preflight.database_id_check(real, ci=True)[0]
+    monkeypatch.delenv("D1_DATABASE_ID")
+    assert not preflight.database_id_check(real, ci=True)[0]
+    assert not preflight.database_id_check("", ci=True)[0]
+    assert not preflight.database_id_check(real, ci=False)[0]  # locally the file must carry the id
+
+
+def test_workflow_refuses_a_private_repository():
+    """Environment approvals and environment secrets are ignored if this repository is made private on a free plan;
+    the workflow must then refuse instead of running without the owner-approval gate."""
+    text = (ROOT / ".github" / "workflows" / "pilot.yml").read_text()
+    assert text.count("github.event.repository.private") >= 2
+
+
+def test_queues_fit_workers_free_retention():
+    """Workers Free allows at most 24 h queue retention; every place that creates the queues must ask for that."""
+    for f in (CP / "pilot" / "ci.py", CP / "pilot" / "provision.sh", ROOT / "docs" / "cloud" / "setup.md"):
+        text = f.read_text()
+        creates = re.findall(r"queues.{0,6}create.*", text)
+        assert creates and all("86400" in line for line in creates), f
+
+
+def test_first_check_before_access_is_not_yet_and_later_stages_block(monkeypatch):
+    """The first read-only check runs before Access exists: that is "not yet", not a failure. Every later stage fails
+    closed on anything "not yet"."""
+    preflight.results.clear()
+    monkeypatch.setattr(preflight, "CI", True)
+    for stage, blocked in (("before-provision", False), ("before-deploy", True), ("after-deploy", True)):
+        monkeypatch.setattr(preflight, "STAGE", stage)
+        preflight.results[:] = [(preflight.TODO, "CF_ACCESS_TEAM_DOMAIN secret matches the team domain", "set up Access first")]
+        assert (preflight.summary() == 1) is blocked, stage
+    preflight.results[:] = [(preflight.BAD, "x", "")]
+    monkeypatch.setattr(preflight, "STAGE", "before-provision")
+    assert preflight.summary() == 1
+    preflight.results.clear()
+
+
+def test_provision_can_be_rerun_after_stopping_half_way():
+    assert preflight.resource(exists=True, want=False) == preflight.INFO   # reused by name, not a blocker
+    assert preflight.resource(exists=False, want=False) == preflight.OK
+    assert preflight.resource(exists=False, want=True) == preflight.TODO   # blocks deploy in CI
+    assert preflight.resource(exists=True, want=True) == preflight.OK
