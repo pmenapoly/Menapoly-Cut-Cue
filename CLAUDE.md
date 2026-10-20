@@ -31,3 +31,7 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
   Cloudflare resources, or enable CLOUD_RENDERING / PUBLIC_REVIEW without the owner's explicit approval. Pilot
   (cue.menapoly-digital.com): docs/cloud/pilot/ (APPROVAL-CHECKLIST.md), cloud/control-plane/pilot/ (read-only preflight,
   provision.sh that prints unless --execute), scripts/pilot_acceptance.py; test/config.test.mjs guards the pilot config.
+- Phone-only pilot: cloud/control-plane/src/ask.ts (Ask Cue built-in planner: reads D1, proposes cue_actions; only
+  POST /v1/actions/:id/approve acts), .github/workflows/pilot.yml (workflow_dispatch only, menapoly-cue-2.0 only, typed
+  phrase, environment menapoly-cue-pilot, fail-closed preflight --ci, probe + auto-remove). Never add push/schedule
+  triggers to it and never re-enable Relay's deploy workflows. Phone tests: `make cloud-ui-test` (android-375/430).

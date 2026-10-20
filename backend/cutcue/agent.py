@@ -229,6 +229,13 @@ class Agent:
     def heartbeat(self) -> None:
         self.client.post("/v1/worker/heartbeat", {"version": VERSION, "capabilities": self.capabilities()})
 
+    def say_goodbye(self) -> None:
+        """Tell the control plane this worker is stopping, so the phone shows it offline right away."""
+        try:
+            self.client.post("/v1/worker/heartbeat", {"version": VERSION, "capabilities": self.capabilities(), "going_offline": True})
+        except (httpx.HTTPError, JobError, LeaseLost) as exc:
+            log.warning("could not report going offline: %s", exc)
+
     def resources_ok(self) -> str | None:
         mem = psutil.virtual_memory().available / 1024**3
         if mem < self.cfg.min_free_mem_gb:
@@ -255,6 +262,19 @@ class Agent:
     def job_types(self) -> list[str]:
         # Transcription is leased even when it's turned off here, so the job fails with the reason instead of waiting forever.
         return list(JOB_TYPES)
+
+    def drain(self, seconds: float) -> int:
+        """Work through the queue, then stop: for a worker that only exists for a while (e.g. an approved CI run).
+        No new job is leased after the time is up; a job already running finishes or is released on SIGTERM."""
+        self.recover()
+        self.heartbeat()
+        end, done = time.time() + seconds, 0
+        while time.time() < end and not self.stop.is_set():
+            if not self.run_once():
+                break
+            done += 1
+        log.info("drain finished: %d job(s) processed", done)
+        return done
 
     def run_forever(self) -> None:
         self.recover()
@@ -512,6 +532,8 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m cutcue.agent", description="Menapoly Cue Mac worker agent")
     parser.add_argument("--once", action="store_true", help="process at most one job, then exit")
     parser.add_argument("--check", action="store_true", help="check the configuration and connection, then exit")
+    parser.add_argument("--drain-minutes", type=float, default=0,
+                        help="process queued jobs until none are left or this many minutes pass, then exit (temporary workers)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = AgentConfig.from_env()
@@ -540,7 +562,13 @@ def main(argv: list[str] | None = None) -> None:
         agent.heartbeat()
         agent.run_once()
         return
-    agent.run_forever()
+    try:
+        if args.drain_minutes > 0:
+            agent.drain(args.drain_minutes * 60)
+        else:
+            agent.run_forever()
+    finally:
+        agent.say_goodbye()
 
 
 if __name__ == "__main__":

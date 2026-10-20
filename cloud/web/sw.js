@@ -1,7 +1,7 @@
 // Offline shell only. API calls (/v1/*), review pages and media (storage URLs) are never cached: they are private
 // and short-lived, and stale data would show a wrong status.
-const VERSION = "cue-shell-2026.10.0";
-const SHELL = ["/", "/index.html", "/styles.css", "/app.js", "/api.js", "/upload.js", "/sha256.js", "/hash-worker.js",
+const VERSION = "cue-shell-2026.10.2";
+const SHELL = ["/", "/index.html", "/styles.css", "/app.js", "/api.js", "/icons.js", "/upload.js", "/sha256.js", "/hash-worker.js",
   "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-180.png"];
 
 self.addEventListener("install", (e) => e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())));

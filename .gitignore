@@ -17,3 +17,4 @@ backups/
 frontend/e2e-cloud/.stack.json
 frontend/e2e-cloud/.fixtures/
 frontend/e2e-cloud/.tmp/
+cloud/control-plane/wrangler.ci.jsonc

@@ -2,6 +2,7 @@
 // Auth per route family: people → Cloudflare Access JWT + allowlist; /v1/worker → worker bearer token;
 // /v1/public/review → hashed, expiring review-link token; /v1/health → no data.
 import * as api from "./api";
+import * as askCue from "./ask";
 import { Person, requireOwner, requirePerson, requireWorker } from "./auth";
 import { recover } from "./cron";
 import { handleEvent } from "./events";
@@ -33,6 +34,11 @@ person("GET", "/v1/status", async (_r, env) => api.status(env));
 person("GET", "/v1/projects", async (_r, env) => api.listProjects(env));
 person("POST", "/v1/projects", async (r, env, me) => api.createProject(r, env, me));
 person("GET", "/v1/projects/:id", async (_r, env, _me, m) => api.getProject(env, m[1]));
+person("POST", "/v1/projects/:id/archive", async (_r, env, me, m) => api.archiveProject(env, me, m[1]));
+person("POST", "/v1/ask", async (r, env, me) => askCue.ask(r, env, me));
+person("GET", "/v1/actions", async (_r, env) => askCue.listActions(env));
+person("POST", "/v1/actions/:id/approve", async (_r, env, me, m) => askCue.decideAction(env, me, m[1], "approve"));
+person("POST", "/v1/actions/:id/reject", async (_r, env, me, m) => askCue.decideAction(env, me, m[1], "reject"));
 person("PUT", "/v1/projects/:id/budget", async (r, env, me, m) => api.setBudget(r, env, me, m[1]));
 person("POST", "/v1/projects/:id/uploads", async (r, env, me, m) => api.createUpload(r, env, me, m[1]));
 person("GET", "/v1/uploads/:id", async (_r, env, me, m) => api.uploadStatus(env, me, m[1]));

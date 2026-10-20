@@ -63,7 +63,12 @@ function hashFile(file, onProgress) {
   });
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Waits that end early (with an AbortError) when the upload is paused or the sign-in expires.
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) return reject(new DOMException("Upload paused", "AbortError"));
+  const t = setTimeout(resolve, ms);
+  signal?.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("Upload paused", "AbortError")); }, { once: true });
+});
 const online = () => navigator.onLine ? Promise.resolve() : new Promise((r) => addEventListener("online", r, { once: true }));
 
 /**
@@ -159,6 +164,6 @@ async function putPart(sessionId, item, blob, signal, onState) {
     // No fraction here: the bytes already confirmed by storage stay on screen while we retry.
     onState({ phase: "waiting",
       message: navigator.onLine ? "Connection hiccup, retrying" : "Offline. Will continue when you're back online" });
-    await sleep(Math.min(30000, 1000 * 2 ** attempt));
+    await sleep(Math.min(30000, 1000 * 2 ** attempt), signal);
   }
 }

@@ -1,16 +1,23 @@
 {
+  "id": "/",
   "name": "Menapoly Cue",
   "short_name": "Cue",
-  "description": "Private video editing with your Mac doing the work.",
+  "description": "Private video editing: send footage from your phone, your Mac does the work, you approve every edit.",
   "start_url": "/#/",
   "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#11121B",
   "theme_color": "#11121B",
+  "categories": ["productivity", "photo"],
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Ask Cue", "url": "/#/ask", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Inbox", "url": "/#/inbox", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
   ]
 }

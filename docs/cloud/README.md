@@ -6,6 +6,7 @@ Use Menapoly Cue from your phone while your Intel Mac does the heavy work. Built
 | Document | |
 |---|---|
 | **[pilot/APPROVAL-CHECKLIST.md](pilot/APPROVAL-CHECKLIST.md)** | **private pilot on cue.menapoly-digital.com: the one approval checklist** (security gate, paid services, production changes) |
+| **[pilot/phone-only.md](pilot/phone-only.md)** | **finish and test from an Android phone: what works without the Mac, phone-only deployment via an approval-gated workflow, Mac-free option** |
 | [pilot/](pilot) | security gate, deployment plan, Mac worker, Android, acceptance test, exact charges |
 | [architecture.md](architecture.md) | hosting architecture, flows, security model, Tailscale interim option |
 | [costs.md](costs.md) | monthly cost estimate and budget controls |

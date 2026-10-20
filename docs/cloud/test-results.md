@@ -87,3 +87,27 @@ private URL returns the real MP4 and records playback as unverified rather than 
 - Preflight Access-policy rules (Bypass, Everyone, IP ranges, Service Auth placement): `test_pilot_tools.py`.
 - Phone-size browser tests: 4/4 pass after the changes.
 - Full backend suite after pilot preparation: 111 passed, 1 skipped (9 min 46 s).
+
+## Phone-only round (2026-10-20)
+
+- Chrome-on-Android browser tests (Pixel 7 profile) at **375 px and 430 px: 18/18 pass**. They cover:
+  - install: manifest, icons including maskable, a real service worker, offline launch;
+  - sign-in and refusal;
+  - project drafts surviving a reload;
+  - upload retry and resume;
+  - Ask Cue proposals and approval;
+  - Mac offline, then reconnect, review, approve, export, play and download;
+  - session expiry: banner, paused upload, return to the same screen, only missing parts sent;
+  - offline banner;
+  - inbox, settings and archive.
+
+  No page scrolls sideways at either width. Screenshots: `screenshots/android-375/`, `screenshots/android-430/`.
+- Unverified in this browser: H.264 playback (no codec in this Chromium build; the bytes are checked instead), and
+  live Cloudflare Access (simulated with its redirect).
+- Backend: **120 passed, 1 skipped**. New tests:
+  - Ask Cue proposes and only approval acts; double-tap safe; editors can't approve;
+  - archive stops queued work;
+  - a worker that goes offline shows at once;
+  - agent drain mode;
+  - workflow safety: manual-only, branch-locked, approval environment, SHA-pinned actions, fail-closed Relay gate.
+- `actionlint` 1.7.7: `.github/workflows/pilot.yml` clean. Control plane 9/9, Wrangler dry-run, frontend build OK.

@@ -31,9 +31,11 @@ async function heldJob(request: Request, env: Env, w: WorkerIdentity, id: string
 export async function heartbeat(request: Request, env: Env, w: WorkerIdentity) {
   const b = await body(request, 16 * 1024);
   const caps = Array.isArray(b.capabilities) ? (b.capabilities as unknown[]).map(String).slice(0, 20) : [];
+  // A worker that stops cleanly says so, so the phone shows "Mac offline" at once instead of after 2 minutes.
+  const leaving = b.going_offline === true;
   await env.DB.prepare("UPDATE workers SET last_seen_at = ?, version = ?, capabilities_json = ? WHERE id = ?")
-    .bind(now(), str(b.version, "version", { max: 40, required: false }) || null, JSON.stringify(caps), w.id).run();
-  return json({ ok: true, server_time: now() });
+    .bind(leaving ? null : now(), str(b.version, "version", { max: 40, required: false }) || null, JSON.stringify(caps), w.id).run();
+  return json({ ok: true, server_time: now(), offline: leaving });
 }
 
 export async function lease(request: Request, env: Env, w: WorkerIdentity) {

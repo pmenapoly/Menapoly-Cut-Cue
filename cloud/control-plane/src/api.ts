@@ -38,7 +38,9 @@ export async function listProjects(env: Env) {
   const { results } = await env.DB.prepare(`SELECT p.*,
       (SELECT COUNT(*) FROM assets a WHERE a.project_id = p.id AND a.kind = 'source' AND a.status = 'ready') AS source_count,
       (SELECT COUNT(*) FROM jobs j WHERE j.project_id = p.id AND j.status IN ('queued','leased','running')) AS active_jobs,
-      (SELECT COUNT(*) FROM assets a WHERE a.project_id = p.id AND a.kind = 'output' AND a.status = 'ready') AS output_count
+      (SELECT COUNT(*) FROM assets a WHERE a.project_id = p.id AND a.kind = 'output' AND a.status = 'ready') AS output_count,
+      (SELECT COUNT(*) FROM timeline_versions v WHERE v.project_id = p.id AND v.status = 'proposed') AS pending_approvals,
+      (SELECT COUNT(*) FROM jobs j WHERE j.project_id = p.id AND j.status IN ('failed','dead')) AS failed_jobs
       FROM projects p WHERE archived_at IS NULL ORDER BY updated_at DESC LIMIT 200`).all();
   return json(results);
 }
@@ -68,6 +70,19 @@ export async function getProject(env: Env, id: string) {
   return json({ project: { ...p, spent_usd: spent?.usd ?? 0 }, assets: assets.results,
     jobs: jobs.results.map(jobView), versions: versions.results, review_links: links.results.map((l) => ({ ...l, active: !l.revoked_at && Number(l.expires_at) > now() })),
     feedback: feedback.results });
+}
+
+export async function archiveProject(env: Env, me: Person, id: string) {
+  requireOwner(me);
+  await project(env, id);
+  const t = now();
+  // Archiving hides the project and stops its queued work. Stored files stay in private storage until deleted there.
+  await env.DB.batch([
+    env.DB.prepare("UPDATE projects SET archived_at = ?, updated_at = ? WHERE id = ?").bind(t, t, id),
+    env.DB.prepare("UPDATE jobs SET status = 'cancelled', finished_at = ?, updated_at = ?, lease_token_hash = NULL WHERE project_id = ? AND status IN ('queued','awaiting_authorization')").bind(t, t, id),
+  ]);
+  await audit(env, me.email, "project.archive", id);
+  return json({ ok: true });
 }
 
 export async function setBudget(request: Request, env: Env, me: Person, id: string) {

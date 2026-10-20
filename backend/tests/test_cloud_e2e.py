@@ -430,3 +430,62 @@ def test_full_remote_workflow_with_mac_agent(stack, clean_queue, settings, fixtu
         stack.sql("UPDATE audit_log SET actor = 'someone-else'")
     with pytest.raises(Exception, match="append-only"):
         stack.sql("DELETE FROM audit_log")
+
+
+def test_ask_cue_proposes_and_only_approval_runs(stack, clean_queue):
+    def ask(text, project_id=None, user=None):
+        r = stack.api("POST", "/v1/ask", json={"message": text, **({"project_id": project_id} if project_id else {})}, user=user)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    before = stack.sql("SELECT COUNT(*) FROM projects")[0][0]
+    out = ask("New project Spring Promo for Acme")
+    assert out["mode"] == "built-in" and out["action"]["kind"] == "create_project" and out["action"]["status"] == "pending"
+    assert stack.sql("SELECT COUNT(*) FROM projects")[0][0] == before  # proposing changed nothing
+    act = out["action"]["id"]
+    assert stack.api("POST", f"/v1/actions/{act}/approve", user="editor@example.test").status_code == 403
+    r = stack.api("POST", f"/v1/actions/{act}/approve")
+    assert r.status_code == 200 and r.json()["status"] == "approved", r.text
+    pid = r.json()["result"]["id"]
+    assert stack.api("GET", f"/v1/projects/{pid}").json()["project"]["name"] == "Spring Promo for Acme"
+    assert stack.api("POST", f"/v1/actions/{act}/approve").status_code == 409  # a second tap can't run it twice
+    assert stack.sql("SELECT COUNT(*) FROM projects")[0][0] == before + 1
+
+    # Jobs need real footage; Ask Cue says so instead of guessing.
+    assert "no finished video" in ask("Suggest an edit for Spring Promo for Acme")["reply"]
+    up = cs.upload_file(stack, pid, data=b"q" * 2000, name="clip.mp4")
+    out = ask("suggest an edit", project_id=pid)
+    assert out["action"]["kind"] == "create_job" and "approval before anything is exported" in out["reply"]
+    jobs_before = stack.sql("SELECT COUNT(*) FROM jobs WHERE project_id = ?", (pid,))[0][0]
+    rej = stack.api("POST", f"/v1/actions/{out['action']['id']}/reject")
+    assert rej.json()["status"] == "rejected"
+    assert stack.sql("SELECT COUNT(*) FROM jobs WHERE project_id = ?", (pid,))[0][0] == jobs_before
+    out = ask("Transcribe Spring Promo for Acme")
+    stack.api("POST", f"/v1/actions/{out['action']['id']}/approve")
+    job = stack.sql("SELECT type, status FROM jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT 1", (pid,))[0]
+    assert job == ("transcribe", "queued")
+    assert "has no approved edit" in ask("Export Spring Promo for Acme for TikTok")["reply"]
+
+    # Status answers come from real data.
+    att = ask("What needs my attention?")
+    assert any("Transcript in Spring Promo for Acme" in i["label"] for i in att["items"])
+    assert ask("Is my Mac online?")["reply"].startswith(("Yes", "No"))
+    assert ask("blah")["items"]  # help suggestions
+
+    # Archive via Ask stops queued work and hides the project.
+    out = ask("archive project Spring Promo for Acme")
+    assert stack.api("POST", f"/v1/actions/{out['action']['id']}/approve").json()["status"] == "approved"
+    assert pid not in [p["id"] for p in stack.api("GET", "/v1/projects").json()]
+    assert stack.sql("SELECT status FROM jobs WHERE project_id = ? AND type = 'transcribe'", (pid,))[0][0] == "cancelled"
+    actions = {row["action"] for row in stack.api("GET", "/v1/audit").json()}
+    assert {"ask.propose", "ask.approve", "ask.reject", "project.archive"} <= actions
+
+
+def test_worker_going_offline_shows_at_once(stack):
+    stack.sql("UPDATE workers SET last_seen_at = 0")
+    w = register_worker(stack, "Leaving Mac")
+    stack.worker("POST", "/v1/worker/heartbeat", w["token"], {"version": "t"})
+    assert stack.api("GET", "/v1/status").json()["workers_online"] == 1
+    r = stack.worker("POST", "/v1/worker/heartbeat", w["token"], {"version": "t", "going_offline": True})
+    assert r.json()["offline"] is True
+    assert stack.api("GET", "/v1/status").json()["workers_online"] == 0

@@ -3,6 +3,10 @@
 Pilot: `https://cue.menapoly-digital.com`, for you only (Cloudflare Access), with your Intel Mac doing the work.
 Status on 2026-10-19: **everything prepared and tested locally; nothing purchased, merged, created or deployed.**
 
+**Phone-only path (no Mac, no desktop):** use Part 6 at the end. It replaces the Mac/CLI steps of Parts 2–4 with
+GitHub and Cloudflare web dashboards plus a manual, approval-gated GitHub Actions workflow
+([phone-only.md](phone-only.md)).
+
 How to approve: reply with the item codes, e.g. *"I approve S1, PAID-1 (Workers Paid), PROD-1 … PROD-4"*. Each
 item is independent. Paid services and production changes are approved separately. Nothing below happens without
 your explicit approval of that line.
@@ -100,3 +104,36 @@ Free). Everything else (Access for up to 50 users, D1, Queues, DNS, certificate,
   passing end to end on the local stack (`test_pilot_acceptance.py`).
 - Unverified until the real run: domain/DNS (C1–C3), Access on your account, R2 CORS and download headers, the Mac's
   real speed, the Android install.
+
+---
+
+## Part 6: Phone-only path (added 2026-10-20). Each line is approved separately.
+
+GitHub settings (production changes to the Menapoly-Cut-Cue repository; free):
+
+| ✔ | Code | Change | Where | Undo |
+|---|---|---|---|---|
+| ☐ | **GH-1** | Make `menapoly-cue-2.0` the default branch so **Run workflow** appears (GitHub only lists manual workflows from the default branch). No code is merged. | Settings → General → Default branch | switch back |
+| ☐ | **GH-2** | Create environment `menapoly-cue-pilot`: required reviewer = you, deployment branch = `menapoly-cue-2.0` only, environment secrets (names in phone-only.md §4) | Settings → Environments | delete the environment |
+| ☐ | **GH-3** | Protect `menapoly-cue-2.0` (no deletion, no force push) | Settings → Branches | remove the rule |
+| ☐ | **GH-4** | Fine-grained token `RELAY_ACTIONS_TOKEN`: MenapolyRelay only, **Actions: Read-only**, 90 days | Settings → Developer settings | revoke |
+
+Cloudflare (C-checks are read-only; PROD lines change your account; all free):
+
+| ✔ | Code | Change | How | Undo |
+|---|---|---|---|---|
+| ☐ | **C1–C2** | Zone active, no `cue` record | dashboard, read-only | — |
+| ☐ | **C3-P** | Custom API token for the workflow (permissions in phone-only.md §4 B4), then workflow **check** (`check the pilot`) | dashboard + Actions | revoke the token |
+| ☐ | **PROD-1** | Zero Trust team, service token, two Access apps (no Bypass) | Zero Trust dashboard | delete apps/token |
+| ☐ | **PROD-2** | Workflow **provision** (`I approve creating the pilot resources`) + R2 API token for one bucket | Actions + R2 dashboard | delete D1/R2/queues in the dashboard |
+| ☐ | **PROD-3** | Workflow **deploy** (`I approve deploying the Menapoly Cue pilot`): Worker + **`cue` DNS record**, auto-removed if the probe fails | Actions | workflow **rollback** |
+
+Paid services: unchanged from Part 3 (**PAID-1** Workers Paid $5.00/month or stay on Free; **PAID-2** R2 above
+10 GB at $0.015/GB-month). The phone-only path adds no new paid service.
+
+Optional, Mac-free processing (not built into the repository until approved):
+
+| ✔ | Code | Change | Cost | Security |
+|---|---|---|---|---|
+| ☐ | **CR-1** | Add a manual "Process queued videos" workflow that runs the worker on a GitHub-hosted runner (`--drain-minutes`) under the same protected environment | 2,000 free Linux minutes/month on GitHub Free, then $0.006/min only if you raise the $0 Actions spending limit; per-video minutes unmeasured until the first run | footage is processed on a single-use GitHub/Microsoft VM, not your hardware; adds a worker token and the Access service token as environment secrets |
+

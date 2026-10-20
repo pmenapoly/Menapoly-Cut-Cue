@@ -49,3 +49,26 @@ def test_acceptance_script_end_to_end(tmp_path, fixture_dir):
             agent.wait(30)
         cp.stop()
         moto.stop()
+
+
+def test_agent_drain_processes_the_queue_then_exits(tmp_path, fixture_dir, settings):
+    """--drain-minutes: the mode a temporary (non-Mac) worker would use. Works through the queue and stops."""
+    from cutcue.agent import Agent, AgentConfig
+    from cutcue.services import Services
+
+    moto = cs.Moto(tmp_path)
+    cp = cs.ControlPlane(tmp_path, moto.url)
+    try:
+        token = cp.api("POST", "/v1/workers", json={"name": "Temporary worker"}).json()["token"]
+        pid = cp.api("POST", "/v1/projects", json={"name": "Drain"}).json()["id"]
+        up = cs.upload_file(cp, pid, fixture_dir / "market-mocha-interview.mp4")
+        for _ in range(2):
+            cp.api("POST", f"/v1/projects/{pid}/jobs", json={"type": "transcribe", "asset_id": up["asset_id"]})
+        agent = Agent(AgentConfig(url=cp.url, token=token, data_dir=tmp_path / "agent", min_free_mem_gb=0.1, min_free_disk_gb=0.1),
+                      services=Services(settings))
+        assert agent.drain(300) == 2
+        assert {s for (s,) in cp.sql("SELECT status FROM jobs WHERE project_id = ?", (pid,))} == {"succeeded"}
+        assert agent.drain(300) == 0  # empty queue: returns at once
+    finally:
+        cp.stop()
+        moto.stop()

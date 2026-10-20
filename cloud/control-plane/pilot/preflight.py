@@ -76,13 +76,31 @@ def policy_problems(policies: list[dict], allow_service_token: bool) -> list[str
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", choices=["before-provision", "before-deploy", "after-deploy"], default="before-provision")
+    ap.add_argument("--ci", action="store_true", help="GitHub Actions: fail closed on anything missing, check Relay via the GitHub API")
     args = ap.parse_args()
+    global CI, STAGE
+    CI, STAGE = args.ci, args.stage
     account, token = os.environ.get("CLOUDFLARE_ACCOUNT_ID", ""), os.environ.get("CLOUDFLARE_API_TOKEN", "")
     print(f"Menapoly Cue pilot preflight ({args.stage}), read-only\n")
 
     # --- 0. Security gate: Relay's deploy workflows must be disabled ---------------------------------------------
-    gh = shutil.which("gh")
-    if gh:
+    gh = None if args.ci else shutil.which("gh")
+    if args.ci:
+        relay_token = os.environ.get("RELAY_ACTIONS_TOKEN", "")
+        if not relay_token:
+            report(BAD, "Security gate: Relay workflows", "RELAY_ACTIONS_TOKEN secret missing (read-only Actions token for MenapolyRelay)")
+        else:
+            try:
+                r = httpx.get(f"https://api.github.com/repos/{RELAY}/actions/workflows", timeout=30,
+                              headers={"authorization": f"Bearer {relay_token}", "accept": "application/vnd.github+json"})
+                r.raise_for_status()
+                states = {w["name"]: w["state"] for w in r.json().get("workflows", [])}
+                for name in RELAY_DEPLOY_WORKFLOWS:
+                    state = states.get(name, "missing")
+                    report(OK if state.startswith("disabled") or state == "missing" else BAD, f"Security gate: Relay workflow '{name}'", state)
+            except httpx.HTTPError as exc:
+                report(BAD, "Security gate: Relay workflows", f"could not read them ({exc.__class__.__name__})")
+    elif gh:
         r = subprocess.run([gh, "workflow", "list", "--all", "-R", RELAY, "--json", "name,state"], capture_output=True, text=True, timeout=60)
         if r.returncode == 0:
             states = {w["name"]: w["state"] for w in json.loads(r.stdout)}
@@ -127,7 +145,11 @@ def main() -> int:
                        "free for the Worker custom domain" if args.stage != "after-deploy" else "expected the Worker's record")
             else:
                 kinds = ", ".join(f"{r['type']}→{r.get('content', '')}" for r in records)
-                report(OK if args.stage == "after-deploy" else BAD, f"DNS record for {HOST}", kinds)
+                # A record is expected after the first deploy; before one, it would clash with the Worker's custom domain.
+                code, _ = wrangler("deployments", "list", "--name", WORKER) if args.stage == "before-deploy" else (1, "")
+                redeploy = args.stage == "before-deploy" and code == 0
+                report(OK if args.stage == "after-deploy" or redeploy else BAD, f"DNS record for {HOST}",
+                       kinds + (" (the pilot Worker's own custom domain: re-deploy)" if redeploy else ""))
     except RuntimeError as exc:
         report(BAD, "Zone/DNS read", f"{exc} (token needs Zone:Read and DNS:Read)")
 
@@ -136,6 +158,10 @@ def main() -> int:
         org = cf(client, f"/accounts/{account}/access/organizations")
         team = org.get("auth_domain") if isinstance(org, dict) else None
         report(OK if team else TODO, "Zero Trust team domain (CF_ACCESS_TEAM_DOMAIN)", team or "Zero Trust not set up yet")
+        if args.ci:
+            want_team = os.environ.get("CF_ACCESS_TEAM_DOMAIN", "").replace("https://", "").strip("/").lower()
+            report(OK if team and want_team == team.lower() else BAD, "CF_ACCESS_TEAM_DOMAIN secret matches the team domain",
+                   "yes" if team and want_team == team.lower() else "missing or different")
         apps = cf(client, f"/accounts/{account}/access/apps")
         people = [a for a in apps if a.get("domain", "").rstrip("/") == HOST]
         workers = [a for a in apps if a.get("domain", "").rstrip("/") == f"{HOST}/v1/worker"]
@@ -147,6 +173,9 @@ def main() -> int:
             probs = policy_problems(pols, allow_service_token=False)
             report(BAD if probs else OK, f"Access app '{a.get('name')}' ({HOST})",
                    "; ".join(probs) or f"{len(pols)} allow-by-email policy(ies); AUD tag ends …{str(a.get('aud', ''))[-6:]}")
+            if args.ci:
+                same = bool(a.get("aud")) and a.get("aud") == os.environ.get("CF_ACCESS_AUD", "")
+                report(OK if same else BAD, "CF_ACCESS_AUD secret matches this Access app", "yes" if same else "missing or different")
             if a.get("session_duration"):
                 report(INFO, "Access session duration", a["session_duration"])
         if not workers:
@@ -178,7 +207,8 @@ def main() -> int:
             report(OK if has_id and names.get(D1, "") in cfg else BAD, "wrangler.jsonc database_id matches the D1 database",
                    "yes" if has_id else "add the database_id printed by `wrangler d1 create`")
     else:
-        report(TODO, "D1 list", "wrangler not signed in (npx wrangler login) or no access")
+        report(BAD if args.ci else TODO, "D1 list", "wrangler can't read D1 (token permission D1:Read/Edit missing?)" if args.ci
+               else "wrangler not signed in (npx wrangler login) or no access")
     code, out = wrangler("r2", "bucket", "list")
     if code == 0:
         exists = re.search(rf"name:\s+{BUCKET}\b", out) is not None
@@ -213,10 +243,17 @@ def main() -> int:
     return summary()
 
 
+CI = False
+STAGE = "before-provision"
+
+
 def summary() -> int:
     bad = [r for r in results if r[0] == BAD]
     todo = [r for r in results if r[0] == TODO]
     print(f"\n{len(results) - len(bad) - len(todo)} ok/info, {len(todo)} not yet, {len(bad)} problem(s)")
+    if CI and STAGE != "before-provision" and todo:
+        print("CI: items that are not set up yet block this step (fail closed).")
+        return 1
     return 1 if bad else 0
 
 
