@@ -482,7 +482,10 @@ class Agent:
             timeline["audio"] = {**timeline["audio"], "music_asset_id": back.get(timeline["audio"]["music_asset_id"])}
         timeline["name"] = seq["name"]
         return [], {"timeline": timeline, "label": proposal["title"],
-                    "result": {"rationale": proposal["rationale"], "duration": seq["duration"], "clips": seq["clip_count"]}}
+                    "result": {"rationale": proposal["rationale"], "duration": seq["duration"], "clips": seq["clip_count"],
+                               **({"request_note": "Your note is attached. This Mac's built-in editor tightens pauses and filler "
+                                   "words; it doesn't follow written instructions yet (that needs Claude, which isn't connected)."}
+                                  if job["params"].get("request") else {})}}
 
     def _render(self, job: dict, lease: dict, local_pid: str, reporter: Reporter):
         mapping = self._mirror_all(lease, local_pid, reporter)

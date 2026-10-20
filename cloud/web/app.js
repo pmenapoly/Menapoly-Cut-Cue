@@ -99,7 +99,7 @@ function shell(title, content, { back, nav, wide } = {}) {
   if (nav !== state.nav) return false; // a newer navigation or refresh started while this page was loading
   if (state.expired) { renderBanners(); return false; } // keep the screen you were on; just add the sign-in banner
   const hash = location.hash || "#/";
-  const current = hash.startsWith("#/ask") ? "#/ask" : hash === "#/inbox" ? "#/inbox" : hash === "#/settings" ? "#/settings" : "#/";
+  const current = hash.startsWith("#/ask") ? "#/ask" : hash.startsWith("#/library") ? "#/library" : hash === "#/inbox" ? "#/inbox" : hash === "#/settings" ? "#/settings" : "#/";
   const tab = (href, label, name) => h("a", { href, class: "tab" + (current === href ? " on" : ""), "aria-current": current === href ? "page" : null },
     icon(name, 22), h("span", {}, label));
   const online = state.status?.workers_online;
@@ -113,7 +113,10 @@ function shell(title, content, { back, nav, wide } = {}) {
     h("div", { id: "banners" }),
     h("main", { id: "main", class: wide ? "wide" : "" }, content),
     h("nav", { class: "tabs", "aria-label": "Sections" },
-      tab("#/", "Projects", "folder"), tab("#/ask", "Ask Cue", "sparkles"), tab("#/inbox", "Inbox", "inbox"), tab("#/settings", "Settings", "sliders")));
+      h("div", { class: "side-brand", "aria-hidden": "true" }, h("span", { class: "logo" }, icon("logo", 20)),
+        h("span", {}, h("strong", {}, "Menapoly Cue"), h("small", {}, "by Menapoly Digital"))),
+      tab("#/", "Projects", "folder"), tab("#/ask", "Ask Cue", "sparkles"), tab("#/library", "Library", "grid"),
+      tab("#/inbox", "Inbox", "inbox"), tab("#/settings", "Settings", "sliders")));
   renderBanners();
   return true;
 }
@@ -154,7 +157,16 @@ async function projectsPage(nav) {
           p.client ? h("span", { class: "muted" }, p.client) : null,
           h("div", { class: "meta" }, state_, h("span", {}, `${plural(p.source_count, "file")} · ${plural(p.output_count, "export")} · ${ago(p.updated_at)}`)));
       }));
-  shell("Menapoly Cue", [form, h("h2", { class: "section-title" }, "Projects"), list], { nav });
+  const all = projects || [];
+  const sum = (k) => all.reduce((n, p) => n + (p[k] || 0), 0);
+  const online = Boolean(state.status?.workers_online);
+  const stat = (n, label, tone, name) => h("div", { class: `stat ${n ? tone : ""}` }, icon(name, 18), h("strong", {}, String(n)), h("span", {}, label));
+  const summary = projects ? h("section", { class: "summary", "aria-label": "Overview" },
+    stat(sum("pending_approvals"), "to review", "warn", "sparkles"), stat(sum("active_jobs"), "in progress", "accent", "clock"),
+    stat(sum("failed_jobs"), "need attention", "danger", "alert"), stat(all.length, all.length === 1 ? "project" : "projects", "", "folder")) : null;
+  const workerNote = !online ? h("div", { class: "notice worker-note" }, icon("laptop", 18),
+    h("span", {}, "Uploading, organising, Ask Cue and reviews work now. Transcripts, edits and exports start when your Mac worker is online; until then they wait in the queue.")) : null;
+  shell("Menapoly Cue", [summary, workerNote, form, h("h2", { class: "section-title" }, "Projects"), list], { nav });
 }
 
 // --- one project ----------------------------------------------------------------------------------------------
@@ -196,10 +208,14 @@ async function projectPage(id, nav) {
         h("div", { class: "title-row" }, h("strong", {}, `Edit ${v.number}: ${v.label}`),
           chip(v.status === "proposed" ? "Needs your review" : v.status === "approved" ? "Approved" : "Rejected", v.status === "approved" ? "ok" : v.status === "rejected" ? "muted" : "warn")),
         h("span", { class: "meta" }, [job?.result?.duration ? `${dur(job.result.duration)} long` : null, job?.result?.clips ? plural(job.result.clips, "clip") : null, `proposed ${ago(v.created_at)}`].filter(Boolean).join(" · ")),
-        why ? h("p", { class: "why" }, why) : null, clipsBox),
+        why ? h("p", { class: "why" }, why) : null,
+        job?.result?.request_note ? h("p", { class: "meta" }, job.result.request_note) : null,
+        v.decision_note ? h("p", { class: "note-text" }, h("strong", {}, "You asked for changes: "), v.decision_note) : null,
+        clipsBox, h("div", { class: "changes", id: `changes-${v.id}` })),
       h("div", { class: "actions" },
         button("Show clips", () => showVersion(v.id)),
         v.status === "proposed" ? ibutton("check", "Approve", () => decide(v.id, "approved"), "btn primary") : null,
+        v.status === "proposed" ? ibutton("message", "Request changes", () => changesForm(v.id)) : null,
         v.status === "proposed" ? ibutton("x", "Reject", () => decide(v.id, "rejected")) : null,
         v.status === "approved" ? preset : null,
         v.status === "approved" ? ibutton("film", "Export", () => submitJob(id, { type: "render", version_id: v.id, preset: preset.value }), "btn primary") : null));
@@ -210,6 +226,7 @@ async function projectPage(id, nav) {
     return h("li", { class: "row job", "data-status": j.status },
       h("div", { class: "grow" },
         h("div", { class: "title-row" }, h("strong", {}, JOB_LABEL[j.type] || j.type), chip(label, tone)),
+        j.params?.request ? h("p", { class: "note-text" }, h("strong", {}, "Your request: "), j.params.request) : null,
         running || j.status === "queued" ? h("span", { class: "meta" }, j.stage && j.status !== "queued" ? j.stage : (online ? "Next in line on your Mac" : "Your Mac is offline. This starts when it reconnects.")) : null,
         running ? progressBar(j.progress, `${JOB_LABEL[j.type]} progress`) : null,
         running && j.progress != null ? h("span", { class: "meta" }, `${Math.round(j.progress * 100)}% of this step, measured on your Mac`) : null,
@@ -237,13 +254,15 @@ async function projectPage(id, nav) {
     proposed.length ? sec("Needs your review", h("ul", { class: "rows" }, proposed.map(versionRow))) : null,
     live.length ? sec("In progress", h("ul", { class: "rows" }, live.map(jobRow))) : null,
     sec("Footage",
-      h("label", { for: "file-input", class: "btn primary block" }, icon("upload", 20), h("span", {}, "Upload from this phone")), picker,
+      h("label", { for: "file-input", class: "btn primary block" }, icon("upload", 20), h("span", {}, "Upload files")), picker,
       h("p", { class: "meta" }, "Original quality, straight to private storage. Keep this screen open while it uploads; if it stops, choose the same file again."),
       resumable.length ? h("div", { class: "notice" }, h("strong", {}, "Unfinished uploads"),
         ...resumable.map((u) => h("p", {}, `${u.name} (${fmtBytes(u.size)}): choose the same file again to continue.`))) : null,
       uploadsBox,
       sources.length ? h("ul", { class: "rows" }, sources.map(assetRow)) : null),
+    sources.some((a) => ["video", "audio"].includes(a.media_type)) ? requestEditCard(id, sources.filter((a) => ["video", "audio"].includes(a.media_type)), online) : null,
     exports.length ? sec("Finished videos", h("ul", { class: "rows" }, exports.map(exportRow))) : null,
+    instructionsCard(project),
     approved.length || versions.some((v) => v.status === "rejected") ? sec("Edits", h("ul", { class: "rows" }, versions.filter((v) => v.status !== "proposed").map(versionRow))) : null,
     finished.length ? h("details", { class: "card fold" }, h("summary", {}, h("span", {}, `Finished work (${finished.length})`), icon("chevron", 18)),
       h("ul", { class: "rows" }, finished.slice(0, 20).map(jobRow))) : null,
@@ -255,6 +274,48 @@ async function projectPage(id, nav) {
   if (!ok) return;
   renderUploads(id);
   if (live.length || state.uploads.size) poll(() => route(), 4000); else poll(() => route(), 30000);
+}
+
+function instructionsCard(project) {
+  const key = `cue-instr-${project.id}`;
+  const text = h("textarea", { id: "instructions", rows: "4", maxlength: "4000",
+    placeholder: "e.g. 60-second highlight for LinkedIn. Keep the client's product mention. Warm, confident tone.",
+    oninput: (e) => safe.set(key, e.target.value) });
+  text.value = safe.get(key) ?? project.instructions ?? "";
+  const status = h("span", { class: "meta", "aria-live": "polite" }, project.instructions ? "Saved" : "");
+  return h("section", { class: "card" }, h("h2", {}, "Instructions for this project"),
+    h("p", { class: "meta" }, "What this video is for, who it's for and what to keep. Saved with the project for you and anyone helping."),
+    h("label", { for: "instructions", class: "visually-hidden" }, "Instructions"), text,
+    h("div", { class: "actions" }, ibutton("check", "Save instructions", async () => {
+      const r = await run(() => api(`/v1/projects/${project.id}/instructions`, { method: "PUT", body: { instructions: text.value } }), "Instructions saved");
+      if (r) { safe.del(key); status.textContent = "Saved"; }
+    }, "btn primary"), status));
+}
+
+function requestEditCard(projectId, media, online) {
+  const pick = h("select", { id: "edit-source", "aria-label": "Footage to edit" }, media.map((a) => h("option", { value: a.id }, a.name)));
+  const ask = h("textarea", { id: "edit-request", rows: "3", maxlength: "2000", placeholder: "e.g. Tighten the pauses and keep it under 2 minutes." });
+  return h("section", { class: "card" }, h("h2", {}, "Ask for an edit"),
+    h("p", { class: "meta" }, online ? "Your Mac prepares a suggested edit for you to review. Nothing is exported until you approve it."
+      : "Your request waits until your Mac worker is online. Nothing is exported until you approve it."),
+    media.length > 1 ? [h("label", { for: "edit-source" }, "Footage"), pick] : null,
+    h("label", { for: "edit-request" }, "What would you like? (optional)"), ask,
+    h("p", { class: "meta" }, "Today's Mac editor tightens pauses and filler words; your words are kept with the request."),
+    ibutton("sparkles", "Request edit", () => submitJob(projectId, { type: "auto_edit", asset_id: pick.value || media[0].id, request: ask.value.trim() || undefined }), "btn primary"));
+}
+
+function changesForm(versionId) {
+  const box = document.getElementById(`changes-${versionId}`);
+  if (!box) return;
+  const note = h("textarea", { id: `changes-note-${versionId}`, rows: "3", maxlength: "2000", required: true, placeholder: "What should be different?" });
+  box.replaceChildren(h("label", { for: `changes-note-${versionId}` }, "What should change?"), note,
+    h("div", { class: "actions" },
+      ibutton("message", "Send and request a new edit", async () => {
+        if (!note.value.trim()) { note.focus(); return toast("Write what should change first.", "err"); }
+        await decide(versionId, "changes_requested", note.value.trim());
+      }, "btn primary"),
+      button("Cancel", () => box.replaceChildren())));
+  note.focus();
 }
 
 function archiveControl(project) {
@@ -272,8 +333,10 @@ async function submitJob(projectId, body) {
     state.status?.workers_online ? "Sent to your Mac" : "Queued. It starts when your Mac reconnects.");
   if (job) route();
 }
-async function decide(versionId, decision) {
-  if (await run(() => api(`/v1/versions/${versionId}/decision`, { method: "POST", body: { decision } }), decision === "approved" ? "Approved. Choose a format to export." : "Rejected")) route();
+async function decide(versionId, decision, note) {
+  const msg = decision === "approved" ? "Approved. Choose a format to export." : decision === "changes_requested"
+    ? (state.status?.workers_online ? "Changes requested. Your Mac is preparing a new edit." : "Changes requested. A new edit starts when your Mac is online.") : "Rejected";
+  if (await run(() => api(`/v1/versions/${versionId}/decision`, { method: "POST", body: { decision, note } }), msg)) route();
 }
 async function showVersion(id) {
   const v = await run(() => api(`/v1/versions/${id}`));
@@ -402,6 +465,35 @@ async function askPage(nav, projectId) {
   if (ok && pending.length) poll(() => route(), 20000);
 }
 
+// --- library ----------------------------------------------------------------------------------------------------
+async function libraryPage(nav) {
+  const kind = safe.get("cue-lib-kind") || "all";
+  const q = safe.get("cue-lib-q") || "";
+  const [data] = await Promise.all([run(() => api(`/v1/library?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(q)}`)), refreshStatus()]);
+  const kinds = [["all", "All"], ["video", "Video"], ["audio", "Audio"], ["image", "Images"], ["document", "Documents"], ["exports", "Exports"]];
+  const search = h("input", { id: "lib-search", type: "search", placeholder: "Search files and projects", value: q, autocomplete: "off",
+    onchange: (e) => { safe.set("cue-lib-q", e.target.value.trim()); route(); } });
+  const filters = h("div", { class: "filters", role: "group", "aria-label": "File type" },
+    kinds.map(([k, l]) => h("button", { type: "button", class: "filter" + (k === kind ? " on" : ""), "aria-pressed": String(k === kind),
+      onclick: () => { safe.set("cue-lib-kind", k); route(); } }, l)));
+  const tile = (a) => h("li", { class: "tile" },
+    h("span", { class: `thumb ${a.kind === "output" ? "ok" : ""}`, "aria-hidden": "true" },
+      icon(a.kind === "output" ? "film" : a.media_type === "video" ? "film" : a.media_type === "audio" ? "wave" : a.media_type === "image" ? "image" : "doc", 22)),
+    h("div", { class: "grow" }, h("strong", { class: "name" }, a.name),
+      h("a", { class: "meta link", href: `#/project/${a.project_id}` }, a.project_name),
+      h("span", { class: "meta" }, `${a.kind === "output" ? "export" : a.media_type} · ${fmtBytes(a.size)} · ${ago(a.created_at)}`)),
+    h("div", { class: "actions" },
+      ["video", "audio"].includes(a.media_type) ? ibutton("play", "Play", () => preview(a)) : null,
+      ibutton("download", "Download", () => download(a))));
+  shell("Library", [
+    h("div", { class: "lib-head" }, h("label", { for: "lib-search", class: "visually-hidden" }, "Search"), search, filters),
+    data ? h("p", { class: "meta" }, `${plural(data.total_files, "file")} · ${fmtBytes(data.total_bytes || 0)} stored privately`) : null,
+    !data ? h("p", { class: "empty" }, "The library couldn't be loaded.") : !data.items.length
+      ? h("p", { class: "empty" }, q || kind !== "all" ? "Nothing matches. Try another filter." : "No files yet. Upload footage in a project.")
+      : h("ul", { class: "tiles" }, data.items.map(tile)),
+  ], { nav });
+}
+
 // --- inbox ------------------------------------------------------------------------------------------------------
 async function inboxPage(nav) {
   const [data] = await Promise.all([run(() => api("/v1/notifications")), refreshStatus()]);
@@ -479,6 +571,7 @@ async function route() {
   if (m) return projectPage(m[1], nav);
   m = /^#\/ask(?:\/(prj_[0-9a-f]{16}))?$/.exec(hash);
   if (m) return askPage(nav, m[1]);
+  if (hash === "#/library") return libraryPage(nav);
   if (hash === "#/inbox") return inboxPage(nav);
   if (hash === "#/settings") return settingsPage(nav);
   return projectsPage(nav);

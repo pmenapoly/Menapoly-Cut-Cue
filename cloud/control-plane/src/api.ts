@@ -62,7 +62,7 @@ export async function getProject(env: Env, id: string) {
   const [assets, jobs, versions, links, spent] = await Promise.all([
     env.DB.prepare("SELECT id, kind, media_type, name, content_type, size, sha256, status, source_job_id, created_at, verified_at FROM assets WHERE project_id = ? AND status != 'failed' ORDER BY created_at").bind(id).all(),
     env.DB.prepare("SELECT id, type, target, status, stage, progress, error, attempts, max_attempts, created_at, updated_at, started_at, finished_at, params_json, result_json FROM jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT 50").bind(id).all(),
-    env.DB.prepare("SELECT id, number, status, label, source_job_id, created_by, created_at, decided_at FROM timeline_versions WHERE project_id = ? ORDER BY number DESC").bind(id).all(),
+    env.DB.prepare("SELECT id, number, status, label, source_job_id, created_by, created_at, decided_at, decision_note FROM timeline_versions WHERE project_id = ? ORDER BY number DESC").bind(id).all(),
     env.DB.prepare("SELECT id, asset_id, label, created_at, expires_at, revoked_at, allow_download FROM review_links WHERE project_id = ? ORDER BY created_at DESC").bind(id).all(),
     env.DB.prepare("SELECT COALESCE(SUM(usd), 0) AS usd FROM cost_ledger WHERE project_id = ?").bind(id).first<{ usd: number }>(),
   ]);
@@ -230,6 +230,8 @@ export async function createJob(request: Request, env: Env, me: Person, projectI
   } else {
     inputs = [String(b.asset_id || "")];
     if (b.hook !== undefined) params.hook = Boolean(b.hook);
+    const req = str(b.request, "request", { max: 2000, required: false });
+    if (req) params.request = req; // your words travel with the job; the worker reports how it used them
   }
   const { results: found } = await env.DB.prepare(`SELECT id, media_type FROM assets WHERE project_id = ? AND kind = 'source' AND status = 'ready'
                                                    AND id IN (${inputs.map(() => "?").join(",") || "''"})`).bind(projectId, ...inputs).all<{ id: string; media_type: string }>();
@@ -300,13 +302,53 @@ export async function authorizeJob(request: Request, env: Env, me: Person, id: s
 
 // --- timeline versions ------------------------------------------------------------------------------------
 export async function decideVersion(request: Request, env: Env, me: Person, id: string) {
-  const decision = String((await body(request)).decision);
-  if (!["approved", "rejected"].includes(decision)) throw new HttpError(400, "decision must be approved or rejected");
-  const r = await env.DB.prepare("UPDATE timeline_versions SET status = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = 'proposed'")
-    .bind(decision, me.email, now(), id).run();
+  const b = await body(request, 16 * 1024);
+  const decision = String(b.decision);
+  if (!["approved", "rejected", "changes_requested"].includes(decision)) throw new HttpError(400, "decision must be approved, rejected or changes_requested");
+  const note = str(b.note, "note", { max: 2000, required: decision === "changes_requested" });
+  const v = await env.DB.prepare("SELECT * FROM timeline_versions WHERE id = ?").bind(id).first<Record<string, any>>();
+  if (!v) throw new HttpError(404, "Version not found");
+  // Asking for changes closes this suggestion (it is never exported) and records what you want instead.
+  const status = decision === "approved" ? "approved" : "rejected";
+  const r = await env.DB.prepare("UPDATE timeline_versions SET status = ?, decided_by = ?, decided_at = ?, decision_note = ? WHERE id = ? AND status = 'proposed'")
+    .bind(status, me.email, now(), note || null, id).run();
   if (!r.meta.changes) throw new HttpError(409, "This edit was already decided");
-  await audit(env, me.email, `version.${decision}`, id);
-  return json({ ok: true, status: decision });
+  await audit(env, me.email, `version.${decision}`, id, note ? { note: note.slice(0, 200) } : {});
+  let job: unknown = null;
+  if (decision === "changes_requested") {
+    // Ask the worker for a new suggestion from the same footage, carrying your note. It waits if no worker is online.
+    const asset = (JSON.parse(v.timeline_json).clips || [])[0]?.asset_id;
+    if (asset) {
+      const res = await createJob(new Request("https://internal.invalid/v1", { method: "POST", headers: { "content-type": "application/json",
+        "idempotency-key": `changes-${id}` }, body: JSON.stringify({ type: "auto_edit", asset_id: asset, request: note }) }), env, me, v.project_id);
+      job = await res.json();
+    }
+  }
+  return json({ ok: true, status: decision === "changes_requested" ? "changes_requested" : status, job });
+}
+
+export async function setInstructions(request: Request, env: Env, me: Person, id: string) {
+  await project(env, id);
+  const text = str((await body(request, 32 * 1024)).instructions, "instructions", { max: 4000, required: false });
+  await env.DB.prepare("UPDATE projects SET instructions = ?, updated_at = ? WHERE id = ?").bind(text, now(), id).run();
+  await audit(env, me.email, "project.instructions", id, { length: text.length });
+  return json({ ok: true, instructions: text });
+}
+
+export async function library(env: Env, url: URL) {
+  const kind = url.searchParams.get("kind") || "all";
+  const q = (url.searchParams.get("q") || "").trim().toLowerCase().slice(0, 100);
+  const where = ["a.status = 'ready'", "p.archived_at IS NULL"];
+  const args: unknown[] = [];
+  if (kind === "exports") where.push("a.kind = 'output' AND a.media_type = 'video'");
+  else if (["video", "audio", "image", "document"].includes(kind)) { where.push("a.kind = 'source' AND a.media_type = ?"); args.push(kind); }
+  else where.push("(a.kind = 'source' OR a.media_type = 'video')");
+  if (q) { where.push("(lower(a.name) LIKE ? OR lower(p.name) LIKE ?)"); args.push(`%${q}%`, `%${q}%`); }
+  const { results } = await env.DB.prepare(`SELECT a.id, a.kind, a.media_type, a.name, a.size, a.created_at, p.id AS project_id, p.name AS project_name
+      FROM assets a JOIN projects p ON p.id = a.project_id WHERE ${where.join(" AND ")} ORDER BY a.created_at DESC LIMIT 300`).bind(...args).all();
+  const totals = await env.DB.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(a.size), 0) AS bytes FROM assets a JOIN projects p ON p.id = a.project_id
+      WHERE a.status = 'ready' AND p.archived_at IS NULL`).first<{ n: number; bytes: number }>();
+  return json({ items: results, total_files: totals?.n ?? 0, total_bytes: totals?.bytes ?? 0 });
 }
 
 export async function getVersion(env: Env, id: string) {

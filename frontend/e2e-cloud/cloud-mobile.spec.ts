@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-// Chrome-on-Android tests of the phone app (cloud/web) at 375 and 430 px against the local stack: the real control-plane
+// Chrome tests of the browser app (cloud/web) on Android at 375 and 430 px and on a desktop (Intel iMac) at 1440 px, against the local stack: the real control-plane
 // Worker under wrangler dev, moto standing in for private R2, and a real `python -m cutcue.agent` process that the tests
 // start and stop (so "Mac offline" and "reconnect" are real). Nothing reaches Cloudflare.
 test.describe.configure({ mode: "serial" });
@@ -41,6 +41,7 @@ async function stopAgent() {
 test.afterAll(async () => { await stopAgent(); });
 
 const width = () => test.info().project.name.replace("android-", "");
+const desktop = () => test.info().project.name.startsWith("desktop");
 async function shot(page: Page, name: string, mask: string[] = []) {
   const dir = path.join(__dirname, "..", "..", "docs", "cloud", "screenshots", test.info().project.name);
   fs.mkdirSync(dir, { recursive: true });
@@ -99,7 +100,11 @@ test("install: manifest, icons, service worker and offline shell", async ({ page
 
 test("sign-in: owner gets in, anyone else is refused", async ({ page, browser }) => {
   await page.goto("/");
-  await expect(page.getByRole("navigation", { name: "Sections" }).getByRole("link")).toHaveText(["Projects", "Ask Cue", "Inbox", "Settings"]);
+  await expect(page.getByRole("navigation", { name: "Sections" }).getByRole("link")).toHaveText(["Projects", "Ask Cue", "Library", "Inbox", "Settings"]);
+  await expect(page.getByRole("region", { name: "Overview" })).toContainText("to review");
+  const nav = await page.getByRole("navigation", { name: "Sections" }).boundingBox();
+  if (desktop()) expect(nav!.x === 0 && nav!.height > 800 && nav!.width < 300, "desktop: sections are a left sidebar").toBe(true);
+  else expect(nav!.y + nav!.height, "phone: sections are a bottom bar").toBeGreaterThan(page.viewportSize()!.height - 2);
   await expect(page.locator("#worker-pill")).toHaveText(/Mac (online|offline)/);
   await noSideScroll(page);
   await shot(page, "01-projects");
@@ -194,12 +199,15 @@ test("remote edit: Mac offline, reconnect, review, approve, export, play, downlo
   await page.getByRole("link", { name: new RegExp(name) }).click();
   await page.locator("#file-input").setInputFiles(video);
   await expect(page.getByText("market-mocha-interview.mp4 uploaded")).toBeVisible({ timeout: 60_000 });
-  const fileRow = page.locator(".row", { hasText: "market-mocha-interview.mp4" });
-  await fileRow.getByRole("button", { name: "Suggest edit" }).click();
+  const ask = page.locator("section", { has: page.getByRole("heading", { name: "Ask for an edit" }) });
+  await expect(ask).toContainText("waits until your Mac worker is online");
+  await ask.getByLabel("What would you like?").fill("Keep it short for LinkedIn");
+  await ask.getByRole("button", { name: "Request edit" }).click();
   await expect(page.getByText("Queued. It starts when your Mac reconnects.")).toBeVisible();
   await expect(page.locator(".next")).toContainText("Waiting for your Mac");
   const job = page.locator(".row.job").first();
   await expect(job).toContainText("Your Mac is offline. This starts when it reconnects.");
+  await expect(job).toContainText("Your request: Keep it short for LinkedIn");
   await expect(job.locator(".bar")).toHaveCount(0); // no invented progress
   await shot(page, "08-mac-offline");
 
@@ -208,10 +216,24 @@ test("remote edit: Mac offline, reconnect, review, approve, export, play, downlo
   await expect(page.locator(".next")).toContainText("ready for your review", { timeout: 180_000 });
   const review = page.locator("section", { has: page.getByRole("heading", { name: "Needs your review" }) });
   await expect(review.locator(".why")).toContainText(/Removes|pause|Rough/i); // the Mac's own summary of the edit
+  await expect(review).toContainText("doesn't follow written instructions yet"); // honest about what the Mac editor does
   await review.getByRole("button", { name: "Show clips" }).click();
   await expect(review.locator(".cliplist li").first()).toBeVisible();
   await noSideScroll(page);
   await shot(page, "09-review-edit");
+  // Feedback: ask for changes. The first edit is set aside with your note and the Mac prepares a new one.
+  await review.getByRole("button", { name: "Request changes" }).click();
+  await review.getByRole("button", { name: "Send and request a new edit" }).click();
+  await expect(page.getByText("Write what should change first.")).toBeVisible();
+  await review.getByLabel("What should change?").fill("Cut the intro, start on the first answer");
+  await shot(page, "09b-request-changes");
+  await review.getByRole("button", { name: "Send and request a new edit" }).click();
+  await expect(page.getByText(/Changes requested/)).toBeVisible();
+  await expect(page.locator(".row.job", { hasText: "Your request: Cut the intro" }).first()).toBeVisible();
+  await expect(page.locator(".next")).toContainText("ready for your review", { timeout: 180_000 });
+  const edits0 = page.locator("section", { has: page.getByRole("heading", { name: "Edits" }) });
+  await expect(edits0).toContainText("You asked for changes: Cut the intro, start on the first answer");
+  await expect(review.getByRole("button", { name: "Approve" })).toHaveCount(1);
   await review.getByRole("button", { name: "Approve" }).click();
   await expect(page.getByText("Approved. Choose a format to export.")).toBeVisible();
 
@@ -256,6 +278,42 @@ test("remote edit: Mac offline, reconnect, review, approve, export, play, downlo
   await stopAgent();
   expect(agentLog).toMatch(/succeeded/);
   expect(agentLog).not.toMatch(/cqw_/);
+});
+
+test("library and project instructions", async ({ page }) => {
+  const name = `Market Mocha ${width()}`;
+  await page.goto("/");
+  await page.getByRole("link", { name: new RegExp(name) }).click();
+  const box = page.getByLabel("Instructions");
+  await box.fill("60-second LinkedIn cut. Keep the product mention.");
+  await page.reload();
+  await expect(box).toHaveValue("60-second LinkedIn cut. Keep the product mention."); // unsaved draft survives a reload
+  await page.getByRole("button", { name: "Save instructions" }).click();
+  await expect(page.getByText("Instructions saved")).toBeVisible();
+  await page.evaluate(() => sessionStorage.clear());
+  await page.reload();
+  await expect(box).toHaveValue("60-second LinkedIn cut. Keep the product mention."); // and comes back from the cloud
+
+  await page.getByRole("link", { name: "Library" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Library" })).toBeVisible();
+  await expect(page.locator(".tile", { hasText: "market-mocha-interview.mp4" }).first()).toBeVisible();
+  await expect(page.getByText(/stored privately/)).toBeVisible();
+  await noSideScroll(page);
+  await shot(page, "18-library");
+  await page.getByRole("button", { name: "Exports" }).click();
+  await expect(page.getByRole("button", { name: "Exports" })).toHaveAttribute("aria-pressed", "true");
+  const exp = page.locator(".tile", { hasText: name });
+  await expect(exp.first()).toBeVisible();
+  await expect(page.locator(".tile", { hasText: "market-mocha-interview.mp4" })).toHaveCount(0);
+  await expect(exp.first().getByRole("button", { name: "Download" })).toBeVisible();
+  await page.getByRole("button", { name: "All" }).click();
+  await page.getByLabel("Search").fill("no-such-file-anywhere");
+  await page.getByLabel("Search").press("Enter");
+  await expect(page.getByText("Nothing matches. Try another filter.")).toBeVisible();
+  await page.getByLabel("Search").fill("");
+  await page.getByLabel("Search").press("Enter");
+  await exp.first().getByRole("link").click();
+  await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
 });
 
 test("session expiry: work pauses safely, sign in again returns you to the same place", async ({ page }) => {

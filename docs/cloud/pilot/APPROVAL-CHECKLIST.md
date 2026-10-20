@@ -3,6 +3,10 @@
 Pilot: `https://cue.menapoly-digital.com`, for you only (Cloudflare Access), with your Intel Mac doing the work.
 Status on 2026-10-19: **everything prepared and tested locally; nothing purchased, merged, created or deployed.**
 
+**Browser-first launch (2026-10-20, current priority):** [browser-first.md](browser-first.md) has the
+working/blocked matrix, the shortest path to a private URL, the exact approvals (including **GH-A**, which adds only
+the manual workflow file to the default branch instead of changing it) and the costs. No Mac setup is needed for it.
+
 **Phone-only path (no Mac, no desktop):** use Part 6 at the end. It replaces the Mac/CLI steps of Parts 2–4 with
 GitHub and Cloudflare web dashboards plus a manual, approval-gated GitHub Actions workflow
 ([phone-only.md](phone-only.md)).
@@ -114,6 +118,7 @@ GitHub settings (production changes to the Menapoly-Cut-Cue repository; free):
 | ✔ | Code | Change | Where | Undo |
 |---|---|---|---|---|
 | ☐ | **GH-1** | Make `menapoly-cue-2.0` the default branch so **Run workflow** appears (GitHub only lists manual workflows from the default branch). No code is merged. | Settings → General → Default branch | switch back |
+| ☐ | **GH-A** | *Alternative to GH-1 (recommended):* add only `.github/workflows/pilot.yml` to the current default branch `ccr-f6eeb6a3-yozzh0` (github.com → Add file → Create new file, paste it from `menapoly-cue-2.0`). The default branch doesn't change; the workflow only runs on **Run workflow**, and only from `menapoly-cue-2.0` | github.com web editor | delete the file |
 | ☐ | **GH-2** | Create environment `menapoly-cue-pilot`: required reviewer = you, deployment branch = `menapoly-cue-2.0` only, environment secrets (names in phone-only.md §4) | Settings → Environments | delete the environment |
 | ☐ | **GH-3** | Protect `menapoly-cue-2.0` (no deletion, no force push) | Settings → Branches | remove the rule |
 | ☐ | **GH-4** | Fine-grained token `RELAY_ACTIONS_TOKEN`: MenapolyRelay only, **Actions: Read-only**, 90 days | Settings → Developer settings | revoke |

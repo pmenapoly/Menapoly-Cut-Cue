@@ -103,7 +103,8 @@ export async function ask(request: Request, env: Env, me: Person) {
       else {
         const what = type === "transcribe" ? "transcribe" : "prepare a suggested edit of";
         out = { mode: "built-in", reply: `I can ask your Mac to ${what} ${m.name} in ${p.name}.${type === "auto_edit" ? " The edit comes back for your approval before anything is exported." : ""}${macNote}`,
-                action: await propose(env, me, { kind: "create_job", project_id: p.id, params: { type, asset_id: m.id },
+                action: await propose(env, me, { kind: "create_job", project_id: p.id,
+                  params: { type, asset_id: m.id, ...(type === "auto_edit" ? { request: message.slice(0, 500) } : {}) },
                   summary: `${type === "transcribe" ? "Transcribe" : "Suggest an edit for"} ${m.name} (${p.name})` }) };
       }
     }

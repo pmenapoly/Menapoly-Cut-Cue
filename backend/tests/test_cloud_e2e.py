@@ -489,3 +489,50 @@ def test_worker_going_offline_shows_at_once(stack):
     r = stack.worker("POST", "/v1/worker/heartbeat", w["token"], {"version": "t", "going_offline": True})
     assert r.json()["offline"] is True
     assert stack.api("GET", "/v1/status").json()["workers_online"] == 0
+
+
+def test_instructions_library_and_change_requests(stack, clean_queue):
+    """Browser-first features that work with the Mac offline: project instructions, the media library, edit requests and
+    'request changes' on a suggested edit (which queues a new edit that waits for the Mac; nothing is rendered here)."""
+    pid = new_project(stack, "Library Lane")
+    r = stack.api("PUT", f"/v1/projects/{pid}/instructions", json={"instructions": "60-second cut for LinkedIn."})
+    assert r.status_code == 200 and r.json()["instructions"] == "60-second cut for LinkedIn."
+    assert stack.api("GET", f"/v1/projects/{pid}").json()["project"]["instructions"] == "60-second cut for LinkedIn."
+    assert stack.api("PUT", f"/v1/projects/{pid}/instructions", json={"instructions": "x" * 4001}).status_code == 400
+    assert stack.api("PUT", f"/v1/projects/{pid}/instructions", json={"instructions": "nope"}, user="viewer@example.test").status_code == 403
+
+    video = cs.upload_file(stack, pid, data=b"v" * 2000, name="lane-interview.mp4")
+    cs.upload_file(stack, pid, data=b"a" * 1000, name="lane-voice.m4a", content_type="audio/mp4")
+    lib = stack.api("GET", "/v1/library?kind=all&q=lane").json()
+    names = {i["name"] for i in lib["items"]}
+    assert {"lane-interview.mp4", "lane-voice.m4a"} <= names and lib["total_files"] >= 2 and lib["total_bytes"] >= 3000
+    assert [i["name"] for i in stack.api("GET", "/v1/library?kind=audio&q=lane").json()["items"]] == ["lane-voice.m4a"]
+    assert stack.api("GET", "/v1/library?kind=exports&q=lane").json()["items"] == []
+    assert stack.api("GET", "/v1/library?q=library lane").json()["items"]  # matches the project name too
+    assert stack.api("GET", "/v1/library?q=zzz-nothing").json()["items"] == []
+
+    # An edit request is stored with the job, so the Mac and the owner both see the words.
+    r = stack.api("POST", f"/v1/projects/{pid}/jobs", json={"type": "auto_edit", "asset_id": video["asset_id"], "request": "Keep it tight"})
+    assert r.status_code == 201, r.text
+    assert json.loads(stack.sql("SELECT params_json FROM jobs WHERE id = ?", (r.json()["id"],))[0][0])["request"] == "Keep it tight"
+    assert stack.api("POST", f"/v1/projects/{pid}/jobs", json={"type": "auto_edit", "asset_id": video["asset_id"],
+                                                                  "request": "x" * 2001}).status_code == 400
+
+    # Request changes on a suggested edit (inserted as a worker would have proposed it).
+    tl = {"clips": [{"asset_id": video["asset_id"], "start": 0, "end": 1}]}
+    stack.sql("INSERT INTO timeline_versions (id, project_id, number, status, label, timeline_json, created_by, created_at) "
+              "VALUES ('tlv_00c0ffee00c0ffee', ?, 1, 'proposed', 'Rough cut', ?, 'worker:test', ?)", (pid, json.dumps(tl), time.time()))
+    r = stack.api("POST", "/v1/versions/tlv_00c0ffee00c0ffee/decision", json={"decision": "changes_requested"})
+    assert r.status_code == 400  # a note is required
+    r = stack.api("POST", "/v1/versions/tlv_00c0ffee00c0ffee/decision", json={"decision": "changes_requested", "note": "Cut the intro"})
+    assert r.status_code == 200, r.text
+    job = r.json()["job"]
+    assert job["type"] == "auto_edit" and job["status"] == "queued"  # waits for a worker; nothing is simulated
+    row = stack.sql("SELECT status, decision_note FROM timeline_versions WHERE id = 'tlv_00c0ffee00c0ffee'")[0]
+    assert row == ("rejected", "Cut the intro")
+    assert json.loads(stack.sql("SELECT params_json FROM jobs WHERE id = ?", (job["id"],))[0][0])["request"] == "Cut the intro"
+    versions = stack.api("GET", f"/v1/projects/{pid}").json()["versions"]
+    assert versions[0]["decision_note"] == "Cut the intro"
+    again = stack.api("POST", "/v1/versions/tlv_00c0ffee00c0ffee/decision", json={"decision": "approved"})
+    assert again.status_code == 409  # already decided: it can never be exported
+    assert stack.sql("SELECT COUNT(*) FROM assets WHERE project_id = ? AND kind = 'output'", (pid,))[0][0] == 0

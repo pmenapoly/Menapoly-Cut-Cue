@@ -35,3 +35,8 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
   POST /v1/actions/:id/approve acts), .github/workflows/pilot.yml (workflow_dispatch only, menapoly-cue-2.0 only, typed
   phrase, environment menapoly-cue-pilot, fail-closed preflight --ci, probe + auto-remove). Never add push/schedule
   triggers to it and never re-enable Relay's deploy workflows. Phone tests: `make cloud-ui-test` (android-375/430).
+- Browser-first launch (docs/cloud/pilot/browser-first.md): cloud/web has Projects (dashboard counts), Ask Cue, Library
+  (GET /v1/library), Inbox, Settings; project instructions (PUT /v1/projects/:id/instructions), edit requests
+  (job params.request) and "request changes" (decision changes_requested + note queues a new auto_edit). Desktop
+  sidebar at >= 960px. Playwright projects: android-375, android-430, desktop-1440. With no worker, jobs stay queued;
+  never show progress or results a worker didn't report.
