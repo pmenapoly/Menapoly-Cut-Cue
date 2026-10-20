@@ -84,6 +84,9 @@ jobs:
       S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
       D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
       WRANGLER_SEND_METRICS: "false"
+      # Address: the Worker's workers.dev hostname behind Cloudflare Access. No DNS change, so the Canva website and
+      # Zoho email on menapoly-digital.com are untouched. Switch to custom-domain only after the zone is on Cloudflare.
+      PILOT_TARGET: workers-dev
     steps:
       - name: Refuse anything but the pilot branch and a public repository (again, inside the protected job)
         env:

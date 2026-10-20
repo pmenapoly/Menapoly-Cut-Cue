@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Read-only preflight for the Menapoly Cue private pilot (cue.menapoly-digital.com).
+"""Read-only preflight for the Menapoly Cue private pilot.
+
+Two deploy targets (PILOT_TARGET):
+  workers-dev    https://menapoly-cue-cloud.<your-subdomain>.workers.dev behind Cloudflare Access. No DNS changes:
+                 menapoly-digital.com stays on Canva's nameservers (the GitHub workflow uses this target).
+  custom-domain  https://cue.menapoly-digital.com. Needs the zone active on Cloudflare (nameservers moved), which
+                 would stop the Canva website, so it is kept for later.
 
 Changes nothing. It reads your Cloudflare account and reports what is ready, what is not done yet, and anything that
 would make the pilot unsafe. Run it before provisioning, again before deploying, and after deploying.
@@ -23,7 +29,9 @@ from pathlib import Path
 
 import httpx
 
-ZONE, HOST = "menapoly-digital.com", "cue.menapoly-digital.com"
+ZONE, CUSTOM_HOST = "menapoly-digital.com", "cue.menapoly-digital.com"
+HOST = CUSTOM_HOST  # the address being checked; main() switches it to the workers.dev hostname for that target
+TARGETS = ("workers-dev", "custom-domain")
 WORKER, D1, BUCKET, QUEUES = "menapoly-cue-cloud", "menapoly-cue-cloud", "menapoly-cue-media", ["menapoly-cue-events", "menapoly-cue-events-dlq"]
 RELAY = "pmenapoly/menapolyrelay"
 RELAY_DEPLOY_WORKFLOWS = ["Deploy Menapoly Cue to Cloudflare", "Deploy Preview (menapoly-cue-preview)"]
@@ -32,6 +40,31 @@ API = "https://api.cloudflare.com/client/v4"
 
 OK, TODO, BAD, INFO = "OK", "NOT YET", "PROBLEM", "INFO"
 results: list[tuple[str, str, str]] = []
+
+
+def target_mode(ci: bool) -> str:
+    """CI must name its target explicitly (fail closed); local runs default to the custom domain (provision.sh)."""
+    mode = os.environ.get("PILOT_TARGET", "" if ci else "custom-domain").strip()
+    return mode if mode in TARGETS else ""
+
+
+def workers_dev_host(subdomain: str) -> str:
+    return f"{WORKER}.{subdomain}.workers.dev"
+
+
+def workers_subdomain(client: httpx.Client, account: str) -> str:
+    """The account's workers.dev subdomain (Workers & Pages → Account details), or "" if it was never set up."""
+    try:
+        return (cf(client, f"/accounts/{account}/workers/subdomain") or {}).get("subdomain") or ""
+    except RuntimeError:
+        return ""
+
+
+def app_hosts(app: dict) -> set[str]:
+    """Every hostname/path an Access application covers (older apps: domain; newer: self_hosted_domains, destinations)."""
+    hosts = {app.get("domain") or ""} | set(app.get("self_hosted_domains") or [])
+    hosts |= {d.get("uri", "") for d in app.get("destinations") or [] if isinstance(d, dict)}
+    return {h.replace("https://", "").rstrip("/").lower() for h in hosts if h}
 
 
 def report(status: str, check: str, detail: str = "") -> None:
@@ -92,7 +125,7 @@ def main() -> int:
     ap.add_argument("--stage", choices=["before-provision", "before-deploy", "after-deploy"], default="before-provision")
     ap.add_argument("--ci", action="store_true", help="GitHub Actions: fail closed on anything missing, check Relay via the GitHub API")
     args = ap.parse_args()
-    global CI, STAGE
+    global CI, STAGE, HOST
     CI, STAGE = args.ci, args.stage
     account, token = os.environ.get("CLOUDFLARE_ACCOUNT_ID", ""), os.environ.get("CLOUDFLARE_API_TOKEN", "")
     print(f"Menapoly Cue pilot preflight ({args.stage}), read-only\n")
@@ -142,7 +175,34 @@ def main() -> int:
         report(BAD, "API token", str(exc))
         return summary()
 
-    # --- 2. Domain ownership and DNS access ----------------------------------------------------------------------
+    # --- 2. Address: workers.dev (no DNS change) or the custom domain (zone must be active) ---------------------
+    mode = target_mode(args.ci)
+    if not mode:
+        report(BAD, "Deploy target (PILOT_TARGET)", f"missing or not one of {', '.join(TARGETS)}")
+        return summary()
+    report(INFO, "Deploy target", mode)
+    if mode == "workers-dev":
+        sub = workers_subdomain(client, account)
+        if sub:
+            HOST = workers_dev_host(sub)
+            report(OK, "workers.dev address", f"https://{HOST} (Access must cover it before the first deploy)")
+        else:
+            report(BAD, "workers.dev subdomain", "not set up: Workers & Pages → Account details → workers.dev subdomain "
+                                                   "(or the token lacks Workers Scripts Read)")
+            return summary()
+        report(INFO, "DNS", f"no change: {ZONE} stays on its current nameservers; no {CUSTOM_HOST} record is created")
+    else:
+        HOST = CUSTOM_HOST
+        domain_checks(client, account, args.stage)
+
+    access_checks(client, account, args)
+    resource_checks(args)
+    if args.stage == "after-deploy":
+        probe()
+    return summary()
+
+
+def domain_checks(client: httpx.Client, account: str, stage: str) -> None:
     try:
         zones = cf(client, "/zones", name=ZONE)
         if not zones:
@@ -155,18 +215,20 @@ def main() -> int:
                    f"{z.get('status')}; nameservers {', '.join(z.get('name_servers', []))}")
             records = cf(client, f"/zones/{z['id']}/dns_records", name=HOST)
             if not records:
-                report(OK if args.stage != "after-deploy" else TODO, f"No existing DNS record for {HOST}",
-                       "free for the Worker custom domain" if args.stage != "after-deploy" else "expected the Worker's record")
+                report(OK if stage != "after-deploy" else TODO, f"No existing DNS record for {HOST}",
+                       "free for the Worker custom domain" if stage != "after-deploy" else "expected the Worker's record")
             else:
                 kinds = ", ".join(f"{r['type']}→{r.get('content', '')}" for r in records)
                 # A record is expected after the first deploy; before one, it would clash with the Worker's custom domain.
-                code, _ = wrangler("deployments", "list", "--name", WORKER) if args.stage == "before-deploy" else (1, "")
-                redeploy = args.stage == "before-deploy" and code == 0
-                report(OK if args.stage == "after-deploy" or redeploy else BAD, f"DNS record for {HOST}",
+                code, _ = wrangler("deployments", "list", "--name", WORKER) if stage == "before-deploy" else (1, "")
+                redeploy = stage == "before-deploy" and code == 0
+                report(OK if stage == "after-deploy" or redeploy else BAD, f"DNS record for {HOST}",
                        kinds + (" (the pilot Worker's own custom domain: re-deploy)" if redeploy else ""))
     except RuntimeError as exc:
         report(BAD, "Zone/DNS read", f"{exc} (token needs Zone:Read and DNS:Read)")
 
+
+def access_checks(client: httpx.Client, account: str, args: argparse.Namespace) -> None:
     # --- 3. Cloudflare Access ----------------------------------------------------------------------------------
     try:
         org = cf(client, f"/accounts/{account}/access/organizations")
@@ -179,8 +241,8 @@ def main() -> int:
             report(TODO if not team else OK if want_team == team.lower() else BAD, "CF_ACCESS_TEAM_DOMAIN secret matches the team domain",
                    "set up Access first" if not team else "yes" if want_team == team.lower() else "missing or different")
         apps = cf(client, f"/accounts/{account}/access/apps")
-        people = [a for a in apps if a.get("domain", "").rstrip("/") == HOST]
-        workers = [a for a in apps if a.get("domain", "").rstrip("/") == f"{HOST}/v1/worker"]
+        people = [a for a in apps if HOST in app_hosts(a)]
+        workers = [a for a in apps if f"{HOST}/v1/worker" in app_hosts(a)]
         need = args.stage != "before-provision"
         if not people:
             report(BAD if need else TODO, f"Access application for {HOST}", "missing; create it BEFORE deploying")
@@ -202,12 +264,15 @@ def main() -> int:
             only_service = all(p.get("decision") == "non_identity" for p in pols) and pols
             report(BAD if probs or not only_service else OK, f"Access app '{a.get('name')}' (Mac worker path)",
                    "; ".join(probs) or ("Service Auth only" if only_service else "should contain only a Service Auth policy"))
-        public = [a.get("domain") for a in apps if HOST in a.get("domain", "") and a.get("type") not in ("self_hosted", None)]
+        public = [a.get("domain") for a in apps if any(HOST in h for h in app_hosts(a)) and a.get("type") not in ("self_hosted", None)]
         if public:
             report(INFO, "Other Access apps on this host", ", ".join(public))
     except RuntimeError as exc:
         report(BAD, "Access read", f"{exc} (token needs Access: Apps and Policies Read, Access: Organizations Read)")
 
+
+
+def resource_checks(args: argparse.Namespace) -> None:
     # --- 4. Pilot resources (names must not exist before provisioning; must exist after) ------------------------
     want = args.stage != "before-provision"
     code, out = wrangler("d1", "list", "--json")
@@ -239,21 +304,21 @@ def main() -> int:
             exists = q in out
             report(resource(exists, want), f"Queue {q}", "exists (reused)" if exists and not want else "exists" if exists else "not created")
 
+
+def probe() -> None:
     # --- 5. After deploy: nothing answers without Access --------------------------------------------------------
-    if args.stage == "after-deploy":
-        bare = httpx.Client(timeout=20, follow_redirects=False)
-        for path in ("/", "/v1/health", "/v1/projects", "/v1/worker/lease", "/review.html", "/v1/public/review/rv_" + "A" * 43):
-            try:
-                r = bare.get(f"https://{HOST}{path}")
-                login = r.status_code in (302, 303) and "cloudflareaccess.com" in r.headers.get("location", "")
-                refused = r.status_code in (401, 403)
-                report(OK if login or refused else BAD, f"Unauthenticated GET {path}",
-                       f"{r.status_code} → {'Access sign-in' if login else 'refused' if refused else 'REACHABLE'}")
-            except httpx.HTTPError as exc:
-                report(BAD, f"Unauthenticated GET {path}", str(exc))
-        code, out = wrangler("deployments", "list", "--name", WORKER)
-        report(INFO if code == 0 else TODO, "Worker deployments", out.strip().splitlines()[-1] if code == 0 and out.strip() else "none")
-    return summary()
+    bare = httpx.Client(timeout=20, follow_redirects=False)
+    for path in ("/", "/v1/health", "/v1/projects", "/v1/worker/lease", "/review.html", "/v1/public/review/rv_" + "A" * 43):
+        try:
+            r = bare.get(f"https://{HOST}{path}")
+            login = r.status_code in (302, 303) and "cloudflareaccess.com" in r.headers.get("location", "")
+            refused = r.status_code in (401, 403)
+            report(OK if login or refused else BAD, f"Unauthenticated GET {path}",
+                   f"{r.status_code} → {'Access sign-in' if login else 'refused' if refused else 'REACHABLE'}")
+        except httpx.HTTPError as exc:
+            report(BAD, f"Unauthenticated GET {path}", str(exc))
+    code, out = wrangler("deployments", "list", "--name", WORKER)
+    report(INFO if code == 0 else TODO, "Worker deployments", out.strip().splitlines()[-1] if code == 0 and out.strip() else "none")
 
 
 CI = False

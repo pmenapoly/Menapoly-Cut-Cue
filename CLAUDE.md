@@ -40,3 +40,6 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
   (job params.request) and "request changes" (decision changes_requested + note queues a new auto_edit). Desktop
   sidebar at >= 960px. Playwright projects: android-375, android-430, desktop-1440. With no worker, jobs stay queued;
   never show progress or results a worker didn't report.
+- Pilot address: PILOT_TARGET=workers-dev (pinned in pilot.yml): Worker on its workers.dev hostname behind Access
+  self-hosted apps; no DNS change (menapoly-digital.com stays on Canva nameservers; moving them stops the Canva site).
+  custom-domain stays in wrangler.jsonc for later. See docs/cloud/pilot/domain-options.md and LAUNCH-REQUEST.md.

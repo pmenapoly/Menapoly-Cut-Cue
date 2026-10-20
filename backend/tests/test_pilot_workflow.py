@@ -1,7 +1,9 @@
 """The phone-triggered pilot workflow must be manual-only, branch-locked, approval-gated and fail closed."""
 from __future__ import annotations
 
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -131,3 +133,125 @@ def test_provision_can_be_rerun_after_stopping_half_way():
     assert preflight.resource(exists=False, want=False) == preflight.OK
     assert preflight.resource(exists=False, want=True) == preflight.TODO   # blocks deploy in CI
     assert preflight.resource(exists=True, want=True) == preflight.OK
+
+
+# --- workers.dev target: Cue behind Access without touching menapoly-digital.com's DNS (Canva site, Zoho email) ---
+DB_ID = "0f0e0d0c-0b0a-4908-8706-050403020100"
+
+
+def _jsonc(text: str) -> dict:
+    text = re.sub(r'(?m)^\s*//.*$|\s//\s.*$', "", text)
+    return json.loads(re.sub(r",(\s*[}\]])", r"\1", text))
+
+
+def test_workflow_pins_the_workers_dev_target():
+    assert WF["jobs"]["pilot"]["env"]["PILOT_TARGET"] == "workers-dev"
+    assert "PILOT_TARGET" not in yaml.safe_dump(WF["jobs"]["gate"])
+
+
+def test_workers_dev_config_has_no_custom_domain_and_no_previews():
+    cfg = _jsonc(ci.config_text(DB_ID, "workers-dev"))
+    assert cfg["workers_dev"] is True and cfg["preview_urls"] is False
+    assert "routes" not in cfg  # no cue.menapoly-digital.com record is created
+    assert cfg["d1_databases"][0]["database_id"] == DB_ID
+    custom = _jsonc(ci.config_text(DB_ID, "custom-domain"))
+    assert custom["workers_dev"] is False and custom["preview_urls"] is False
+    assert custom["routes"] == [{"pattern": "cue.menapoly-digital.com", "custom_domain": True}]
+
+
+def test_workers_dev_config_is_accepted_by_wrangler(tmp_path):
+    """Offline `wrangler deploy --dry-run` of the generated config: nothing is uploaded."""
+    out = CP / "wrangler.test-workers-dev.jsonc"
+    out.write_text(ci.config_text(DB_ID, "workers-dev"))
+    try:
+        r = subprocess.run(["npx", "wrangler", "deploy", "--dry-run", "--config", out.name], cwd=CP,
+                           capture_output=True, text=True, timeout=300)
+    finally:
+        out.unlink()
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+    assert "--dry-run: exiting now." in r.stdout + r.stderr
+
+
+def test_r2_cors_allows_only_the_pilot_address(monkeypatch, tmp_path):
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    rules = json.loads(ci.cors_file("menapoly-cue-cloud.example.workers.dev").read_text())["rules"]
+    assert rules[0]["allowed"]["origins"] == ["https://menapoly-cue-cloud.example.workers.dev"]
+
+
+def test_target_must_be_explicit_in_ci(monkeypatch):
+    monkeypatch.delenv("PILOT_TARGET", raising=False)
+    assert preflight.target_mode(ci=True) == "" and preflight.target_mode(ci=False) == "custom-domain"
+    monkeypatch.setenv("PILOT_TARGET", "public")
+    assert preflight.target_mode(ci=True) == ""
+    with pytest.raises(SystemExit, match="PILOT_TARGET"):
+        ci.target()
+
+
+def test_access_apps_are_matched_on_every_hostname_field():
+    host = "menapoly-cue-cloud.example.workers.dev"
+    assert host in preflight.app_hosts({"domain": host})
+    assert host in preflight.app_hosts({"self_hosted_domains": [f"https://{host}/"]})
+    assert f"{host}/v1/worker" in preflight.app_hosts({"destinations": [{"type": "public", "uri": f"{host}/v1/worker"}]})
+
+
+class _FakeCF:
+    """Stands in for the Cloudflare API in preflight: an account with a workers.dev subdomain and both Access apps."""
+    def __init__(self, subdomain="example", apps=True):
+        self.subdomain, self.apps, self.calls = subdomain, apps, []
+
+    def __call__(self, client, path, **params):
+        self.calls.append(path)
+        host = f"menapoly-cue-cloud.{self.subdomain}.workers.dev"
+        if path.endswith("/tokens/verify"):
+            return {"status": "active"}
+        if path.endswith("/workers/subdomain"):
+            if not self.subdomain:
+                raise RuntimeError("no subdomain")
+            return {"subdomain": self.subdomain}
+        if path.endswith("/access/organizations"):
+            return {"auth_domain": "menapoly.cloudflareaccess.com"}
+        if path.endswith("/access/apps"):
+            return [{"id": "a1", "name": "Menapoly Cue", "domain": host, "aud": "aud-1", "type": "self_hosted"},
+                    {"id": "a2", "name": "Menapoly Cue – Mac worker", "domain": f"{host}/v1/worker", "type": "self_hosted"}] if self.apps else []
+        if path.endswith("/a1/policies"):
+            return [{"name": "Owner", "decision": "allow", "include": [{"email": {"email": "x"}}]}]
+        if path.endswith("/a2/policies"):
+            return [{"name": "Mac", "decision": "non_identity", "include": [{"service_token": {"token_id": "t"}}]}]
+        raise AssertionError(f"unexpected Cloudflare call {path}")
+
+
+def _run_preflight(monkeypatch, fake, stage="before-deploy"):
+    preflight.results.clear()
+    monkeypatch.setenv("PILOT_TARGET", "workers-dev")
+    for k, v in {"CLOUDFLARE_ACCOUNT_ID": "acc", "CLOUDFLARE_API_TOKEN": "tok", "RELAY_ACTIONS_TOKEN": "r",
+                 "CF_ACCESS_TEAM_DOMAIN": "menapoly.cloudflareaccess.com", "CF_ACCESS_AUD": "aud-1", "D1_DATABASE_ID": DB_ID}.items():
+        monkeypatch.setenv(k, v)
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self): return {"workflows": [{"name": n, "state": "disabled_manually"} for n in preflight.RELAY_DEPLOY_WORKFLOWS]}
+
+    monkeypatch.setattr(preflight.httpx, "get", lambda *a, **k: Resp())
+    monkeypatch.setattr(preflight, "cf", fake)
+    listing = {"d1": f'[{{"name": "menapoly-cue-cloud", "uuid": "{DB_ID}"}}]', "r2": "name: menapoly-cue-media",
+               "queues": "menapoly-cue-events menapoly-cue-events-dlq"}
+    monkeypatch.setattr(preflight, "wrangler", lambda *a: (0, listing.get(a[0], "disabled")))
+    monkeypatch.setattr(sys, "argv", ["preflight.py", "--ci", "--stage", stage])
+    code = preflight.main()
+    return code, list(preflight.results)
+
+
+def test_preflight_workers_dev_ready_needs_no_zone_or_dns(monkeypatch):
+    fake = _FakeCF()
+    code, results = _run_preflight(monkeypatch, fake)
+    assert code == 0, [r for r in results if r[0] != preflight.OK]
+    assert preflight.HOST == "menapoly-cue-cloud.example.workers.dev"
+    assert not any("/zones" in c for c in fake.calls)  # menapoly-digital.com is never read or changed
+    assert any(r[1] == "DNS" and "no change" in r[2] for r in results)
+
+
+def test_preflight_workers_dev_fails_closed_without_access_or_subdomain(monkeypatch):
+    code, results = _run_preflight(monkeypatch, _FakeCF(apps=False))
+    assert code == 1 and any("Access application" in r[1] and r[0] == preflight.BAD for r in results)
+    code, results = _run_preflight(monkeypatch, _FakeCF(subdomain=""))
+    assert code == 1 and any(r[1] == "workers.dev subdomain" and r[0] == preflight.BAD for r in results)
