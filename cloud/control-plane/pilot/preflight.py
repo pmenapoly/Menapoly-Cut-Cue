@@ -32,6 +32,10 @@ import httpx
 ZONE, CUSTOM_HOST = "menapoly-digital.com", "cue.menapoly-digital.com"
 HOST = CUSTOM_HOST  # the address being checked; main() switches it to the workers.dev hostname for that target
 TARGETS = ("workers-dev", "custom-domain")
+# Confirmed by the owner on 2026-10-21 (Workers & Pages → Account details). The pilot address is therefore
+# https://menapoly-cue-cloud.pmenapoly.workers.dev. Any other subdomain means a different account: stop.
+EXPECTED_WORKERS_SUBDOMAIN = "pmenapoly"
+# Other Workers in the account (e.g. prissly-growth-loop-staging) are never read, changed or deleted.
 WORKER, D1, BUCKET, QUEUES = "menapoly-cue-cloud", "menapoly-cue-cloud", "menapoly-cue-media", ["menapoly-cue-events", "menapoly-cue-events-dlq"]
 RELAY = "pmenapoly/menapolyrelay"
 RELAY_DEPLOY_WORKFLOWS = ["Deploy Menapoly Cue to Cloudflare", "Deploy Preview (menapoly-cue-preview)"]
@@ -210,6 +214,9 @@ def main() -> int:
     report(INFO, "Deploy target", mode)
     if mode == "workers-dev":
         sub = workers_subdomain(client, account)
+        if sub and sub != EXPECTED_WORKERS_SUBDOMAIN:
+            report(BAD, "workers.dev subdomain", f"'{sub}' is not the confirmed '{EXPECTED_WORKERS_SUBDOMAIN}' (wrong account?)")
+            return summary()
         if sub:
             HOST = workers_dev_host(sub)
             report(OK, "workers.dev address", f"https://{HOST} (Access must cover it before the first deploy)")

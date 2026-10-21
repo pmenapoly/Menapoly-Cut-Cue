@@ -196,7 +196,7 @@ def test_access_apps_are_matched_on_every_hostname_field():
 
 class _FakeCF:
     """Stands in for the Cloudflare API in preflight: an account with a workers.dev subdomain and both Access apps."""
-    def __init__(self, subdomain="example", apps=True):
+    def __init__(self, subdomain="pmenapoly", apps=True):
         self.subdomain, self.apps, self.calls = subdomain, apps, []
 
     def __call__(self, client, path, **params):
@@ -246,7 +246,7 @@ def test_preflight_workers_dev_ready_needs_no_zone_or_dns(monkeypatch):
     fake = _FakeCF()
     code, results = _run_preflight(monkeypatch, fake)
     assert code == 0, [r for r in results if r[0] != preflight.OK]
-    assert preflight.HOST == "menapoly-cue-cloud.example.workers.dev"
+    assert preflight.HOST == "menapoly-cue-cloud.pmenapoly.workers.dev"
     assert not any("/zones" in c for c in fake.calls)  # menapoly-digital.com is never read or changed
     assert any(r[1] == "DNS" and "no change" in r[2] for r in results)
 
@@ -319,3 +319,15 @@ def test_preflight_blocks_deploy_when_access_allows_a_whole_domain(monkeypatch):
 
     code, results = _run_preflight(monkeypatch, domain_wide)
     assert code == 1 and any("email_domain" in r[2] for r in results)
+
+
+def test_confirmed_address_and_growth_loop_untouched(monkeypatch):
+    """The owner confirmed the subdomain: the pilot address is fixed, another subdomain stops the run, and the only
+    Worker the pilot ever deploys or deletes is menapoly-cue-cloud (never prissly-growth-loop-staging)."""
+    assert preflight.workers_dev_host(preflight.EXPECTED_WORKERS_SUBDOMAIN) == "menapoly-cue-cloud.pmenapoly.workers.dev"
+    code, results = _run_preflight(monkeypatch, _FakeCF(subdomain="someoneelse"))
+    assert code == 1 and any("not the confirmed" in r[2] for r in results)
+    src = (CP / "pilot" / "ci.py").read_text()
+    assert ci.WORKER == "menapoly-cue-cloud" and "growth" not in src.lower()
+    assert all('WORKER' in line for line in src.splitlines() if '"delete"' in line)
+    assert '"name": "menapoly-cue-cloud"' in (CP / "wrangler.jsonc").read_text()

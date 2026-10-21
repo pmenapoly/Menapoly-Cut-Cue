@@ -1,12 +1,13 @@
 # Menapoly Cue private pilot: launch request (workers.dev + Access, Workers Free)
 
-**Address:** `https://menapoly-cue-cloud.<your-workers-subdomain>.workers.dev`, for you only, behind Cloudflare Access.
+**Address:** `https://menapoly-cue-cloud.pmenapoly.workers.dev` (subdomain confirmed 2026-10-21; the preflight refuses
+any other), for you only, behind Cloudflare Access.
 **No DNS or nameserver change** ([domain-options.md](domain-options.md)).
 
 **Untouched by every step below:**
 - Canva DNS and the Canva website;
 - Zoho email;
-- the existing **Growth Loop** Worker;
+- the existing **Growth Loop** Worker (`prissly-growth-loop-staging`): the pilot only ever deploys or deletes `menapoly-cue-cloud`;
 - MenapolyRelay and its disabled deploy workflows.
 
 Status 2026-10-21: **nothing deployed, created, purchased or changed** in GitHub settings, Cloudflare, Canva or DNS.
@@ -41,7 +42,7 @@ Status 2026-10-21: **nothing deployed, created, purchased or changed** in GitHub
 | **GH-A** | Add `.github/workflows/pilot.yml` to the default branch (the default branch itself stays) | free |
 | **GH-2** | Environment `menapoly-cue-pilot` (you as reviewer, admin bypass off, `menapoly-cue-2.0` only) + its secrets | free |
 | **GH-4** | Read-only `RELAY_ACTIONS_TOKEN` (the preflight confirms Relay's workflows stay disabled) | free |
-| **CF-SUB** | Set a workers.dev subdomain **only if none exists**. If Growth Loop already uses one, keep it: renaming changes Growth Loop's address | free |
+| ~~CF-SUB~~ | Not needed: `pmenapoly.workers.dev` already exists. **Don't rename it** (Growth Loop's address would change) | — |
 | **C3-P** | Cloudflare API token, account-level, no Zone permissions | free |
 | **PROD-1** | Zero Trust Free: team, service token, two self-hosted Access apps on the Cue hostname only | free |
 | **PAID-2** | Enable R2 (requires a payment method; free up to 10 GB) | $0 expected |

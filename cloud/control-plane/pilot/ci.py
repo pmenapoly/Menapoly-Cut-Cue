@@ -61,6 +61,8 @@ def target() -> tuple[str, str]:
     sub = preflight.workers_subdomain(client, os.environ.get("CLOUDFLARE_ACCOUNT_ID", ""))
     if not sub:
         raise SystemExit("The account has no workers.dev subdomain yet (Workers & Pages → Account details). Nothing was changed.")
+    if sub != preflight.EXPECTED_WORKERS_SUBDOMAIN:
+        raise SystemExit(f"workers.dev subdomain '{sub}' is not the confirmed '{preflight.EXPECTED_WORKERS_SUBDOMAIN}'. Nothing was changed.")
     return mode, preflight.workers_dev_host(sub)
 
 
