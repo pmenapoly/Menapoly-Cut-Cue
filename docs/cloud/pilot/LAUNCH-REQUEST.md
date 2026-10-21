@@ -1,72 +1,95 @@
 # Menapoly Cue private pilot: launch request (workers.dev + Access, Workers Free)
 
 **Address:** `https://menapoly-cue-cloud.<your-workers-subdomain>.workers.dev`, for you only, behind Cloudflare Access.
-**No DNS or nameserver change:** `menapoly-digital.com`, the Canva website and Zoho email are not touched. The reasons
-and sources are in [domain-options.md](domain-options.md).
+**No DNS or nameserver change** ([domain-options.md](domain-options.md)).
 
-Status 2026-10-20: **nothing deployed, created, purchased or changed** in GitHub settings, Cloudflare, Canva or DNS.
+**Untouched by every step below:**
+- Canva DNS and the Canva website;
+- Zoho email;
+- the existing **Growth Loop** Worker;
+- MenapolyRelay and its disabled deploy workflows.
 
-## Open items from the read-only readiness check
+Status 2026-10-21: **nothing deployed, created, purchased or changed** in GitHub settings, Cloudflare, Canva or DNS.
 
-| # | Item | Status |
-|---|---|---|
-| 1 | Public repository contains Relay's security write-up | **FAIL**: fix with **SCRUB-1** (one commit) before GH-A |
-| 2 | Approval gate can't be bypassed | manual check after GH-2: no repository secrets; "Allow administrators to bypass" off |
-| 3 | Access covers the app and API | code verified; media uses 10–15-minute signed links (by design) |
-| 4 | Fits Workers Free | yes on volume; 10 ms CPU per request unmeasured (fallback: $5 Workers Paid) |
-| 5 | Deploy and rollback fail safe | tested; logs of this public repository are public (no secret values printed) |
-| 6 | Relay deploy workflows disabled | **PASS** |
+## Security review results (read-only)
 
----
+### SCRUB-1 and the public Git history
 
-## 1. Read-only checks you can run now
-
-| Code | Check | Where |
-|---|---|---|
-| **R-1** | Is any Relay app live? (ChatGPT → Sites: a published Relay/Menapoly site? Cloudflare → Workers & Pages: Workers named `menapoly-cue` / `menapoly-cue-preview`?) | ChatGPT, Cloudflare |
-| **R-2** | Does the account already have a **workers.dev subdomain**? | Cloudflare → Workers & Pages → right side "Account details" → *Subdomain* |
-| **R-3** | Workers plan says **Free** | Workers & Pages → Plans |
-| **R-4** | Relay deploy workflows still *Disabled* | github.com/pmenapoly/menapolyrelay → Actions |
-
-## 2. GitHub changes (approval needed, free)
-
-| Code | Change |
+| Question | Finding |
 |---|---|
-| **SCRUB-1** | One commit to `menapoly-cue-2.0` removing Relay's security details from the public docs (no history rewrite) |
-| **GH-A** | Add `.github/workflows/pilot.yml` to the default branch `ccr-f6eeb6a3-yozzh0` (the default branch itself stays) |
-| **GH-2** | Environment `menapoly-cue-pilot`: you as required reviewer, *Prevent self-review* off, *Allow administrators to bypass* **off**, branch `menapoly-cue-2.0` only; secrets only here |
-| **GH-3** | Branch rule on `menapoly-cue-2.0`: block deletion and force pushes |
-| **GH-4** | Fine-grained token `RELAY_ACTIONS_TOKEN` (MenapolyRelay, Actions read-only, 90 days) |
+| Credentials, keys, tokens, `.env` files, account IDs anywhere in the history (23 commits, both branches)? | **None.** Only placeholders and fake test values |
+| Client data, real emails or phone numbers, business documents, the Growth Loop Worker? | **None.** All emails and phone numbers are test placeholders; screenshots use test data |
+| MenapolyRelay security details? | **Yes**, in 6 commits on `menapoly-cue-2.0` only (11f268d, 24cffa6, a2fb38b, 01c6d45, 2915aa2, eb7c3ca). The default branch has none |
+| What SCRUB-1 changes | A docs-only commit, drafted locally and **not pushed**. It deletes `docs/cue2/security-launch.md` and rewrites `docs/cloud/pilot/security-gate.md` for workers.dev. In 9 other docs it replaces Relay's bypass description, probe command, secret status, commit IDs and branch names with "tracked in the private MenapolyRelay repository". No code or tests change |
+| What SCRUB-1 leaves | **The history**: anyone can still open the 6 old commits. Also a local-development option in `backend/cutcue/relay.py` that names the Relay preview header, Relay's Worker name in a config test, and Relay's two workflow names (the preflight needs them) |
+| Removing it from history too | **SCRUB-2** (optional): rewrite and force-push `menapoly-cue-2.0`, which changes all 12 of its commit IDs. GitHub can keep old commits reachable by ID until it cleans up (GitHub Support can purge them). The repository has 0 forks. Recommended only if Relay turns out to be live (check R-1) |
 
-## 3. Cloudflare changes (approval needed). No DNS changes at all
+### Is every endpoint behind Access before any data can be uploaded?
 
-| Code | Change | Charges? |
+| Check | Result |
+|---|---|
+| New test: every route in `src/index.ts` (45+), called with no token, a garbage Access token, forged identity headers and a fake worker token, in production settings | **All refused** (401, or 403 for the disabled review links). `/v1/health` returns only `ok`, `service`, `version` and `environment`. **Zero rows** written to projects, uploads, assets, jobs, workers, actions or versions |
+| Order of operations | The deploy is refused unless both Access apps already cover the workers.dev hostname with no Bypass or Everyone rule, and the AUD and team domain match the Worker secrets. Access secrets go into the **same** deploy as the code |
+| After deploy (tightened today) | Every people path (`/`, `/review.html`, `/v1/health`, `/v1/projects`, `/v1/library`, review links) must be **redirected to Cloudflare's sign-in**. A Worker-side 401 now counts as a failure, because it means Access isn't in front. Any failure removes the Worker automatically, before you could upload anything |
+| Media | Uploads and downloads use signed R2 links (15 and 10 minutes) that only the Access-protected API issues; the bucket is private and CORS allows only the pilot address |
+
+## Minimum approvals
+
+| Code | What | Cost |
 |---|---|---|
-| **CF-SUB** | Choose the account's workers.dev subdomain (skip if R-2 shows one). It becomes part of the address | no |
-| **C3-P** | API token for the workflow: *Account* → Workers Scripts Edit, D1 Edit, Workers R2 Storage Edit, Queues Edit, Account Settings Read, Access: Apps and Policies Read, Access: Organizations, Identity Providers, and Groups Read. **No Zone permissions.** Then run **check** (read-only) | no |
-| **PROD-1** | Zero Trust (Free): team name, service token `menapoly-mac`, two **self-hosted** Access apps on the workers.dev hostname: "Menapoly Cue" (whole hostname, Allow → your email) and "Menapoly Cue – Mac worker" (path `v1/worker`, Service Auth only) | no (see PAID-0) |
-| **PROD-2** | Run **provision**: D1, private R2 bucket (CORS for the workers.dev address only), two queues (24 h); then an R2 API token for that bucket | needs PAID-2 |
-| **PROD-3** | Run **deploy**: Worker on its workers.dev address; automatic probe; removed automatically if anything answers without sign-in | no |
+| **SCRUB-1** | Push the reviewed docs-only commit | free |
+| **GH-A** | Add `.github/workflows/pilot.yml` to the default branch (the default branch itself stays) | free |
+| **GH-2** | Environment `menapoly-cue-pilot` (you as reviewer, admin bypass off, `menapoly-cue-2.0` only) + its secrets | free |
+| **GH-4** | Read-only `RELAY_ACTIONS_TOKEN` (the preflight confirms Relay's workflows stay disabled) | free |
+| **CF-SUB** | Set a workers.dev subdomain **only if none exists**. If Growth Loop already uses one, keep it: renaming changes Growth Loop's address | free |
+| **C3-P** | Cloudflare API token, account-level, no Zone permissions | free |
+| **PROD-1** | Zero Trust Free: team, service token, two self-hosted Access apps on the Cue hostname only | free |
+| **PAID-2** | Enable R2 (requires a payment method; free up to 10 GB) | $0 expected |
+| **PROD-2** | Run **provision** (D1, private bucket, queues for Cue only) | free |
+| **PROD-3** | Run **deploy** | free |
 
-## 4. Anything that could create charges
+Recommended but optional: **GH-3** (protect the branch). Only if asked: **PAID-0** (Zero Trust card prompt).
+Not requested: Workers Paid, DNS or nameserver changes, "Protect all Workers" (it would also put Growth Loop behind
+sign-in), the Mac worker, client links, SMS, cloud rendering, re-enabling Relay workflows.
 
-| Code | What | When money could move |
-|---|---|---|
-| **PAID-2** | Enable R2 (Cloudflare requires a payment method) | only above 10 GB stored ($0.015/GB-month) or the free operation allowance |
-| **PAID-0** | Zero Trust Free *may* ask for a payment method | only above 50 users |
-| PAID-1 | Workers Paid $5/month | **not requested** (only if error 1102 appears) |
-| — | Canva, Zoho, DNS, GitHub | nothing on this path |
+## Launch checklist (one step at a time; each waits for the approval named)
 
-**Expected monthly cost: $0.00** (under 10 GB of stored video).
+1. **R-1 to R-3 (read-only):**
+   - Is any Relay app live? Check Workers & Pages, and ChatGPT → Sites.
+   - Does a workers.dev subdomain already exist (Workers & Pages → Account details)?
+   - Plan = Free?
+2. **SCRUB-1:** I push the reviewed commit.
+3. **GH-A:** on github.com, switch to branch `ccr-f6eeb6a3-yozzh0` → *Add file → Create new file* →
+   `.github/workflows/pilot.yml` → paste the file from `menapoly-cue-2.0` → *Commit directly*.
+4. **GH-2 and GH-4:**
+   - Settings → Environments → `menapoly-cue-pilot` → required reviewer = you, *Allow administrators to bypass* off,
+     branch `menapoly-cue-2.0`.
+   - Create the read-only Relay token and add it as an environment secret.
+   - Confirm Settings → Secrets → **Repository secrets** is empty.
+5. **CF-SUB** (only if step 1 found no subdomain).
+6. **C3-P:**
+   - Create the API token: *Account* → Workers Scripts Edit, D1 Edit, Workers R2 Storage Edit, Queues Edit, Account
+     Settings Read, Access: Apps and Policies Read, Access: Organizations, Identity Providers, and Groups Read.
+   - Add the environment secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+   - Actions → *Menapoly Cue pilot* → *Run workflow* → branch `menapoly-cue-2.0`, action **check**, phrase
+     `check the pilot` → approve. The log shows the exact Cue address. Access shows NOT YET.
+7. **PROD-1:**
+   - Zero Trust → set the team name.
+   - Create the service token `menapoly-mac`.
+   - Create self-hosted app "Menapoly Cue" for the address from step 6 (Allow → Emails → you; 24 h session).
+   - Create self-hosted app "Menapoly Cue – Mac worker" for the same address, path `v1/worker`, Service Auth → `menapoly-mac`.
+   - Add the environment secrets `CF_ACCESS_AUD` (the first app's AUD), `CF_ACCESS_TEAM_DOMAIN` and `OWNER_EMAILS`.
+   - Run **check** again: Access must be OK.
+8. **PAID-2 and PROD-2:**
+   - Enable R2.
+   - Run **provision** (phrase `I approve creating the pilot resources`), then save the printed D1 id as
+     `D1_DATABASE_ID`.
+   - Create an R2 token for the bucket `menapoly-cue-media` only, and add `S3_ENDPOINT`, `S3_ACCESS_KEY_ID` and
+     `S3_SECRET_ACCESS_KEY`.
+9. **PROD-3:** run **deploy** (phrase `I approve deploying the Menapoly Cue pilot`). The run ends either "Deployed and
+   verified at https://…" or removes the Worker.
+10. **Open it:** Chrome on the iMac → the address → sign in with your email → the real-device checklist in
+    [browser-first.md §7](browser-first.md). On Android: Chrome → the address → sign in → ⋮ → *Install app*.
 
----
-
-## The approval request (after SCRUB-1 is done and R-1 is clear)
-
-> I approve launching the Menapoly Cue private pilot on its workers.dev address behind Cloudflare Access, on Workers
-> Free, with no DNS or nameserver changes: **GH-A**, **GH-2**, **GH-3**, **GH-4**, **CF-SUB**, **C3-P**, **PROD-1**,
-> **PAID-2** (enable R2; free up to 10 GB), **PROD-2**, **PROD-3**. **PAID-0** only if Cloudflare asks for a card for Zero
-> Trust Free. Not approved: Workers Paid, nameserver or DNS changes, the Mac worker, client review links, SMS, cloud
-> rendering, re-enabling any Relay workflow, changing the default branch.
-
-Every workflow run still needs your typed phrase and your **Approve** click. `rollback` deletes the Worker at any time.
+**Stop at any time:** run **rollback** (phrase `I approve removing the pilot Worker`). It deletes only
+`menapoly-cue-cloud`; data in D1 and R2 is kept.

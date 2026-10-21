@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -536,3 +537,46 @@ def test_instructions_library_and_change_requests(stack, clean_queue):
     again = stack.api("POST", "/v1/versions/tlv_00c0ffee00c0ffee/decision", json={"decision": "approved"})
     assert again.status_code == 409  # already decided: it can never be exported
     assert stack.sql("SELECT COUNT(*) FROM assets WHERE project_id = ? AND kind = 'output'", (pid,))[0][0] == 0
+
+
+def _all_routes() -> list[tuple[str, str, str]]:
+    """Every route registered in cloud/control-plane/src/index.ts as (kind, method, concrete path)."""
+    src = (Path(__file__).resolve().parents[2] / "cloud" / "control-plane" / "src" / "index.ts").read_text()
+    out = []
+    for kind, method, path in re.findall(r'^(person|on)\("([A-Z]+)", "([^"]+)"', src, flags=re.M):
+        out.append((kind, method, path))
+    out += [("worker", "POST", p) for p in re.findall(r'^workerRoute\("([^"]+)"', src, flags=re.M)]
+    concrete = []
+    for kind, method, path in out:
+        path = path.replace(":id", "prj_0123456789abcdef").replace("(rv_[A-Za-z0-9_-]{30,60})", "rv_" + "A" * 43)
+        concrete.append((kind, method, path))
+    return concrete
+
+
+def test_every_route_refuses_without_a_verified_access_sign_in(tmp_path):
+    """Production settings with Access configured, as deployed. Each route in index.ts is called the way an outsider
+    would try: no token, a garbage Access token, forged identity headers, a fake worker token. Nothing may succeed and
+    nothing may be written (no project, upload, asset or job can be created)."""
+    routes = _all_routes()
+    assert len(routes) >= 45 and any(p.endswith("/uploads") for _, _, p in routes)
+    cp = cs.ControlPlane(tmp_path, None, ENVIRONMENT="production", CF_ACCESS_AUD="aud-test",
+                         CF_ACCESS_TEAM_DOMAIN="example.cloudflareaccess.com")
+    forged = [{}, {"cf-access-jwt-assertion": "garbage"},
+              {"cf-access-authenticated-user-email": "owner@example.test", "x-dev-user": "owner@example.test",
+               "oai-authenticated-user-email": "owner@example.test"},
+              {"authorization": "Bearer cqw_wkr_0000000000000000.notarealsecretnotarealsecret"}]
+    body = {"name": "x", "filename": "a.mp4", "content_type": "video/mp4", "size": 10, "sha256": "0" * 64,
+            "type": "transcribe", "asset_id": "ast_0123456789abcdef", "decision": "approved", "parts": [1]}
+    try:
+        for kind, method, path in routes:
+            for headers in forged:
+                r = cp.http.request(method, path, json=body if method in ("POST", "PUT") else None, headers=headers)
+                if path == "/v1/health":
+                    assert r.status_code == 200 and set(r.json()) <= {"ok", "service", "version", "environment"}
+                    continue
+                expected = {"person": {401}, "worker": {401}, "on": {401, 403}}[kind]
+                assert r.status_code in expected, (method, path, headers, r.status_code, r.text[:200])
+        for table in ("projects", "upload_sessions", "assets", "jobs", "workers", "cue_actions", "timeline_versions"):
+            assert cp.sql(f"SELECT COUNT(*) FROM {table}")[0][0] == 0, table
+    finally:
+        cp.stop()

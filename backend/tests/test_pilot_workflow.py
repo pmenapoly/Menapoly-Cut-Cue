@@ -255,3 +255,35 @@ def test_preflight_workers_dev_fails_closed_without_access_or_subdomain(monkeypa
     assert code == 1 and any("Access application" in r[1] and r[0] == preflight.BAD for r in results)
     code, results = _run_preflight(monkeypatch, _FakeCF(subdomain=""))
     assert code == 1 and any(r[1] == "workers.dev subdomain" and r[0] == preflight.BAD for r in results)
+
+
+def test_after_deploy_probe_requires_access_in_front_of_the_api():
+    """A Worker-side 401 on a people path means Access isn't covering it: the probe must fail (and the deploy is then
+    removed). Only Access's own sign-in redirect passes for the app, API and upload paths."""
+    login = "https://menapoly.cloudflareaccess.com/cdn-cgi/access/login/x"
+    assert preflight.probe_result("GET", 302, login, True)[0] == preflight.OK
+    assert preflight.probe_result("GET", 401, "", True)[0] == preflight.BAD          # reached the Worker
+    assert preflight.probe_result("GET", 200, "", True)[0] == preflight.BAD          # public
+    assert preflight.probe_result("GET", 302, "https://evil.example/", True)[0] == preflight.BAD
+    assert preflight.probe_result("POST", 403, "", False)[0] == preflight.OK          # Access refusing a POST
+    assert preflight.probe_result("POST", 201, "", False)[0] == preflight.BAD
+    paths = [p for _, p, _ in preflight.PROBES]
+    assert "/" in paths and any(p.endswith("/uploads") for p in paths) and "/v1/projects" in paths
+
+
+def test_after_deploy_probe_fails_when_only_the_worker_protects_the_api(monkeypatch):
+    """Simulates Access covering only the web page: API paths answer 401 from the Worker → probe fails closed."""
+    class Resp:
+        def __init__(self, code, loc=""): self.status_code, self.headers = code, {"location": loc}
+
+    class Client:
+        def request(self, method, url, json=None):
+            if url.endswith("/") or url.endswith(".html"):
+                return Resp(302, "https://menapoly.cloudflareaccess.com/cdn-cgi/access/login")
+            return Resp(401)
+
+    preflight.results.clear()
+    monkeypatch.setattr(preflight, "wrangler", lambda *a: (0, "x"))
+    preflight.probe(Client())
+    assert any(r[0] == preflight.BAD and "/v1/projects" in r[1] for r in preflight.results)
+    preflight.results.clear()

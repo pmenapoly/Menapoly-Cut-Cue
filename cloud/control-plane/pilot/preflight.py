@@ -305,18 +305,34 @@ def resource_checks(args: argparse.Namespace) -> None:
             report(resource(exists, want), f"Queue {q}", "exists (reused)" if exists and not want else "exists" if exists else "not created")
 
 
-def probe() -> None:
+PROBES = [  # (method, path, Access must redirect to sign-in?) — every people path, including API and uploads
+    ("GET", "/", True), ("GET", "/review.html", True), ("GET", "/v1/health", True), ("GET", "/v1/projects", True),
+    ("GET", "/v1/library", True), ("GET", "/v1/public/review/rv_" + "A" * 43, True),
+    ("POST", "/v1/projects/prj_0123456789abcdef/uploads", False), ("POST", "/v1/worker/lease", False),
+]
+
+
+def probe_result(method: str, status: int, location: str, must_redirect: bool) -> tuple[str, str]:
+    """Access in front: a GET without sign-in is redirected to <team>.cloudflareaccess.com. A Worker-side 401 alone
+    means Access is NOT covering that path (the Worker's own check is only the second lock), so it fails the probe."""
+    login = status in (302, 303) and "cloudflareaccess.com" in location
+    if login:
+        return OK, f"{status} → Access sign-in"
+    if not must_redirect and status in (401, 403):
+        return OK, f"{status} → refused"
+    return BAD, f"{status} → {'reached the Worker, not Access' if status in (401, 403) else 'REACHABLE'}"
+
+
+def probe(client: httpx.Client | None = None) -> None:
     # --- 5. After deploy: nothing answers without Access --------------------------------------------------------
-    bare = httpx.Client(timeout=20, follow_redirects=False)
-    for path in ("/", "/v1/health", "/v1/projects", "/v1/worker/lease", "/review.html", "/v1/public/review/rv_" + "A" * 43):
+    bare = client or httpx.Client(timeout=20, follow_redirects=False)
+    for method, path, must_redirect in PROBES:
         try:
-            r = bare.get(f"https://{HOST}{path}")
-            login = r.status_code in (302, 303) and "cloudflareaccess.com" in r.headers.get("location", "")
-            refused = r.status_code in (401, 403)
-            report(OK if login or refused else BAD, f"Unauthenticated GET {path}",
-                   f"{r.status_code} → {'Access sign-in' if login else 'refused' if refused else 'REACHABLE'}")
+            r = bare.request(method, f"https://{HOST}{path}", json={} if method == "POST" else None)
+            status, detail = probe_result(method, r.status_code, r.headers.get("location", ""), must_redirect)
+            report(status, f"Unauthenticated {method} {path}", detail)
         except httpx.HTTPError as exc:
-            report(BAD, f"Unauthenticated GET {path}", str(exc))
+            report(BAD, f"Unauthenticated {method} {path}", str(exc))
     code, out = wrangler("deployments", "list", "--name", WORKER)
     report(INFO if code == 0 else TODO, "Worker deployments", out.strip().splitlines()[-1] if code == 0 and out.strip() else "none")
 
