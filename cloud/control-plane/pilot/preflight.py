@@ -106,6 +106,33 @@ def policy_problems(policies: list[dict], allow_service_token: bool) -> list[str
     return out
 
 
+def app_policies(client: httpx.Client, account: str, app: dict) -> list[dict]:
+    """Policies on an Access app: the per-app endpoint plus any listed on the app itself (reusable policies)."""
+    pols = list(cf(client, f"/accounts/{account}/access/apps/{app['id']}/policies") or [])
+    seen = {p.get("id") for p in pols if p.get("id")}
+    pols += [p for p in app.get("policies") or [] if isinstance(p, dict) and p.get("decision") and p.get("id") not in seen]
+    return pols
+
+
+def people_policy_problems(policies: list[dict], allowed: list[str]) -> list[str]:
+    """The people app must name the allowed owner emails explicitly. Domain, list, group or login-method rules can't
+    be checked against OWNER_EMAILS, and an app with no visible policy can't be verified: both fail closed."""
+    out = policy_problems(policies, allow_service_token=False)
+    if not any(p.get("decision") == "allow" for p in policies):
+        out.append("no Allow policy is visible on the app")
+    allowed = {e.strip().lower() for e in allowed if e.strip()}
+    for p in policies:
+        if p.get("decision") != "allow":
+            continue
+        for rule in p.get("include", []):
+            kind = next(iter(rule), "")
+            if kind != "email":
+                out.append(f"policy '{p.get('name')}' uses a '{kind}' rule; use explicit email addresses")
+            elif allowed and str(rule["email"].get("email", "")).lower() not in allowed:
+                out.append(f"policy '{p.get('name')}' allows an email that isn't in OWNER_EMAILS")
+    return out
+
+
 def database_id_check(real_id: str, ci: bool) -> tuple[bool, str, str]:
     """The Worker must be bound to the pilot D1 database. In GitHub Actions the committed wrangler.jsonc stays id-free and
     ci.py fills the id in from the D1_DATABASE_ID secret, so compare the secret; locally, compare the file."""
@@ -247,8 +274,9 @@ def access_checks(client: httpx.Client, account: str, args: argparse.Namespace) 
         if not people:
             report(BAD if need else TODO, f"Access application for {HOST}", "missing; create it BEFORE deploying")
         for a in people:
-            pols = cf(client, f"/accounts/{account}/access/apps/{a['id']}/policies")
-            probs = policy_problems(pols, allow_service_token=False)
+            pols = app_policies(client, account, a)
+            owners = os.environ.get("OWNER_EMAILS", "").split(",") if args.ci else []
+            probs = people_policy_problems(pols, owners)
             report(BAD if probs else OK, f"Access app '{a.get('name')}' ({HOST})",
                    "; ".join(probs) or f"{len(pols)} allow-by-email policy(ies); AUD tag ends …{str(a.get('aud', ''))[-6:]}")
             if args.ci:
@@ -259,7 +287,7 @@ def access_checks(client: httpx.Client, account: str, args: argparse.Namespace) 
         if not workers:
             report(BAD if need else TODO, f"Access application for {HOST}/v1/worker (Service Auth for the Mac)", "missing")
         for a in workers:
-            pols = cf(client, f"/accounts/{account}/access/apps/{a['id']}/policies")
+            pols = app_policies(client, account, a)
             probs = policy_problems(pols, allow_service_token=True)
             only_service = all(p.get("decision") == "non_identity" for p in pols) and pols
             report(BAD if probs or not only_service else OK, f"Access app '{a.get('name')}' (Mac worker path)",
@@ -269,7 +297,6 @@ def access_checks(client: httpx.Client, account: str, args: argparse.Namespace) 
             report(INFO, "Other Access apps on this host", ", ".join(public))
     except RuntimeError as exc:
         report(BAD, "Access read", f"{exc} (token needs Access: Apps and Policies Read, Access: Organizations Read)")
-
 
 
 def resource_checks(args: argparse.Namespace) -> None:

@@ -214,7 +214,7 @@ class _FakeCF:
             return [{"id": "a1", "name": "Menapoly Cue", "domain": host, "aud": "aud-1", "type": "self_hosted"},
                     {"id": "a2", "name": "Menapoly Cue – Mac worker", "domain": f"{host}/v1/worker", "type": "self_hosted"}] if self.apps else []
         if path.endswith("/a1/policies"):
-            return [{"name": "Owner", "decision": "allow", "include": [{"email": {"email": "x"}}]}]
+            return [{"name": "Owner", "decision": "allow", "include": [{"email": {"email": "owner@example.test"}}]}]
         if path.endswith("/a2/policies"):
             return [{"name": "Mac", "decision": "non_identity", "include": [{"service_token": {"token_id": "t"}}]}]
         raise AssertionError(f"unexpected Cloudflare call {path}")
@@ -224,7 +224,8 @@ def _run_preflight(monkeypatch, fake, stage="before-deploy"):
     preflight.results.clear()
     monkeypatch.setenv("PILOT_TARGET", "workers-dev")
     for k, v in {"CLOUDFLARE_ACCOUNT_ID": "acc", "CLOUDFLARE_API_TOKEN": "tok", "RELAY_ACTIONS_TOKEN": "r",
-                 "CF_ACCESS_TEAM_DOMAIN": "menapoly.cloudflareaccess.com", "CF_ACCESS_AUD": "aud-1", "D1_DATABASE_ID": DB_ID}.items():
+                 "CF_ACCESS_TEAM_DOMAIN": "menapoly.cloudflareaccess.com", "CF_ACCESS_AUD": "aud-1", "D1_DATABASE_ID": DB_ID,
+                 "OWNER_EMAILS": "owner@example.test"}.items():
         monkeypatch.setenv(k, v)
 
     class Resp:
@@ -287,3 +288,34 @@ def test_after_deploy_probe_fails_when_only_the_worker_protects_the_api(monkeypa
     preflight.probe(Client())
     assert any(r[0] == preflight.BAD and "/v1/projects" in r[1] for r in preflight.results)
     preflight.results.clear()
+
+
+def test_people_app_must_allow_only_the_owner_emails_explicitly():
+    owner = ["owner@example.test"]
+    allow = lambda *rules: [{"id": "p", "name": "Owner", "decision": "allow", "include": list(rules)}]  # noqa: E731
+    assert preflight.people_policy_problems(allow({"email": {"email": "Owner@Example.test"}}), owner) == []
+    assert preflight.people_policy_problems(allow({"email": {"email": "someone@else.test"}}), owner)
+    assert preflight.people_policy_problems(allow({"email_domain": {"domain": "gmail.com"}}), owner)
+    assert preflight.people_policy_problems(allow({"group": {"id": "g"}}), owner)
+    assert preflight.people_policy_problems([], owner)  # nothing visible → can't verify → blocked
+    assert preflight.people_policy_problems([{"name": "b", "decision": "bypass", "include": [{"everyone": {}}]}], owner)
+
+
+def test_reusable_policies_listed_on_the_app_are_checked_too(monkeypatch):
+    monkeypatch.setattr(preflight, "cf", lambda client, path, **k: [])
+    app = {"id": "a1", "policies": [{"id": "r1", "name": "Everyone", "decision": "allow", "include": [{"everyone": {}}]}]}
+    pols = preflight.app_policies(None, "acc", app)
+    assert pols and preflight.people_policy_problems(pols, ["owner@example.test"])
+
+
+def test_preflight_blocks_deploy_when_access_allows_a_whole_domain(monkeypatch):
+    fake = _FakeCF()
+    original = fake.__call__
+
+    def domain_wide(client, path, **params):
+        if path.endswith("/a1/policies"):
+            return [{"name": "Gmail", "decision": "allow", "include": [{"email_domain": {"domain": "gmail.com"}}]}]
+        return original(client, path, **params)
+
+    code, results = _run_preflight(monkeypatch, domain_wide)
+    assert code == 1 and any("email_domain" in r[2] for r in results)

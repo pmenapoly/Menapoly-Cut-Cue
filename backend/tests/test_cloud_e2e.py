@@ -546,6 +546,9 @@ def _all_routes() -> list[tuple[str, str, str]]:
     for kind, method, path in re.findall(r'^(person|on)\("([A-Z]+)", "([^"]+)"', src, flags=re.M):
         out.append((kind, method, path))
     out += [("worker", "POST", p) for p in re.findall(r'^workerRoute\("([^"]+)"', src, flags=re.M)]
+    # Guard: every call of a registration helper is a top-level route line (the 2 others are inside the helpers),
+    # so a route written any other way fails here instead of escaping this test.
+    assert len(re.findall(r"\b(?:person|on|workerRoute)\(", src)) - 2 == len(out), "unrecognised route registration"
     concrete = []
     for kind, method, path in out:
         path = path.replace(":id", "prj_0123456789abcdef").replace("(rv_[A-Za-z0-9_-]{30,60})", "rv_" + "A" * 43)
