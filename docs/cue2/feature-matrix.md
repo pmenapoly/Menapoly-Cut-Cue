@@ -88,7 +88,7 @@ Legend:
 
 | Item | Status | Evidence |
 |---|---|---|
-| Relay: forged identity header bypassed Cloudflare Access | **Fixed on `security/access-identity-headers`, not deployed** | 10 tests (real RS256 JWTs); 4 of them fail on the old code; `SECURITY_FIX_ACCESS_IDENTITY.md` |
+| Relay authentication hardening | tracked in the private MenapolyRelay repository | — |
 | Relay connector (approval-gated, idempotent, no duplicate projects, versions or copies) | Done | 6 failure-injection tests and 1 test **against the real Relay app** running locally |
 | Relay service-token identity (allow-listed) and `add_project` returning its ID | Done on `feature/cue-connector`, not deployed | 2 tests; live Access service token **not verified** |
 | Consistent project, asset and render identity across Projects, Cut Cue, v1, Library, reviews and delivery | Done | `test_identities_are_consistent_across_surfaces` |
@@ -104,8 +104,7 @@ Legend:
 
 | Item | Status | Evidence |
 |---|---|---|
-| Production status of Relay | Checked (read-only). No CI deployment has ever succeeded. Today the API token is set and the Access secrets are **missing**, so the next push to `main` would deploy a vulnerable public Worker. | `security-launch.md` §1 |
-| Minimal emergency patch on top of `main` | Ready, **not merged** | `hotfix/access-identity-minimal`; GitHub CI green; 10 auth tests pass against `main` code |
+| Relay production status and security patch | tracked in the private MenapolyRelay repository | — |
 | Read-only security readiness CI (secret presence, lint, typecheck, tests, build, dry run) | Done | Green on the security, hotfix and connector branches |
 | Connections page (ready / not set up / unavailable / awaiting authorization; no secrets) | Done | `/connections/`; `test_connections.py`; e2e test |
 | First-run setup (computer, AI, privacy, email, backup, first project) | Done | `/setup/`; e2e test |
@@ -115,7 +114,7 @@ Legend:
 
 | Item | Status | Evidence |
 |---|---|---|
-| Phase 0 security gate (Relay) | Checked read-only. Still open: Relay deploy workflow active, Access secrets missing. Nothing deployed. | `docs/cloud/blockers.md` |
+| Phase 0 security gate (Relay deploy workflows) | Resolved 2026-10-20: both disabled (S1) | `docs/cloud/pilot/security-gate.md` |
 | Versioned control-plane API (projects, assets, uploads, jobs, leases, events, versions, review links, notifications, workers, costs, audit) | Done, local | `cloud/control-plane`; `test_cloud_e2e.py` |
 | Direct-to-R2 resumable multipart uploads (signed URLs, type/size/extension limits, SHA-256, resume, orphan cleanup) | Done, local (moto) | upload tests; phone test with dropped connection and closed tab |
 | Mac worker agent (leases, verified inputs, real pipeline, progress, restart recovery, launchd) | Done (Linux-tested) | `backend/cutcue/agent.py`; crash-release and dead-letter tests; **Intel Mac run pending** |

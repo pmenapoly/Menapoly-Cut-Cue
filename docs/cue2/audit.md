@@ -6,7 +6,7 @@ Inspected, not assumed: each claim below was checked by reading the code and run
 |---|---|---|
 | `pmenapoly/Menapoly-Cut-Cue` @ `ccr-f6eeb6a3-yozzh0` | `089c095` | 63 backend tests and 16 Playwright tests (5 skipped by design) passed in the previous round. Full code read. |
 | `pmenapoly/MenapolyRelay` @ `codex/menapoly-cue-verified-20260913` | `0169a60` | `npm ci`; `npm run test:unit` gave **39/39 pass**; `npm run typecheck` **passed**. Read the key files. |
-| `pmenapoly/MenapolyRelay` @ `main` (production, auto-deploys to Cloudflare) | `e5a904d` | Diff against the verified branch only. Nothing was modified. |
+| `pmenapoly/MenapolyRelay` @ `main` (production; its deploy workflows are disabled) | — | Diff against the verified branch only. Nothing was modified. |
 | `pmenapoly/MenapolyClientPortal` | — | Visible to this account but not named in the brief, so not inspected. |
 
 ## 1. What each codebase is
@@ -16,7 +16,7 @@ Inspected, not assumed: each claim below was checked by reading the code and run
 - **Where it runs:** on the user's Mac. Media stays on disk.
 
 **Menapoly Cue (Relay)** is a multi-tenant client-production SaaS on Cloudflare.
-- **Stack:** Next.js 16 through vinext on Workers, with D1 (Drizzle, migrations 0000–0009) and R2. Identity comes from Cloudflare Access or ChatGPT Sites.
+- **Stack:** Next.js 16 through vinext on Workers, with D1 (Drizzle, migrations 0000–0009) and R2. Identity and its security are tracked in the private MenapolyRelay repository.
 - **Features:**
   - workspaces with seven roles;
   - projects, tasks and queues;
@@ -59,11 +59,7 @@ The two apps don't share a runtime or storage. A Worker can't run FFmpeg or reac
 
 ## 4. Technical risks
 
-1. **Identity header trust in Relay (high).**
-   - **What happens:** `app/chatgpt-auth.ts` returns a user straight from the `oai-authenticated-user-email` request header whenever it is present. It checks this *before* verifying the Cloudflare Access JWT.
-   - **Why it matters:** on the Cloudflare deployment nothing strips that header (`worker/index.ts` passes requests through unchanged). An Access-authenticated low-role user, for example a client, could send `oai-authenticated-user-email: <owner email>` and act as the owner.
-   - **Recommended fix:** when `CF_ACCESS_AUD` is configured, ignore the ChatGPT headers entirely (or strip them in `worker/index.ts`). Add a test for it.
-   - **Status:** *Not changed here.* That branch feeds production and the brief says not to overwrite production code. It needs your go-ahead.
+1. **Relay authentication hardening (high).** Details and the fix are tracked in the private MenapolyRelay repository.
 2. **Two databases, one concept.** Projects exist in both D1 and SQLite. Without a single ID mapping, versions and reviews will drift. *Mitigation:* the v1 contract below. Cut Cue owns edit state; Relay mirrors only what it publishes.
 3. **Media duplication.** Uploading the same footage to R2 and to the local store doubles storage and transfer. *Mitigation:* assets carry a `sha256`, so register by reference and publish only renders to the cloud.
 4. **Prompt injection through briefs and transcripts.** Both apps feed user documents to AI. *Mitigation in Cut Cue:* document text is wrapped as untrusted data, and all tools return proposals. Ask Cue follows the same rule.

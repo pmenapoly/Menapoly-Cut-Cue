@@ -6,11 +6,7 @@ Tick each box before the step that depends on it. ✅ = verified today (2026-10-
 
 | Item | For | Status today |
 |---|---|---|
-| Cloudflare account with Workers, D1, R2 | Relay | ✅ API token + account ID are set as GitHub secrets |
-| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (GitHub repo secrets) | Relay deploys | ✅ set |
-| Cloudflare Zero Trust (Access) application for the production hostname | Relay sign-in | ☐ not confirmed |
-| `CF_ACCESS_AUD`, `CF_ACCESS_TEAM_DOMAIN` (GitHub repo secrets) | Relay sign-in | ☐ **missing**; the patched workflow won't deploy without them |
-| `CF_ACCESS_AUD_PREVIEW` | Optional Access-protected preview | ☐ missing |
+| Relay accounts, secrets and sign-in | Relay | tracked in the private MenapolyRelay repository |
 | `CF_ACCESS_SERVICE_TOKENS` (a Worker secret, *not* a GitHub one) plus an Access service token | Cut Cue → portal connector | ☐ not created |
 | `ANTHROPIC_API_KEY` in Cut Cue `.env` | Live Claude | ☐ not on your Mac yet |
 | SMTP account (app password) → `CUE_SMTP_*`, `CUE_EMAIL_FROM`, `CUE_EMAIL_TO` | Email notifications | ☐ |
@@ -20,45 +16,30 @@ Tick each box before the step that depends on it. ✅ = verified today (2026-10-
 
 ## 2. Security verification
 
-- ✅ The vulnerability was reproduced in tests. The fix makes all 10 auth tests pass, and 4 of them fail on the old code.
-- ✅ GitHub CI (lint, typecheck, unit tests, build, Wrangler dry run with the production `wrangler.jsonc`) passed on:
-  - `security/access-identity-headers`;
-  - `hotfix/access-identity-minimal` (based on `main`);
-  - `feature/cue-connector`.
-- ✅ The production configuration declares `CUE_AUTH_MODE=cloudflare-access`; the dry run shows the binding.
-- ✅ No CI deployment of the production Worker has ever succeeded.
-- ☐ Check the Cloudflare dashboard for any manually deployed `menapoly-cue-production` / `menapoly-cue-preview` Worker.
-- ☐ Run the safe probe (`security-launch.md` §1) against any live URL, including the ChatGPT Sites preview.
-- ☐ **Containment now:** disable the "Deploy Menapoly Cue to Cloudflare" workflow until you merge the fix.
-- ☐ Access policy: only your team's and your clients' emails.
+- Relay: tracked in the private MenapolyRelay repository.
+- Cue pilot: `docs/cloud/pilot/security-gate.md`.
 
 ## 3. Data backup
 
-- ☐ **Relay:** if production D1 exists, export it first: `npx wrangler d1 export menapoly-cue-production --remote --output backup-$(date +%F).sql`. R2 objects are not changed by this fix.
 - ☐ **Cut Cue on the Mac:** `make backup` (database + media, checksummed). Settings → Back up now covers the database only.
 - ✅ Restoring a Cut Cue backup into a fresh app gives identical projects and byte-identical renders (`test_backup.py`; harness step 16).
 
 ## 4. Deployment steps (each one needs your approval)
 
-1. **Relay hotfix:**
-   - add the Access secrets;
-   - re-enable the deploy workflow;
-   - PR `hotfix/access-identity-minimal` → `main`;
-   - **merge**, which auto-deploys.
-2. **Relay full branch:** PR `security/access-identity-headers` → `main` (adds the test suite and the same auth code), then merge.
-3. **Connector (optional):**
+1. **Relay:** its security fix and deployment are tracked in the private MenapolyRelay repository.
+2. **Connector (optional):**
    - PR `feature/cue-connector` → `main`, then merge;
    - create the Access service token and add a Service Auth policy;
    - `wrangler secret put CF_ACCESS_SERVICE_TOKENS`;
    - invite the connector email as Editor.
-4. **Cut Cue on the Mac:**
+3. **Cut Cue on the Mac:**
    - `make backup` (if you have existing data);
    - `git checkout menapoly-cue-2.0 && make setup && make start`;
    - open `/setup/`.
 
 ## 5. Smoke tests
 
-- **Relay:** `security-launch.md` §7. The key checks: health, owner sign-in, an anonymous probe gets the login page or 401, and a client with a forged owner header gets 403.
+- **Relay:** tracked in the private MenapolyRelay repository.
 - **Cut Cue:**
   - `/connections/` shows FFmpeg and Speech-to-text as Ready;
   - create a project, upload a recording, "Make a tight rough cut", Preview, Approve, Export → YouTube, play the MP4;
@@ -68,7 +49,7 @@ Tick each box before the step that depends on it. ✅ = verified today (2026-10-
 
 ## 6. Rollback
 
-- **Relay:** revert the merge commit on `main` (auto-deploys), or use Cloudflare → Deployments → Rollback. There is no schema change in the fix. Rolling back re-opens the vulnerability, so pair it with containment.
+- **Relay:** tracked in the private MenapolyRelay repository.
 - **Cut Cue:**
   - stop the app;
   - `git checkout <previous commit>`;
@@ -78,8 +59,7 @@ Tick each box before the step that depends on it. ✅ = verified today (2026-10-
 
 | Capability | Why | How to verify |
 |---|---|---|
-| Whether anything is live on Cloudflare or ChatGPT Sites | No dashboard access, no URL | Dashboard + the safe probe |
-| Real Cloudflare Access login, service tokens, `common_name` mapping | No Access application exists yet | §5 Relay smoke tests |
+| Real Cloudflare Access login, service tokens, `common_name` mapping | No Access application exists yet | after Relay's security work |
 | Connector against live Relay | Relay branches not deployed | Delivery → Publish after step 3 |
 | Intel Mac performance, real Whisper, Chrome H.264 playback, live Claude | Not run on your hardware | Mac harness |
 | Real SMTP provider delivery | Tested only against a local SMTP server | Settings → Send a test email |

@@ -32,16 +32,13 @@ run until then.
 
 **S1 result:** both workflows are `disabled_manually` (IDs 350419547 and 355167474). This was confirmed with the
 GitHub CLI and separately with the GitHub workflow API (updated 2026-10-19 21:15 ET). The workflow files are kept,
-nothing was merged, Relay `main` is still `e5a904d`, and no workflow run has started since. **The security gate is
+nothing was merged, and no workflow run has started since. **The security gate is
 resolved for the pilot.** The other three workflows (CI Checks, Verify Cue, Security readiness) never deploy and stay
 active.
 
 Not part of the pilot (separate decision, later):
 
-- ☐ **R1**: merge `hotfix/access-identity-minimal` into Relay `main` and deploy Relay. Prerequisites: Relay's own
-  Access app and the GitHub secrets `CF_ACCESS_AUD` and `CF_ACCESS_TEAM_DOMAIN`, then re-enable its main deploy
-  workflow. Verified safe to deploy ([§3](security-gate.md#3-can-the-relay-hotfix-be-deployed-without-exposing-the-application)),
-  but not needed for the pilot.
+- ☐ **R1**: Relay's own security work. Tracked in the private MenapolyRelay repository; not needed for the pilot.
 
 ---
 
@@ -95,14 +92,13 @@ Free). Everything else (Access for up to 50 users, D1, Queues, DNS, certificate,
 | Cloud rendering / paid processing | `CLOUD_RENDERING=disabled`; cloud jobs can't be created; config test fails if changed |
 | SMS (Cue Text) | no provider connected; nothing sends |
 | Relay connector | `relay.py` stays unconfigured; pilot and Relay share no Worker, database or bucket |
-| `*.workers.dev` and preview URLs | `workers_dev: false`, `preview_urls: false`; config test fails if changed |
-| Relay hotfix merge/deploy | R1, separate |
+| Preview URLs | `preview_urls: false` (config test fails if changed); workers.dev is used only by the workflow's `workers-dev` target, behind Access |
+| Relay's own security work | R1, separate (private repository) |
 
 ---
 
 ## Evidence (all local; nothing here used your Cloudflare account)
 
-- Relay hotfix: typecheck, lint, build test, 10/10 identity tests, Wrangler dry-run, re-run 2026-10-19.
 - Pilot control plane: 9 unit tests (Access JWT, streaming SHA-256, config guard), Wrangler dry-run with the
   custom-domain route, cloud end-to-end tests including "client links off by default", and the acceptance script
   passing end to end on the local stack (`test_pilot_acceptance.py`).

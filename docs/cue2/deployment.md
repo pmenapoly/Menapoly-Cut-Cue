@@ -1,37 +1,19 @@
 # Deployment instructions (nothing below has been done; each step needs your go-ahead)
 
-> **Updated 2026-10-14:** start with `security-launch.md` (production status, containment, emergency patch) and
-> `deployment-readiness.md` (checklist). The fastest safe fix for production is branch `hotfix/access-identity-minimal`
-> (based on `main`, CI green).
-
 ## Branches
 
 | Repository | Branch | Contents | Merge target | Effect of merging |
 |---|---|---|---|---|
-| `pmenapoly/MenapolyRelay` | `security/access-identity-headers` | Auth fix for forged identity headers; tests | `main` | **Auto-deploys to Cloudflare production** (GitHub Actions) |
-| `pmenapoly/MenapolyRelay` | `feature/cue-connector` | Service-token identity; `add_project` returns `projectId` (built on the fix) | `main`, after the fix | Same auto-deploy |
+| `pmenapoly/MenapolyRelay` | `feature/cue-connector` | Connector support (service-token identity; `add_project` returns `projectId`) | `main`, after Relay's own security work | Relay's deploy workflows are disabled |
 | `pmenapoly/Menapoly-Cut-Cue` | `menapoly-cue-2.0` | Cue 2.0 app, connector, email, backups | your choice (runs locally) | No deploy; you run it on your Mac |
 
-## A. Relay security fix (do this first; it closes a privilege escalation)
+## A. Relay security work
 
-1. **Check the repository secrets.**
-   - In GitHub → MenapolyRelay → Settings → Secrets → Actions, confirm `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CF_ACCESS_AUD` and `CF_ACCESS_TEAM_DOMAIN` exist.
-   - The workflow now **stops** if the two Access secrets are missing. That is intended.
-2. **Check Cloudflare Access.** The Access application must cover the Worker hostname, with policies only for your team and client emails.
-3. **Decide the ChatGPT Sites preview.** After this fix, a build deployed to ChatGPT Sites shows "access required" instead of trusting headers.
-   - **Keep it working:** it needs a separate build without `CUE_AUTH_MODE` (ask me and I'll prepare one).
-   - **Retire it:** nothing to do.
-4. **Review.** Open a PR from `security/access-identity-headers` to `main`. CI runs lint, typecheck, tests and build.
-5. **Merge (approval needed).** The workflow deploys and applies migrations. There are no schema changes in this fix.
-6. **Verify in production** (5 minutes):
-   - `GET https://<host>/api/health` → 200.
-   - Sign in as a **client** account. In the browser dev tools, repeat an `/api/os` request with the extra header `oai-authenticated-user-email: <owner email>`. Your role must stay **client**: invite and brand actions return 403.
-   - `curl https://<host>/api/os -H 'oai-authenticated-user-email: <owner email>'` without Access returns the Access login page or 401. It must never return workspace data.
-7. **Roll back if needed:** revert the merge commit on `main` (it auto-deploys). The fix has no data migration to undo.
+Relay's own security fixes and their rollout are tracked in the private MenapolyRelay repository, not in this public one.
 
 ## B. Relay connector (optional; needed to publish from Cut Cue)
 
-1. Merge `feature/cue-connector` after A, through a PR (approval needed).
+1. Merge `feature/cue-connector` after Relay's security work is deployed, through a PR (approval needed).
 2. **In Cloudflare Zero Trust:**
    - create a service token, `cutcue-connector`;
    - add a **Service Auth** policy that allows this token to the Access application.

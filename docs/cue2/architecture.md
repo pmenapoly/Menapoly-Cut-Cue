@@ -71,4 +71,4 @@ identical bytes in another project are hard-linked (one copy on disk). Library s
 
 See `audit.md`. Relay remains the multi-tenant client portal (Workers, D1, R2, Access). A future connector would read
 `/api/v1` from this app and publish approved renders + review links to Relay — opt-in, per publish, behind the same
-approval gate. Not built in this round, and requires Relay credentials and the identity-header fix noted in the audit.
+approval gate. Not built in this round, and requires Relay credentials and Relay's security work (tracked in its private repository).

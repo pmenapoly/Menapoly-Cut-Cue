@@ -74,9 +74,7 @@ private URL returns the real MP4 and records playback as unverified rather than 
 
 ## Pilot preparation (2026-10-19)
 
-- Relay hotfix `fc8457e` re-verified: typecheck, lint, `npm test`, 10/10 identity tests, Wrangler dry-run
-  (`CUE_AUTH_MODE=cloudflare-access` bound). Every Relay data route returns 401 without a verified Access JWT.
-- Live Relay state (read-only): deploy and preview workflows both **active**; `main` unchanged at `e5a904d`.
+- Relay deploy workflows: both disabled since 2026-10-20 (S1). Relay's own security checks are tracked in its private repository.
 - Control plane: 9 unit tests, including the new config guard (custom domain only, no workers.dev/preview URLs,
   cloud processing and client links off, separate from Relay). Wrangler dry-run with the
   `cue.menapoly-digital.com` route.
