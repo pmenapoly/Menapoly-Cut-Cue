@@ -43,3 +43,7 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
 - Pilot address: PILOT_TARGET=workers-dev (pinned in pilot.yml): Worker on its workers.dev hostname behind Access
   self-hosted apps; no DNS change (menapoly-digital.com stays on Canva nameservers; moving them stops the Canva site).
   custom-domain stays in wrangler.jsonc for later. See docs/cloud/pilot/domain-options.md and LAUNCH-REQUEST.md.
+- Studio preview (branch menapoly-cue-studio-preview, never deployed): studio-preview/ is a static, fixture-only app
+  (fictional data, no network calls; service.js mocks the API, policy.js holds the role/tenant rules the Worker must
+  adopt). Tests: `node --test studio-preview/tests/*.test.mjs`, `npx playwright test -c playwright.studio.config.ts`
+  (android-360/430, desktop-1440). Docs: docs/studio/ (audit, design, integration-plan.md). Never point it at production.

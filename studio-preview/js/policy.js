@@ -1,0 +1,91 @@
+// Authorization rules for Menapoly Cue (pure functions, no DOM, no storage).
+// In this preview they run in the browser on fictional data; the same rules are the contract the production server
+// must enforce (docs/studio/integration-plan.md). Everything is deny-by-default.
+
+export const ROLES = ["admin", "client", "editor"];
+
+// Plan entitlements gate premium modules (AI Visibility depth, reports). Unknown plans get nothing extra.
+export const PLANS = {
+  essentials: { label: "Essentials", visibility: ["overview", "search", "website"] },
+  growth: { label: "Growth", visibility: ["overview", "search", "website", "social", "video", "competitive", "reports", "actions"] },
+};
+
+const inWorkspace = (user, wsId) => user?.role === "client" && (user.workspaceIds || []).includes(wsId);
+const assigned = (user, project) => user?.role === "editor" && (project?.editorIds || []).includes(user.id);
+
+/** Can this user see this project at all? */
+export function canViewProject(user, project) {
+  if (!user || !project) return false;
+  if (user.role === "admin") return true;
+  if (user.role === "client") return inWorkspace(user, project.ws);
+  if (user.role === "editor") return assigned(user, project);
+  return false;
+}
+
+/** Workspace-level visibility (feed, folders, analytics). Editors only reach workspaces through assigned projects. */
+export function canViewWorkspace(user, wsId, projects = []) {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  if (user.role === "client") return inWorkspace(user, wsId);
+  if (user.role === "editor") return projects.some((p) => p.ws === wsId && assigned(user, p));
+  return false;
+}
+
+/** Media: through its project; workspace-library items (no project) only for admins and that workspace's clients. */
+export function canViewAsset(user, asset, project) {
+  if (!user || !asset) return false;
+  if (asset.projectId) return canViewProject(user, project);
+  if (user.role === "admin") return true;
+  return inWorkspace(user, asset.ws);
+}
+
+/**
+ * can(user, action, ctx) — ctx carries the resource and, where needed, its project/workspace.
+ * Returns true only for combinations listed here.
+ */
+export function can(user, action, ctx = {}) {
+  if (!user || !ROLES.includes(user.role)) return false;
+  const admin = user.role === "admin";
+  const client = (ws) => inWorkspace(user, ws);
+  const ws = ctx.ws ?? ctx.project?.ws ?? ctx.resource?.ws;
+  switch (action) {
+    case "project.view": return canViewProject(user, ctx.project);
+    case "project.assign": return admin;
+    case "asset.view": return canViewAsset(user, ctx.resource, ctx.project);
+    case "asset.upload":
+      return admin || client(ws) || (ctx.project ? assigned(user, ctx.project) : false);
+    case "folder.create": case "folder.move": return admin || client(ws);
+    case "request.create": return admin || client(ws);
+    case "request.view": return canViewProject(user, ctx.project);
+    case "request.assign": return admin;
+    case "request.start": return admin || assigned(user, ctx.project);
+    case "review.view": return canViewProject(user, ctx.project);
+    case "review.comment": return canViewProject(user, ctx.project);
+    case "review.resolve": return admin || assigned(user, ctx.project) || (client(ws) && ctx.resource?.by === user.id);
+    case "review.upload_version": case "review.submit": return admin || assigned(user, ctx.project);
+    case "review.decide": return admin || client(ws); // editors never approve their own work
+    case "feed.view": return canViewWorkspace(user, ws, ctx.projects);
+    case "feed.comment": return canViewWorkspace(user, ws, ctx.projects);
+    case "post.create": case "post.edit": return admin || client(ws);
+    case "post.approve": return admin || client(ws);
+    case "post.schedule": return admin;
+    case "visibility.view": {
+      if (!(admin || client(ws))) return false;
+      const plan = PLANS[ctx.plan];
+      return !ctx.module || Boolean(plan?.visibility.includes(ctx.module));
+    }
+    case "coaching.view": return true;
+    case "clients.view": case "team.view": case "audit.view": return admin;
+    case "assistant.use": return true;
+    default: return false;
+  }
+}
+
+export class Denied extends Error {
+  constructor(action) { super(`Not allowed: ${action}`); this.code = 403; this.action = action; }
+}
+
+/** Throwing variant used by the service layer. */
+export function enforce(user, action, ctx) {
+  if (!can(user, action, ctx)) throw new Denied(action);
+}
