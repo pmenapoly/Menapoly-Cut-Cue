@@ -653,3 +653,19 @@ dialog::backdrop { background: rgb(26 20 38 / .42); }
 .pipe-step[data-tone="review"] { background: var(--amber); border-color: transparent; } .pipe-step[data-tone="waiting"] { background: var(--lilac); border-color: transparent; }
 .pipe-step[data-tone="changes"] { background: var(--surface-2); border: 1px dashed var(--line-strong); }
 a.pipe-step:hover { box-shadow: var(--shadow-1); }
+
+/* social review: who owns, made, submitted and reviewed a post */
+.post-roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin: 0; font-size: 13.5px; }
+@media (min-width: 720px) { .post-roles { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.post-roles dt { font-size: 12px; font-weight: 700; color: var(--faint); }
+.post-roles dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+.post-feedback { padding: 10px 12px; border-radius: 12px; background: var(--danger-soft); color: var(--text); font-size: 14px; }
+
+/* production board rows: the row opens the room; admins also get "Change date" beside it */
+.board-row { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line); }
+.list > .board-row:first-child { border-top: 0; }
+.board-row > .item { flex: 1; border-top: 0; min-width: 0; }
+@media (max-width: 480px) { .board-row { flex-wrap: wrap; } .board-row > .item { flex-basis: 100%; } .board-row > .btn { margin: -6px 0 8px auto; } }
+
+/* revision rounds inside the status card */
+.revisions { display: grid; gap: 6px; padding: 12px; border-radius: 14px; background: rgb(255 255 255 / .72); }

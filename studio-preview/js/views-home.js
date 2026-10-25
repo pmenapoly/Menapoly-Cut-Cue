@@ -194,7 +194,7 @@ export async function composer(ws, ctx, preset = {}) {
       const captions = Object.fromEntries([...chosen].map((p) => [p, caption.value.trim()]));
       const p = await svc.savePost({ assetId: media.value, platforms: [...chosen], captions, scheduledFor: date.value || null });
       if (submit) await svc.submitPost(p.id);
-      d.close(); toast(submit ? "Draft sent for approval" : "Draft saved"); ctx.go("social");
+      d.close(); toast(submit ? "Submitted for review" : "Draft saved"); ctx.go("social");
     } catch (e) { toast(e.message, "err"); }
   };
   const d = sheet("Draft a post",
@@ -203,7 +203,7 @@ export async function composer(ws, ctx, preset = {}) {
     h("div", { class: "field" }, h("label", { for: "post-caption" }, "Caption"), caption, count),
     h("div", { class: "field" }, h("span", { style: "font-weight:600;font-size:14px" }, "Channels"), channels),
     h("div", { class: "field" }, h("label", { for: "post-date" }, "Planned date (optional)"), date),
-    h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: () => save(true) }, "Send for approval"), h("button", { class: "btn", onclick: () => save(false) }, "Save draft")));
+    h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: () => save(true) }, "Submit for review"), h("button", { class: "btn", onclick: () => save(false) }, "Save draft")));
 }
 
 export async function inboxView(out, _p, ctx) {

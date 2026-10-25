@@ -94,14 +94,16 @@ Each view is a plain link (`#review-rv_launch`), so the back button and deep lin
 | Roles: admin, two clients, two editors | ✅ rules in `policy.js` | enforced in the browser | **the same rules in the Worker** |
 | Downloads | | off (the artifact frame blocks them) | signed links |
 
-## Test results (latest run, workflow round)
+## Test results (latest run, operations round)
+
+Operations (social review, revision allowances, target dates): see [operations-audit.md](operations-audit.md).
 
 The 23-step workflow passed 23/23 on Android 430 and desktop 1440. See [workflow-audit.md](workflow-audit.md).
 
 | Suite | Result |
 |---|---|
-| `node --test studio-preview/tests/*.test.mjs`: authorization rules, including checklist, feedback assignment, templates, video actions | **15 / 15 passed** |
-| `npx playwright test -c playwright.studio.config.ts`: 33 tests × Android 360, Android 430, desktop 1440 (studio, Editing Room, design, workflow and reliability specs) | **89 passed, 10 skipped by design** |
+| `node --test studio-preview/tests/*.test.mjs`: authorization rules, including checklist, feedback assignment, templates, video actions, social review, revision rounds, target dates | **18 / 18 passed** |
+| `npx playwright test -c playwright.studio.config.ts`: 38 tests × Android 360, Android 430, desktop 1440 (studio, Editing Room, design, workflow, reliability and operations specs) | **99 passed, 15 skipped by design** |
 | `npx tsc --noEmit` and `npm run build` (frontend) | clean |
 
 The skips are deliberate: the workflow and reliability specs run at 430 and 1440. As before, the layout sweep runs once (in the Android 430 project) and covers all seven widths itself,

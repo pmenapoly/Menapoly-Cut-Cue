@@ -56,3 +56,7 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
 - Studio workflow (docs/studio/workflow-audit.md): every request gets an Editing Room (service newRequest); decisions take
   expectedVersion (409 when stale); request keys are idempotent; production board = #studio-board (svc.production).
   e2e-studio/workflow.spec.ts (23 steps, results in docs/studio/workflow-results/) and reliability.spec.ts.
+- Studio operations (docs/studio/operations-audit.md): social posts Draft→Submitted→Changes requested/Approved→Prepared
+  (no self-review; Published stays 0); revision ledger review.rounds/extraRounds (PLANS.revisionsIncluded, project/workspace
+  override; one round per version; admin grants need a reason); setDue with dueRev (409 when stale); migrate5 keeps old demo
+  state. Service calls act as the person who started them. e2e-studio/operations.spec.ts.

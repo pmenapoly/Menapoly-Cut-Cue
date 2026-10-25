@@ -1,5 +1,5 @@
 // Social Sharing, AI Visibility, Ask Cue, Coaching, Clients, Team and Settings.
-import { h, icon, toast, sheet, empty, ago, avatar, statusTone, demoBadge, fictional, lineChart, barChart, donut, PALETTE, copyText, fmtDate } from "./ui.js";
+import { h, icon, toast, sheet, empty, ago, avatar, statusTone, demoBadge, fictional, busy, lineChart, barChart, donut, PALETTE, copyText, fmtDate } from "./ui.js";
 import { svc } from "./service.js";
 import { PLATFORMS } from "./data.js";
 import { PLANS } from "./policy.js";
@@ -46,36 +46,59 @@ export async function socialView(out, _p, ctx) {
     : empty("No posts yet", approved.length ? "Draft one from your approved media." : "Approve a deliverable in Review first.", h("button", { class: "btn primary", onclick: () => composer(ws, ctx) }, "Draft a post")));
 }
 
+const POST_TONE = { Draft: "waiting", Submitted: "review", "Changes requested": "changes", Approved: "done", "Prepared for publishing": "editing" };
+/** One social post through review: Draft → Submitted → Changes requested or Approved → Prepared for publishing (simulated). */
 function postCard(p, me, ctx) {
   let current = p.platforms[0];
+  const editable = !/prepared/i.test(p.status) && me.role !== "editor";
   const box = h("div", { class: "stack" });
   const drawEditor = () => {
     const limit = PLATFORMS.find((x) => x.id === current)?.limit || 2200;
-    const ta = h("textarea", { id: `cap-${p.id}-${current}`, maxlength: String(limit), "aria-label": `${current} caption` }, p.captions[current] || "");
+    const ta = h("textarea", { id: `cap-${p.id}-${current}`, maxlength: String(limit), "aria-label": `${current} caption`, readonly: !editable }, p.captions[current] || "");
     const count = h("span", { class: "hint" }, `${ta.value.length} / ${limit}`);
     ta.addEventListener("input", () => { count.textContent = `${ta.value.length} / ${limit}`; p.captions[current] = ta.value; });
-    box.replaceChildren(
+    box.replaceChildren(...[
       h("div", { class: "tabs", role: "tablist", "aria-label": "Channel captions" }, p.platforms.map((pl) => h("button", { class: "tab", role: "tab", "aria-selected": String(pl === current),
         onclick: () => { current = pl; drawEditor(); } }, PLATFORMS.find((x) => x.id === pl)?.label || pl))),
       ta, count,
+      /submitted|approved/i.test(p.status) && editable ? h("p", { class: "tiny faint" }, "Saving a change sends this post back to Draft; it needs review again.") : null,
       h("div", { class: "actions" },
         h("button", { class: "btn sm", onclick: () => copyText(ta.value, ta) }, icon("copy", 16), "Copy caption"),
         h("button", { class: "btn sm", onclick: () => copyText(`${p.asset.name} (approved in Menapoly Cue)`) }, icon("copy", 16), "Copy media reference"),
-        h("button", { class: "btn sm", onclick: async () => { try { await svc.savePost({ id: p.id, assetId: p.assetId, platforms: p.platforms, captions: p.captions, scheduledFor: p.scheduledFor }); toast("Captions saved"); } catch (e) { toast(e.message, "err"); } } }, "Save")));
+        editable ? h("button", { class: "btn sm", onclick: busy(async () => { try { await svc.savePost({ id: p.id, assetId: p.assetId, platforms: p.platforms, captions: p.captions, scheduledFor: p.scheduledFor });
+          toast(/submitted|approved/i.test(p.status) ? "Saved. Back to Draft: submit it for review again." : "Captions saved"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } }) }, "Save") : null)].filter(Boolean));
   };
   drawEditor();
-  return h("article", { class: "card" },
+  const run = (fn, ok) => busy(async () => { try { await fn(); toast(ok); ctx.refresh(); } catch (e) { toast(e.message, "err"); if (e.code === 409) ctx.refresh(); } });
+  const note = h("textarea", { id: `rv-note-${p.id}`, placeholder: "What should change in the caption or the choice of media?", maxlength: "1000" });
+  const changesForm = h("div", { class: "stack", hidden: true }, h("label", { for: `rv-note-${p.id}` }, "What should change?"), note,
+    h("button", { class: "btn primary", style: "justify-self:start", onclick: run(() => svc.reviewPost(p.id, "changes", note.value, p.rev), "Changes requested. The author has been told.") }, "Send to the author"));
+  const lastChange = [...p.history].reverse().find((x) => x.action === "Requested changes");
+  const step = {
+    Draft: me.role !== "editor" ? h("button", { class: "btn primary", onclick: run(() => svc.submitPost(p.id, p.rev), p.rev > 1 ? "Resubmitted for review" : "Submitted for review") }, icon("send", 18), p.rev > 1 ? "Resubmit for review" : "Submit for review") : null,
+    "Changes requested": me.role !== "editor" ? h("button", { class: "btn primary", onclick: run(() => svc.submitPost(p.id, p.rev), "Resubmitted for review") }, icon("send", 18), "Resubmit for review") : null,
+    Submitted: p.canReview ? [h("button", { class: "btn primary", onclick: run(() => svc.reviewPost(p.id, "approve", "", p.rev), "Post approved (not published)") }, icon("check", 18), "Approve"),
+      h("button", { class: "btn", onclick: () => { changesForm.hidden = !changesForm.hidden; if (!changesForm.hidden) note.focus(); } }, icon("message", 18), "Request changes")]
+      : h("p", { class: "small muted" }, p.submittedBy === me.id ? "Waiting for a reviewer. You submitted it, so someone else approves it." : "Waiting for a reviewer."),
+    Approved: me.role === "admin" ? h("button", { class: "btn primary", onclick: run(() => svc.schedulePost(p.id), "Prepared for publishing (simulated, nothing posted)") }, icon("calendar", 18), "Prepare for publishing")
+      : h("p", { class: "small muted" }, "Approved. A Menapoly producer prepares it for publishing."),
+    "Prepared for publishing": h("p", { class: "small" }, demoBadge("Simulated"), " Prepared for publishing. Not published: no social account is connected in the preview."),
+  }[p.status];
+  return h("article", { class: "card", "data-post": p.id },
     h("div", { class: "row nowrap" }, h("span", { class: "thumb", style: "width:72px;height:72px" }, p.asset?.mediaInfo?.poster ? h("img", { src: p.asset.mediaInfo.poster, alt: "" }) : icon("film")),
-      h("div", { class: "stack", style: "gap:2px;min-width:0" }, h("b", { style: "overflow-wrap:anywhere" }, p.asset?.name), h("span", { class: "small faint" }, `${p.platforms.length} channel(s) · planned ${p.scheduledFor ? fmtDate(p.scheduledFor) : "—"}`),
-        h("span", {}, h("span", { class: `chip ${statusTone(p.status)}` }, p.status)))),
+      h("div", { class: "stack", style: "gap:2px;min-width:0" }, h("b", { style: "overflow-wrap:anywhere" }, p.asset?.name), h("span", { class: "small faint" }, `${p.platforms.length} channel(s) · planned ${p.scheduledFor ? fmtDate(p.scheduledFor) : "—"} · revision ${p.rev}`),
+        h("span", {}, h("span", { class: "status", "data-tone": POST_TONE[p.status] || "waiting" }, p.status)))),
+    h("dl", { class: "post-roles" },
+      h("div", {}, h("dt", {}, "Owner"), h("dd", {}, p.owner)), h("div", {}, h("dt", {}, "Created by"), h("dd", {}, p.byName)),
+      h("div", {}, h("dt", {}, "Submitted by"), h("dd", {}, p.submittedByName || "Not yet")), h("div", {}, h("dt", {}, "Reviewer"), h("dd", {}, p.reviewerName || "Not reviewed yet"))),
+    p.status === "Changes requested" && lastChange ? h("p", { class: "post-feedback" }, h("b", {}, `${lastChange.byName} asked for changes: `), lastChange.note) : null,
     box,
-    h("div", { class: "actions" },
-      p.status === "Draft" ? h("button", { class: "btn", onclick: async () => { try { await svc.submitPost(p.id); toast("Sent for approval"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, "Send for approval") : null,
-      /draft|awaiting/i.test(p.status) && me.role !== "editor" ? h("button", { class: "btn ok", onclick: async () => { try { await svc.approvePost(p.id); toast("Post approved"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, icon("check", 18), "Approve") : null,
-      p.status === "Approved" && me.role === "admin" ? h("button", { class: "btn primary", onclick: async () => { try { await svc.schedulePost(p.id); toast("Prepared for scheduling (simulated, nothing posted)"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, icon("calendar", 18), "Prepare to schedule") : null,
+    h("div", { class: "actions" }, step,
       h("button", { class: "btn ghost sm", disabled: true, title: "Downloads are off in the preview" }, icon("download", 16), "Download (off in preview)")),
-    p.history.length ? h("details", {}, h("summary", { class: "small audit-toggle" }, "Share history"),
-      h("ul", { class: "list" }, p.history.map((x) => h("li", { class: "item small" }, `${x.action} · ${ago(x.at)}`)))) : null);
+    changesForm,
+    p.history.length ? h("details", {}, h("summary", { class: "small audit-toggle" }, `Approval history (${p.history.length})`),
+      h("ul", { class: "list" }, [...p.history].reverse().map((x) => h("li", { class: "item small" }, h("span", { class: "grow" },
+        h("span", {}, h("b", {}, x.byName), ` · ${x.action}${x.rev ? ` · revision ${x.rev}` : ""}`), x.note ? h("span", { class: "tiny faint" }, `“${x.note}”`) : null, h("span", { class: "tiny faint" }, ago(x.at))))))) : null);
 }
 
 function calendar(posts) {

@@ -184,18 +184,21 @@ test("23-step workflow: upload → request → edit → review → approve → r
       await open(page, "social");
       await expect(page.locator("article.card", { hasText: "roastery-behind-the-scenes-reel-v2.mp4" })).toContainText("Draft");
     });
-    await step("Approved content is prepared for Social Sharing", "Send for approval → approve → admin prepares to schedule (simulated; nothing posted)", async () => {
+    await step("Approved content is prepared for Social Sharing", "Submit for review → another reviewer (Avery) approves → prepared for publishing (simulated; nothing posted)", async () => {
       const card = page.locator("article.card", { hasText: "roastery-behind-the-scenes-reel-v2.mp4" });
-      await card.getByRole("button", { name: "Send for approval" }).click();
-      await expect(card).toContainText("Awaiting approval");
-      await card.getByRole("button", { name: "Approve" }).click();
-      await expect(card).toContainText("Approved");
+      await card.getByRole("button", { name: "Submit for review" }).click();
+      await expect(card.locator(".status").first()).toHaveText("Submitted");
+      await expect(card.getByRole("button", { name: "Approve" })).toHaveCount(0); // Jordan submitted it, so Jordan can't approve it
       await asRole(page, "u_admin");
       await open(page, "social");
       await page.locator("#ws-picker").selectOption({ label: "Northwind Roasters" }).catch(() => {});
       const adminCard = page.locator("article.card", { hasText: "roastery-behind-the-scenes-reel-v2.mp4" });
-      await adminCard.getByRole("button", { name: "Prepare to schedule" }).click();
-      await expect(adminCard).toContainText("Ready to schedule (simulated)");
+      await expect(adminCard.locator(".post-roles dd").nth(2)).toHaveText("Jordan Lee");
+      await adminCard.getByRole("button", { name: "Approve" }).click();
+      await expect(adminCard.locator(".status").first()).toHaveText("Approved");
+      await adminCard.getByRole("button", { name: "Prepare for publishing" }).click();
+      await expect(adminCard).toContainText("Prepared for publishing");
+      await expect(adminCard).toContainText("Not published");
       await expect(page.locator(".pipeline")).toContainText("Published");
       await expect(page.locator(".pipe-step", { hasText: "Published" }).locator("b")).toHaveText("0");
     });

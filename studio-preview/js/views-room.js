@@ -6,6 +6,7 @@ import { REQUEST_TYPES, EXPORT_PRESETS, CHECKLIST_SECTIONS } from "./data.js";
 import { createPlayer, fmtTime, setSources } from "./player.js";
 import { openMaven } from "./maven.js";
 import { composer } from "./views-home.js";
+import { dueSheet } from "./views-studio.js";
 
 const typeLabel = (id) => REQUEST_TYPES.find((t) => t.id === id)?.label || id;
 const presetLabel = (id) => EXPORT_PRESETS.find((p) => p.id === id);
@@ -34,8 +35,8 @@ export async function projectView(out, [pid], ctx) {
   out.append(
     h("a", { href: "#studio", class: "small back-link" }, icon("back", 16), "Media Studio"),
     h("header", { class: "stack", style: "gap:6px" }, h("span", { class: "eyebrow" }, p.workspace), h("h1", {}, p.name),
-      h("div", { class: "row" }, h("span", { class: `chip ${statusTone(p.status)}` }, p.status), h("span", { class: "chip" }, icon("clock", 14), `Due ${fmtDate(p.due)}`),
-        h("span", { class: "chip" }, `${p.revisionLimit} revisions included`))),
+      h("div", { class: "row" }, h("span", { class: `chip ${statusTone(p.status)}` }, p.status), h("span", { class: "chip" }, icon("clock", 14), `Target ${fmtDate(p.due)} (estimate)`),
+        h("span", { class: "chip", title: `Set by ${p.revisionSource}` }, `${p.revisionsIncluded} revision rounds included per video`))),
     h("ol", { class: "stepper", "aria-label": "Project progress" }, STAGES.map((s, i) => h("li", { class: i < stage ? "done" : i === stage ? "now" : "" }, h("span", {}, s)))),
     h("section", { class: "stack" }, h("div", { class: "section-head" }, h("h2", {}, `Videos (${vids.length})`),
       me.role !== "editor" ? h("a", { class: "btn sm", href: `#request-new-${p.id}` }, icon("plus", 16), "Request a video") : null),
@@ -67,7 +68,9 @@ function requestCard(r, p, me, editors, ctx) {
     h("div", { class: "section-head" }, h("h3", {}, r.title), statusBadge(r.status, r.status)),
     h("p", { class: "small faint" }, `${typeLabel(r.type)} · ${r.aspect || "—"} · ${r.length || "—"} · ${svc.userName(r.by)} · ${ago(r.at)}`),
     h("p", { class: "small" }, r.brief),
-    h("p", { class: "tiny faint" }, `Revisions used: ${r.revisionsUsed} of ${p.revisionLimit}`, r.due ? ` · due ${fmtDate(r.due)}` : "", r.assigneeId ? ` · editor: ${svc.userName(r.assigneeId)}` : " · no editor yet"),
+    h("p", { class: "tiny faint" }, p.allowances[r.id] ? `Revision rounds: ${p.allowances[r.id].used} of ${p.allowances[r.id].total} used` : "", r.due ? ` · target ${fmtDate(r.due)} (estimate)` : " · no target date",
+      r.assigneeId ? ` · editor: ${svc.userName(r.assigneeId)}` : " · no editor yet"),
+    me.role === "admin" && !/approved/i.test(r.status) ? h("button", { class: "btn sm ghost", style: "justify-self:start", onclick: () => dueSheet({ ...r, dueHistory: (r.dueHistory || []).map((x) => ({ ...x, byName: svc.userName(x.by) })) }, ctx) }, icon("calendar", 16), "Change target date") : null,
     r.videoId ? h("a", { class: "btn sm", href: `#video-${r.videoId}`, style: "justify-self:start" }, icon("studio", 16), "Open Editing Room") : null,
     h("div", { class: "actions" },
       me.role === "admin" ? [assign, h("button", { class: "btn sm", onclick: async () => { try { await svc.assignRequest(r.id, assign.value); toast("Editor assigned and notified"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, r.assigneeId ? "Reassign" : "Assign")] : null,
@@ -99,7 +102,8 @@ export async function roomView(out, [vid], ctx) {
       h("button", { class: "iconbtn", "aria-label": "More actions", onclick: () => actionsSheet(v, ctx) }, icon("more", 24))),
     h("div", { class: "row" }, h("span", { class: "status", "data-tone": statusInfo(v.status).tone, "data-status": v.status }, icon(statusInfo(v.status).icon, 13), v.status),
       v.editorName ? h("span", { class: "chip" }, avatar(v.editorName, true), `Editor: ${v.editorName}`) : h("span", { class: "chip" }, "No editor yet"),
-      v.request?.due ? h("span", { class: "chip" }, icon("clock", 13), `Due ${fmtDate(v.request.due)}`) : null));
+      v.request?.due ? h("span", { class: "chip", title: "Target dates are estimates, not guaranteed delivery dates" }, icon("clock", 13), `Target ${fmtDate(v.request.due)} (estimate)`) : null,
+      me.role === "admin" && v.request && v.status !== "Approved" ? h("button", { class: "btn sm ghost", onclick: () => dueSheet({ ...v.request, title: v.title }, ctx) }, icon("calendar", 16), v.request.due ? "Change target date" : "Set target date") : null));
 
   // ---- under the player ----
   const versionSel = h("select", { id: "version-select", "aria-label": "Version", style: "width:auto;flex:1 1 180px" },
@@ -129,12 +133,13 @@ export async function roomView(out, [vid], ctx) {
         h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: busy(async () => {
           try { await svc.decide(v.reviewId, "changes", note.value, latestN); dropDraft(vid, "changes"); toast("Changes requested. The editor has been told."); ctx.refresh(); } catch (e) { toast(e.message, "err"); if (e.code === 409) ctx.refresh(); else note.focus(); } }) }, "Send to the editor"),
           h("button", { class: "btn ghost", onclick: () => openMaven(ctx, "Help me request changes") }, icon("spark", 16), "Help me write it")));
-      statusCard.append(
+      statusCard.append(...[
         h("div", { class: "decide" },
           h("button", { class: "btn primary", onclick: busy(async () => { try { await svc.decide(v.reviewId, "approve", "", latestN); toast("Approved. It's ready to share."); ctx.refresh(); } catch (e) { toast(e.message, "err"); if (e.code === 409) ctx.refresh(); } }) },
             icon("check", 18), "Approve video"),
-          h("button", { class: "btn", onclick: () => { form.hidden = !form.hidden; if (!form.hidden) note.focus(); } }, icon("message", 18), "Request changes")), form,
-        h("p", { class: "tiny faint" }, `Revisions used: ${v.revisionsUsed} of ${v.revisionLimit}`));
+          v.revisions.remaining ? h("button", { class: "btn", onclick: () => { form.hidden = !form.hidden; if (!form.hidden) note.focus(); } }, icon("message", 18), "Request changes")
+            : h("button", { class: "btn", disabled: true, title: "No revision rounds left" }, icon("message", 18), "Request changes")), v.revisions.remaining ? form : null,
+        ].filter(Boolean));
     } else if (v.status === "Approved") {
       const d = v.decisions.filter((x) => /approved/i.test(x.action)).pop();
       const more = actionList(v, ctx).find((a) => a.k === "another");
@@ -164,8 +169,37 @@ export async function roomView(out, [vid], ctx) {
         h("button", { class: `btn ${v.status === "Ready for review" ? "" : "primary"}`, style: "justify-self:start", onclick: busy(async () => { try { await svc.uploadVersion(v.reviewId, vn.value); remember(vid, { version: undefined }); toast("New version submitted (simulated)"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } }) },
           icon("upload", 18), "Upload new version"), h("p", { class: "tiny" }, demoBadge(), " The preview reuses a demo clip; nothing is uploaded or rendered."));
     }
+    statusCard.append(revisionBlock());
     statusCard.append(h("div", { class: `progress ${tone === "done" ? "ok" : tone === "editing" ? "info" : ""}`, role: "img", "aria-label": `${done} of ${v.checklist.length} checklist tasks done` },
       h("span", { style: `width:${(done / Math.max(1, v.checklist.length)) * 100}%` })));
+  }
+
+  /** Revision rounds: included vs additional, used and remaining; ask for (client) or approve (admin) an extra round. */
+  function revisionBlock() {
+    const a = v.revisions;
+    const box = h("div", { class: "revisions", "aria-label": "Revision rounds" },
+      h("div", { class: "row", style: "justify-content:space-between" }, h("b", {}, "Revision rounds"),
+        h("span", { class: "status", "data-tone": a.remaining ? "done" : "review" }, a.remaining ? `${a.remaining} left` : "None left")),
+      h("p", { class: "small" }, `${a.used} of ${a.total} used · ${a.included} included (${a.source})${a.extra ? ` + ${a.extra} additional` : ""}`),
+      h("p", { class: "tiny faint" }, "A round is one formal change request on a submitted version. Comments don't use rounds."));
+    a.extraRounds.forEach((x) => box.append(h("p", { class: "tiny" }, h("span", { class: "chip accent" }, `+${x.rounds} additional`), ` ${x.byName} · ${ago(x.at)} · ${x.reason}`)));
+    if (a.openAsk) box.append(h("p", { class: "tiny" }, h("span", { class: "chip warn" }, "Extra round asked for"), ` ${svc.userName(a.openAsk.by)} · ${ago(a.openAsk.at)}${a.openAsk.note ? ` · “${a.openAsk.note}”` : ""}`));
+    if (me.role === "admin" && v.status !== "Approved") {
+      const why = h("input", { id: "extra-reason", maxlength: "300", placeholder: "e.g. New product shot arrived after the brief" });
+      const form = h("div", { class: "stack", hidden: !a.openAsk }, h("label", { for: "extra-reason" }, "Reason for the extra round"), why,
+        h("button", { class: "btn primary", style: "justify-self:start", onclick: busy(async () => {
+          try { await svc.grantExtraRound(v.reviewId, why.value, 1, a.total); toast("Extra round approved and recorded. Nothing is charged in the preview."); ctx.refresh(); }
+          catch (e) { toast(e.message, "err"); if (e.code === 409) ctx.refresh(); } }) }, "Approve 1 extra round"));
+      box.append(h("button", { class: "btn sm", style: "justify-self:start;background:var(--surface)", onclick: () => { form.hidden = !form.hidden; if (!form.hidden) why.focus(); } },
+        icon("plus", 16), "Approve an extra round"), form);
+    } else if (!a.remaining && v.can["review.decide"] && !a.openAsk && v.status !== "Approved") {
+      const why = h("input", { id: "extra-ask", maxlength: "500", placeholder: "What still needs to change?" });
+      box.append(h("label", { for: "extra-ask" }, "Ask your producer for an extra round"), why,
+        h("button", { class: "btn sm", style: "justify-self:start;background:var(--surface)", onclick: busy(async () => {
+          try { await svc.askExtraRound(v.reviewId, why.value); toast("Asked. Your producer will decide; nothing is charged automatically."); ctx.refresh(); } catch (e) { toast(e.message, "err"); } }) },
+          icon("send", 16), "Ask for an extra round"));
+    }
+    return box;
   }
 
   // ---- tabs ----

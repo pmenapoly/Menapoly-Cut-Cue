@@ -1,6 +1,6 @@
 {
   "project": "android-430",
-  "at": "2026-10-25T19:36:26.358Z",
+  "at": "2026-10-25T20:38:18.169Z",
   "steps": [
     {
       "n": 1,
@@ -132,7 +132,7 @@
       "n": 22,
       "step": "Approved content is prepared for Social Sharing",
       "result": "passed",
-      "detail": "Send for approval → approve → admin prepares to schedule (simulated; nothing posted)"
+      "detail": "Submit for review → another reviewer (Avery) approves → prepared for publishing (simulated; nothing posted)"
     },
     {
       "n": 23,

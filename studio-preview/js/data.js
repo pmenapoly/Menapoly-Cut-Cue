@@ -46,7 +46,7 @@ export const PLATFORMS = [
 
 export function seed() {
   return {
-    version: 5,
+    version: 6,
     workspaces: [
       { id: "ws_nw", name: "Northwind Roasters", industry: "Specialty coffee", plan: "growth", monogram: "NR" },
       { id: "ws_hb", name: "Harborline Fitness", industry: "Boutique gyms", plan: "essentials", monogram: "HF" },
@@ -60,13 +60,13 @@ export function seed() {
     ],
     projects: [
       { id: "p_launch", ws: "ws_nw", name: "Spring Launch Campaign", status: "In review", editorIds: ["u_sam"], due: inDays(5),
-        brief: "Hero spot plus cut-downs for the new single-origin line. Warm, confident, product-first.", revisionLimit: 3 },
+        brief: "Hero spot plus cut-downs for the new single-origin line. Warm, confident, product-first." },
       { id: "p_reels", ws: "ws_nw", name: "Brew Tips Reels", status: "Editing", editorIds: ["u_mika"], due: inDays(9),
-        brief: "Six 30-second brewing tips for Reels and Shorts, captions burned in.", revisionLimit: 2 },
+        brief: "Six 30-second brewing tips for Reels and Shorts, captions burned in.", revisionsIncluded: 2 }, // contracted override: 2 rounds instead of the Growth plan's 3
       { id: "p_podcast", ws: "ws_hb", name: "Harborline Talks — Ep. 12", status: "Requested", editorIds: ["u_sam"], due: inDays(12),
-        brief: "45-minute interview with two coaches. Clean audio, chapter markers, three highlight clips.", revisionLimit: 2 },
+        brief: "45-minute interview with two coaches. Clean audio, chapter markers, three highlight clips." },
       { id: "p_promo", ws: "ws_hb", name: "January Membership Promo", status: "Brief", editorIds: [], due: inDays(30),
-        brief: "15- and 30-second promo for the January membership push.", revisionLimit: 2 },
+        brief: "15- and 30-second promo for the January membership push." },
     ],
     folders: [
       { id: "f_nw_raw", ws: "ws_nw", name: "Raw footage" }, { id: "f_nw_brand", ws: "ws_nw", name: "Brand kit" },
@@ -94,13 +94,13 @@ export function seed() {
     requests: [
       { id: "r_launch", ws: "ws_nw", projectId: "p_launch", type: "promo", title: "Spring Launch hero spot", status: "In review",
         brief: "60-second hero spot. Open on the roastery, end on the bag shot. Keep the founder line at 0:08.",
-        aspect: "16:9", length: "60 s", due: inDays(5), assigneeId: "u_sam", by: "u_jordan", at: at(6 * D), revisionsUsed: 1 },
+        aspect: "16:9", length: "60 s", due: inDays(5), assigneeId: "u_sam", by: "u_jordan", at: at(6 * D), dueRev: 0, dueHistory: [] },
       { id: "r_reels", ws: "ws_nw", projectId: "p_reels", type: "short", title: "Brew Tips — six reels", status: "In progress",
         brief: "Six tips, 30 s each, captions on, end card with the shop link.", aspect: "9:16", length: "30 s each", due: inDays(9),
-        assigneeId: "u_mika", by: "u_jordan", at: at(4 * D), revisionsUsed: 0 },
+        assigneeId: "u_mika", by: "u_jordan", at: at(4 * D), dueRev: 0, dueHistory: [] },
       { id: "r_pod", ws: "ws_hb", projectId: "p_podcast", type: "podcast", title: "Episode 12 edit + 3 highlights", status: "Submitted",
         brief: "Clean the lav audio, cut the 4-minute tangent at 12:30, three highlight clips for Instagram.", aspect: "16:9 + 9:16",
-        length: "45 min + 3 × 45 s", due: inDays(12), assigneeId: "u_sam", by: "u_priya", at: at(30 * H), revisionsUsed: 0 },
+        length: "45 min + 3 × 45 s", due: inDays(12), assigneeId: "u_sam", by: "u_priya", at: at(30 * H), dueRev: 0, dueHistory: [] },
     ],
     reviews: [
       { id: "rv_launch", ws: "ws_nw", projectId: "p_launch", requestId: "r_launch", title: "Spring Launch hero spot", status: "In review",
@@ -117,13 +117,16 @@ export function seed() {
           { at: at(2 * D), by: "u_jordan", action: "Requested changes", detail: "Ease in the title" },
           { at: at(6 * H), by: "u_sam", action: "Uploaded version 2" },
           { at: at(6 * H), by: "u_sam", action: "Submitted for review" },
-        ] },
+        ],
+        // Revision rounds: one per formal change request against a submitted version (comments don't count).
+        rounds: [{ version: 1, at: at(2 * D), by: "u_jordan", note: "Ease in the title", kind: "included" }], extraRounds: [], extraAsks: [] },
       { id: "rv_reel", ws: "ws_nw", projectId: "p_reels", requestId: "r_reels", title: "Brew Tips — reel 01", status: "Approved",
         versions: [{ n: 1, media: "reel", by: "u_mika", at: at(20 * H), note: "Reel 01 of 6" }],
-        comments: [], audit: [{ at: at(20 * H), by: "u_mika", action: "Uploaded version 1" }, { at: at(16 * H), by: "u_jordan", action: "Approved" }] },
+        comments: [], audit: [{ at: at(20 * H), by: "u_mika", action: "Uploaded version 1" }, { at: at(16 * H), by: "u_jordan", action: "Approved" }],
+        rounds: [], extraRounds: [], extraAsks: [] },
       { id: "rv_pod", ws: "ws_hb", projectId: "p_podcast", requestId: "r_pod", title: "Harborline Talks — Ep. 12", status: "Waiting to start",
         versions: [], comments: [{ id: "c_pod1", version: 0, t: 3.2, shape: null, body: "Please cut the tangent that starts around here.", by: "u_priya", at: at(29 * H), resolved: false, replies: [], assigneeId: "u_sam" }],
-        audit: [{ at: at(30 * H), by: "u_priya", action: "Uploaded the original recording" }] },
+        audit: [{ at: at(30 * H), by: "u_priya", action: "Uploaded the original recording" }], rounds: [], extraRounds: [], extraAsks: [] },
     ],
     videos: [
       { id: "v_launch", ws: "ws_nw", projectId: "p_launch", reviewId: "rv_launch", requestId: "r_launch", title: "Spring Launch hero spot", editorId: "u_sam",
@@ -194,13 +197,13 @@ export function seed() {
       { id: "sp_draft", title: "Draft: video trends for 2027", author: "Menapoly Digital", start: inDays(-3), approved: false, body: "Not approved yet — never shown." },
     ],
     posts: [
-      { id: "s_launch", ws: "ws_nw", assetId: "a_launch_v2", status: "Draft", scheduledFor: inDays(6), by: "u_jordan", at: at(5 * H),
+      { id: "s_launch", ws: "ws_nw", assetId: "a_launch_v2", status: "Draft", rev: 1, scheduledFor: inDays(6), by: "u_jordan", at: at(5 * H), submittedBy: null, reviewerId: null,
         captions: { linkedin: "Meet our Spring single-origin line, roasted in small batches in Portland. #specialtycoffee",
           instagram: "Spring is in the cup ☕️ Our new single-origin line lands this week.", x: "Spring single-origin line lands this week ☕️" },
-        platforms: ["linkedin", "instagram", "x"], history: [] },
-      { id: "s_reel", ws: "ws_nw", assetId: "a_reel", status: "Approved", scheduledFor: inDays(2), by: "u_admin", at: at(14 * H),
+        platforms: ["linkedin", "instagram", "x"], history: [{ at: at(5 * H), by: "u_jordan", action: "Created draft", rev: 1 }] },
+      { id: "s_reel", ws: "ws_nw", assetId: "a_reel", status: "Approved", rev: 1, scheduledFor: inDays(2), by: "u_admin", at: at(14 * H), submittedBy: "u_admin", reviewerId: "u_jordan",
         captions: { instagram: "Tip 1: weigh your beans. 18 g in, 300 g out.", tiktok: "Brew tip #1: weigh it, don't scoop it.", youtube: "Brew Tips #1 — weigh your beans" },
-        platforms: ["instagram", "tiktok", "youtube"], history: [{ at: at(14 * H), by: "u_jordan", action: "Approved" }] },
+        platforms: ["instagram", "tiktok", "youtube"], history: [{ at: at(15 * H), by: "u_admin", action: "Submitted for review", rev: 1 }, { at: at(14 * H), by: "u_jordan", action: "Approved", rev: 1 }] },
     ],
     feed: [
       { id: "fd1", ws: "ws_nw", kind: "deliverable", by: "u_sam", at: at(6 * H), text: "Version 2 of the Spring Launch hero spot is ready for review.",

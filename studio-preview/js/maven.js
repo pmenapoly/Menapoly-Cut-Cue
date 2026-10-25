@@ -120,9 +120,10 @@ async function nextSteps(scope = {}) {
         .forEach((r) => steps.push({ title: `Assign an editor to “${r.title}”`, sub: `${r.workspace} · ${r.due ? `due ${r.due}` : "no deadline"}`, link: r.videoId ? `video-${r.videoId}` : "studio-board" }));
       rows.filter((r) => r.overdue).forEach((r) => steps.push({ title: `Chase “${r.title}”`, sub: `Overdue · ${r.assignee || "no editor"}`, link: r.videoId ? `video-${r.videoId}` : "studio-board" }));
     }
-    if (!scope.projectId && me.role === "client") {
+    if (!scope.projectId && me.role !== "editor") {
       const posts = await svc.posts(svc.currentWs()?.id).catch(() => []);
-      posts.filter((p) => p.status === "Awaiting approval").forEach((p) => steps.push({ title: `Approve the social draft for ${p.asset?.name}`, sub: "Prepared only; nothing is posted", link: "social" }));
+      posts.filter((p) => p.canReview).forEach((p) => steps.push({ title: `Review the social draft for ${p.asset?.name}`, sub: `Submitted by ${p.submittedByName} · nothing is posted`, link: "social" }));
+      posts.filter((p) => p.status === "Changes requested" && p.by === me.id).forEach((p) => steps.push({ title: `Revise your social draft for ${p.asset?.name}`, sub: `${p.reviewerName} asked for changes`, link: "social" }));
     }
   }
   return steps;

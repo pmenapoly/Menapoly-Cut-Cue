@@ -35,6 +35,7 @@ test("layout at 360–1440 px: no sideways scroll, no overlaps, Maven reachable,
           const a = boxes[i].b, b = boxes[j].b;
           if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) out.push(`header overlap: ${boxes[i].e.className} × ${boxes[j].e.className}`);
         }
+        if (/\b(null|undefined|NaN)\b/.test(document.querySelector("main")!.innerText)) out.push("a missing value is printed as text (null/undefined/NaN)");
         const maven = document.querySelector<HTMLElement>(".maven-btn");
         if (!maven || maven.getBoundingClientRect().height < 44) out.push("Maven launcher missing or under 44 px");
         // nothing visible wider than the screen

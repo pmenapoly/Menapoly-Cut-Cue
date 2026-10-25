@@ -1,5 +1,12 @@
 // Small UI toolkit: element builder, icons, toasts, sheets, states and SVG charts. No dependencies.
 
+// Views pass optional parts as `cond ? el : null`. The DOM would print those as the text "null", so append,
+// prepend and replaceChildren skip null, undefined and false everywhere in the preview.
+for (const m of ["append", "prepend", "replaceChildren"]) {
+  const native = Element.prototype[m];
+  Element.prototype[m] = function (...kids) { return native.apply(this, kids.filter((k) => k != null && k !== false)); };
+}
+
 export function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {

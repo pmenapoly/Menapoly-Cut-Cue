@@ -123,3 +123,32 @@ test("every fixture video belongs to a project in the same workspace", () => {
   for (const v of S.videos) assert.equal(P[v.projectId].ws, v.ws, v.id);
   for (const a of S.assets.filter((x) => x.videoId)) assert.equal(S.videos.find((v) => v.id === a.videoId).projectId, a.projectId, a.id);
 });
+
+test("social review: clients of the workspace and admins review; editors and other clients don't; only admins prepare", () => {
+  const nw = { ws: "ws_nw" };
+  assert.equal(can(U.u_jordan, "post.review", nw), true);
+  assert.equal(can(U.u_admin, "post.review", nw), true);
+  assert.equal(can(U.u_sam, "post.review", nw), false);
+  assert.equal(can(U.u_priya, "post.review", nw), false);
+  assert.equal(can(U.u_admin, "post.prepare", nw), true);
+  assert.equal(can(U.u_jordan, "post.prepare", nw), false);
+});
+
+test("revision rounds: clients ask, only admins approve extra rounds; plans set the included rounds", async () => {
+  const { PLANS } = await import("../js/policy.js");
+  assert.equal(can(U.u_jordan, "revision.ask", { project: P.p_launch }), true);
+  assert.equal(can(U.u_jordan, "revision.grant", { project: P.p_launch }), false);
+  assert.equal(can(U.u_sam, "revision.grant", { project: P.p_launch }), false);
+  assert.equal(can(U.u_admin, "revision.grant", { project: P.p_launch }), true);
+  assert.equal(can(U.u_priya, "revision.ask", { project: P.p_launch }), false);
+  assert.equal(PLANS.growth.revisionsIncluded, 3);
+  assert.equal(PLANS.essentials.revisionsIncluded, 2);
+  assert.equal(P.p_reels.revisionsIncluded, 2); // a contracted project override wins over the plan
+});
+
+test("target dates: only admins change them; the seed tracks revisions per date", () => {
+  assert.equal(can(U.u_admin, "request.schedule", { project: P.p_launch }), true);
+  for (const u of ["u_jordan", "u_sam", "u_priya"]) assert.equal(can(U[u], "request.schedule", { project: P.p_launch }), false);
+  assert.ok(S.requests.every((r) => r.dueRev === 0 && Array.isArray(r.dueHistory)));
+  assert.ok(S.reviews.every((r) => Array.isArray(r.rounds) && Array.isArray(r.extraRounds)));
+});

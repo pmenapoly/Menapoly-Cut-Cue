@@ -214,24 +214,29 @@ test("Ask Cue: answers from data, and a proposal only acts after approval", asyn
   await expect(page.locator(".item", { hasText: "Cut-downs from" })).toHaveCount(1);
 });
 
-test("Social Sharing: draft, approve, prepare (simulated), calendar", async ({ page }) => {
+test("Social Sharing: draft, submit, another person reviews, prepare (simulated), calendar", async ({ page }) => {
   await open(page, "social");
   await expect(page.getByText("nothing is posted")).toBeVisible();
   await page.getByRole("button", { name: "Draft a post" }).first().click();
   const d = page.getByRole("dialog", { name: "Draft a post" });
   await d.getByLabel("Caption").fill("Brew tip: weigh your beans.");
-  await d.getByRole("button", { name: "Send for approval" }).click();
-  await expect(page.getByText("Draft sent for approval")).toBeVisible();
-  const card = page.locator("article.card", { hasText: "Awaiting approval" }).first();
-  await card.getByRole("button", { name: "Approve" }).click();
-  await expect(page.getByText("Post approved")).toBeVisible();
+  await d.getByRole("button", { name: "Submit for review" }).click();
+  await expect(page.locator(".toast", { hasText: "Submitted for review" })).toBeVisible();
+  const mine = page.locator("article.card", { hasText: "Waiting for a reviewer. You submitted it" }).first();
+  await expect(mine).toBeVisible();
+  await expect(mine.getByRole("button", { name: "Approve" })).toHaveCount(0); // no self-approval
   await page.getByRole("tab", { name: "Calendar" }).click();
   await expect(page.getByRole("grid", { name: "Content calendar" })).toBeVisible();
   await asRole(page, "u_admin");
   await open(page, "social");
   await page.getByRole("tab", { name: "Posts" }).click();
-  await page.locator("article.card", { hasText: "Approved" }).first().getByRole("button", { name: "Prepare to schedule" }).click();
-  await expect(page.locator(".toast", { hasText: "Prepared for scheduling (simulated, nothing posted)" })).toBeVisible();
+  const pid = await page.locator("article.card", { has: page.locator(".status", { hasText: /^Submitted$/ }) }).first().getAttribute("data-post");
+  const card = page.locator(`article.card[data-post="${pid}"]`);
+  await card.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByText("Post approved (not published)")).toBeVisible();
+  await card.getByRole("button", { name: "Prepare for publishing" }).click();
+  await expect(page.locator(".toast", { hasText: "Prepared for publishing (simulated, nothing posted)" })).toBeVisible();
+  await expect(card).toContainText("Not published");
   await shot(page, "11-social");
 });
 

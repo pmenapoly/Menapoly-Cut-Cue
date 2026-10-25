@@ -15,9 +15,37 @@ const localMedia = new Map(); // object URLs for files picked this session (neve
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) { const s = JSON.parse(raw); if (s?.version === seed().version) return s; }
+    if (raw) { const s = JSON.parse(raw); if (s?.version === 5) return migrate5(s); if (s?.version === seed().version) return s; }
   } catch { /* storage blocked: run in memory */ }
   return seed();
+}
+
+/**
+ * Demo state from the previous preview (version 5) moves forward instead of being wiped, so work in progress continues:
+ * social statuses map to the review lifecycle; project revision limits become contracted overrides; counted revisions
+ * become rounds; any usage above the new allowance is covered by a recorded carry-over grant (never a silent block).
+ */
+export function migrate5(s) {
+  const iso = new Date().toISOString();
+  (s.posts || []).forEach((p) => {
+    p.rev = p.rev || 1; p.submittedBy = p.submittedBy ?? (/awaiting|approved|ready/i.test(p.status) ? p.by : null);
+    p.reviewerId = p.reviewerId ?? ((p.history || []).filter((h) => /^approved/i.test(h.action)).pop()?.by || null);
+    p.status = p.status === "Awaiting approval" ? "Submitted" : /ready to schedule/i.test(p.status) ? "Prepared for publishing" : p.status;
+  });
+  (s.projects || []).forEach((p) => { if (p.revisionLimit != null) { p.revisionsIncluded = p.revisionLimit; delete p.revisionLimit; } });
+  (s.requests || []).forEach((r) => { r.dueRev = r.dueRev || 0; r.dueHistory = r.dueHistory || []; });
+  (s.reviews || []).forEach((r) => {
+    const req = (s.requests || []).find((x) => x.id === r.requestId), used = req?.revisionsUsed || 0;
+    r.rounds = r.rounds || Array.from({ length: used }, () => ({ version: null, at: req?.at || iso, by: req?.by || null, note: "Counted before revision tracking (demo migration)", kind: "included" }));
+    r.extraRounds = r.extraRounds || []; r.extraAsks = r.extraAsks || [];
+    const p = (s.projects || []).find((x) => x.id === r.projectId), w = (s.workspaces || []).find((x) => x.id === r.ws);
+    const included = p?.revisionsIncluded ?? w?.revisionsIncluded ?? PLANS[w?.plan]?.revisionsIncluded ?? 0;
+    if (r.rounds.length > included) r.extraRounds.push({ id: `xr_mig_${r.id}`, rounds: r.rounds.length - included, by: null, at: iso,
+      reason: "Carried over: rounds used before allowances were configured (demo migration)" });
+  });
+  s.version = 6;
+  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* in-memory only */ }
+  return s;
 }
 let state = load();
 let session = (() => { try { return JSON.parse(sessionStorage.getItem(SESSION) || localStorage.getItem(SESSION) || "null"); } catch { return null; } })()
@@ -28,13 +56,17 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catc
 function saveSession() { try { localStorage.setItem(SESSION, JSON.stringify(session)); } catch { /* ignore */ } }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Like a server, a call acts as the person who started it, even if the demo role is switched while it's in flight.
+let acting = null;
 async function call(fn) {
+  const who = session.userId;
   if (flags.latency) await sleep(120 + Math.random() * 160);
   if (flags.failRequests) { const e = new Error("The demo service is simulating an outage. Turn it off in Settings → Preview tools."); e.code = 503; throw e; }
-  return clone(fn());
+  acting = who;
+  try { return clone(fn()); } finally { acting = null; }
 }
 
-const user = () => state.users.find((u) => u.id === session.userId) || state.users[0];
+const user = () => state.users.find((u) => u.id === (acting || session.userId)) || state.users[0];
 const project = (pid) => state.projects.find((p) => p.id === pid);
 const userName = (uid) => state.users.find((u) => u.id === uid)?.name || "Someone";
 function log(action, detail, ws, pid) {
@@ -42,10 +74,29 @@ function log(action, detail, ws, pid) {
   state.activity = state.activity.slice(0, 200);
 }
 function notify(to, text, link) { if (to && to !== user().id) state.notifications.unshift({ id: id("n"), to, at: now(), text, link, read: false }); }
+/** One notification per person, even when they're in several of the target groups. */
+function notifyAll(ids, text, link) { [...new Set(ids.filter(Boolean))].forEach((uid) => notify(uid, text, link)); }
 const admins = () => state.users.filter((u) => u.role === "admin").map((u) => u.id);
 const clientsOf = (ws) => state.users.filter((u) => u.role === "client" && (u.workspaceIds || []).includes(ws)).map((u) => u.id);
 const roomLink = (rid) => { const v = state.videos.find((x) => x.reviewId === rid); return v ? `video-${v.id}` : `review-${rid}`; };
-function conflict(message) { const e = new Error(message); e.code = 409; return e; }
+function conflict(message, reason) { const e = new Error(message); e.code = 409; if (reason) e.reason = reason; return e; }
+
+/** Revision allowance for one video: included rounds (project → workspace → plan), plus approved additional rounds. */
+function includedFor(p) {
+  const w = state.workspaces.find((x) => x.id === p?.ws);
+  if (p?.revisionsIncluded != null) return { included: p.revisionsIncluded, source: "this project's agreement" };
+  if (w?.revisionsIncluded != null) return { included: w.revisionsIncluded, source: `${w.name}'s agreement` };
+  return { included: PLANS[w?.plan]?.revisionsIncluded ?? 0, source: `the ${PLANS[w?.plan]?.label || "current"} plan` };
+}
+function allowanceOf(r) {
+  const p = project(r.projectId), { included, source } = includedFor(p);
+  const extra = (r.extraRounds || []).reduce((n, x) => n + x.rounds, 0), used = (r.rounds || []).length;
+  return { included, source, extra, used, total: included + extra, remaining: Math.max(0, included + extra - used),
+    usedIncluded: Math.min(used, included), usedExtra: Math.max(0, used - included),
+    rounds: (r.rounds || []).map((x) => ({ ...x, byName: x.by ? userName(x.by) : "Demo migration" })),
+    extraRounds: (r.extraRounds || []).map((x) => ({ ...x, byName: x.by ? userName(x.by) : "Demo migration" })),
+    openAsk: (r.extraAsks || []).find((x) => x.status === "open") || null };
+}
 function visibleProjects(u = user()) { return state.projects.filter((p) => canViewProject(u, p)); }
 function assetCtx(a) { return { resource: a, project: a.projectId ? project(a.projectId) : null, ws: a.ws }; }
 function mediaFor(a) {
@@ -87,6 +138,9 @@ export const svc = {
     if (!p) { const e = new Error("That project doesn't exist."); e.code = 404; throw e; }
     enforce(user(), "project.view", { project: p });
     return { ...p, editors: p.editorIds.map(userName), workspace: state.workspaces.find((w) => w.id === p.ws)?.name,
+      revisionsIncluded: includedFor(p).included, revisionSource: includedFor(p).source,
+      allowances: Object.fromEntries(state.requests.filter((r) => r.projectId === pid).map((r) => {
+        const rv = state.reviews.find((x) => x.requestId === r.id); return [r.id, rv ? allowanceOf(rv) : null]; })),
       requests: state.requests.filter((r) => r.projectId === pid).map((r) => ({ ...r, videoId: state.videos.find((v) => v.requestId === r.id)?.id || null })), reviews: state.reviews.filter((r) => r.projectId === pid),
       assets: state.assets.filter((a) => a.projectId === pid).map(withMedia) };
   }),
@@ -157,6 +211,46 @@ export const svc = {
     notify(r.by, `${ed.name} will edit “${r.title}”`, v ? `video-${v.id}` : `project-${p.id}`);
     save(); return r;
   }),
+  /** Client (or admin) asks Menapoly for an extra revision round. Recorded and sent to administrators; nothing is charged. */
+  askExtraRound: (rid, note) => call(() => {
+    const r = state.reviews.find((x) => x.id === rid), p = project(r?.projectId);
+    enforce(user(), "revision.ask", { project: p, ws: p?.ws });
+    if (allowanceOf(r).openAsk) throw conflict("An extra round has already been asked for and is waiting for your producer.");
+    const ask = { id: id("xa"), by: user().id, at: now(), note: String(note || "").trim().slice(0, 500), status: "open" };
+    r.extraAsks = r.extraAsks || []; r.extraAsks.push(ask); r.audit.push({ at: now(), by: user().id, action: "Asked for an extra revision round", detail: ask.note });
+    admins().forEach((a) => notify(a, `${userName(user().id)} asked for an extra revision round on ${r.title}`, roomLink(r.id)));
+    log("Asked for an extra revision round", r.title, p.ws, p.id); save(); return ask;
+  }),
+  /** Administrator approves additional rounds with a reason. expectedTotal guards against approving twice from stale screens. */
+  grantExtraRound: (rid, reason, rounds = 1, expectedTotal) => call(() => {
+    const r = state.reviews.find((x) => x.id === rid), p = project(r?.projectId);
+    enforce(user(), "revision.grant", { project: p, ws: p?.ws });
+    const why = String(reason || "").trim().slice(0, 300), n = Math.max(1, Math.min(3, Number(rounds) || 1));
+    if (!why) { const e = new Error("Give a reason for the extra round so the decision is on record."); e.code = 400; throw e; }
+    const before = allowanceOf(r);
+    if (expectedTotal != null && before.total !== Number(expectedTotal)) throw conflict("The allowance changed since you opened this video (someone already approved a round). Refresh first.");
+    r.extraRounds = r.extraRounds || []; r.extraRounds.push({ id: id("xr"), rounds: n, reason: why, by: user().id, at: now() });
+    (r.extraAsks || []).filter((x) => x.status === "open").forEach((x) => { x.status = "granted"; x.closedAt = now(); });
+    r.audit.push({ at: now(), by: user().id, action: `Approved ${n} additional revision round(s)`, detail: why });
+    const req = state.requests.find((x) => x.id === r.requestId);
+    notifyAll([...clientsOf(p.ws), ...p.editorIds, req?.by], `${n} additional revision round(s) approved for ${r.title}`, roomLink(r.id));
+    log(`Approved ${n} additional revision round(s)`, `${r.title}: ${why}`, p.ws, p.id); save(); return allowanceOf(r);
+  }),
+  /** Target delivery date (an estimate, not a guarantee). Admin only; expectedRev refuses stale overwrites. */
+  setDue: (rid, date, reason, expectedRev) => call(() => {
+    const r = state.requests.find((x) => x.id === rid), p = project(r?.projectId);
+    enforce(user(), "request.schedule", { project: p, ws: p?.ws });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) { const e = new Error("Pick a valid date."); e.code = 400; throw e; }
+    if (expectedRev != null && (r.dueRev || 0) !== Number(expectedRev)) throw conflict("Someone changed this date after you opened it. Refresh to see the latest before changing it again.");
+    if (r.due === date) throw conflict("That's already the target date.");
+    const from = r.due || null; r.due = date; r.dueRev = (r.dueRev || 0) + 1;
+    r.dueHistory = r.dueHistory || []; r.dueHistory.push({ from, to: date, by: user().id, at: now(), reason: String(reason || "").trim().slice(0, 200) });
+    const v = state.videos.find((x) => x.requestId === r.id); if (v) v.history.push({ at: now(), by: user().id, action: `Target date ${from || "not set"} → ${date}` });
+    const fmt = (d) => new Date(`${d}T12:00:00`).toLocaleDateString("en", { month: "short", day: "numeric" });
+    notifyAll([r.assigneeId, r.by, ...clientsOf(p.ws)], `Target delivery for “${r.title}” moved to ${fmt(date)} (an estimate)`, v ? `video-${v.id}` : `project-${p.id}`);
+    log("Changed target date", `${r.title}: ${from ? fmt(from) : "not set"} → ${fmt(date)}${reason ? ` (${String(reason).trim().slice(0, 60)})` : ""}`, p.ws, p.id);
+    save(); return r;
+  }),
   startRequest: (rid) => call(() => {
     const r = state.requests.find((x) => x.id === rid); const p = project(r?.projectId);
     enforce(user(), "request.start", { project: p });
@@ -170,17 +264,20 @@ export const svc = {
   /** Admin board / editor queue: open requests with owner, deadline and lateness. Editors see only their own. */
   production: () => call(() => {
     const u = user(); enforce(u, "production.view", {});
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10), soon = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
     const rows = state.requests.filter((r) => canViewProject(u, project(r.projectId)) && (u.role === "admin" || r.assigneeId === u.id)).map((r) => {
       const v = state.videos.find((x) => x.requestId === r.id), rv = v && state.reviews.find((x) => x.id === v.reviewId);
       return { ...r, projectName: project(r.projectId)?.name, workspace: state.workspaces.find((w) => w.id === r.ws)?.name, assignee: r.assigneeId ? userName(r.assigneeId) : null,
         byName: userName(r.by), videoId: v?.id || null, stage: v ? roomStatus(v, rv) : r.status, overdue: Boolean(r.due && r.due < today && !/approved/i.test(r.status)),
+        // At risk: target within 3 days while the work hasn't reached the client yet.
+        atRisk: Boolean(r.due && r.due >= today && r.due <= soon && !/approved|in review/i.test(r.status)), revisions: rv ? allowanceOf(rv) : null,
         versions: rv?.versions.length || 0, open: rv ? rv.comments.filter((c) => !c.resolved).length : 0,
         tasks: v ? v.checklist.length : 0, done: v ? v.checklist.filter((t) => t.done).length : 0 };
     }).sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
     const editors = u.role === "admin" ? state.users.filter((x) => x.role === "editor").map((ed) => {
       const mine = rows.filter((r) => r.assigneeId === ed.id && !/approved/i.test(r.status));
-      return { id: ed.id, name: ed.name, title: ed.title, open: mine.length, overdue: mine.filter((r) => r.overdue).length, next: mine[0]?.due || null };
+      return { id: ed.id, name: ed.name, title: ed.title, open: mine.length, overdue: mine.filter((r) => r.overdue).length, atRisk: mine.filter((r) => r.atRisk).length,
+        next: mine.find((r) => r.due)?.due || null };
     }) : [];
     return { rows, editors };
   }),
@@ -199,7 +296,8 @@ export const svc = {
     if (!r) { const e = new Error("That review doesn't exist."); e.code = 404; throw e; }
     const p = project(r.projectId); enforce(user(), "review.view", { project: p });
     const req = state.requests.find((x) => x.id === r.requestId);
-    return { ...r, projectName: p.name, revisionLimit: p.revisionLimit, revisionsUsed: req?.revisionsUsed ?? 0,
+    const al = allowanceOf(r);
+    return { ...r, projectName: p.name, revisionLimit: al.total, revisionsUsed: al.used, revisions: al,
       versions: r.versions.map((v) => ({ ...v, ...MEDIA[v.media], byName: userName(v.by) })),
       comments: r.comments.map((c) => ({ ...c, byName: userName(c.by), replies: c.replies.map((x) => ({ ...x, byName: userName(x.by) })) })),
       audit: r.audit.map((a) => ({ ...a, byName: userName(a.by) })) };
@@ -213,7 +311,7 @@ export const svc = {
     r.comments.push(c); r.audit.push({ at: now(), by: user().id, action: `Commented at ${fmtT(c.t)}`, detail: text.slice(0, 80) });
     // The other side hears about it: client feedback reaches the editing team, editor notes reach the client.
     const to = user().role === "client" ? [...p.editorIds, ...admins()] : clientsOf(p.ws);
-    to.forEach((uid) => notify(uid, `${userName(user().id)} left feedback at ${fmtT(c.t)} on ${r.title}`, roomLink(r.id)));
+    notifyAll(to, `${userName(user().id)} left feedback at ${fmtT(c.t)} on ${r.title}`, roomLink(r.id));
     log("Left feedback", `${r.title} at ${fmtT(c.t)}`, p.ws, p.id); save(); return c;
   }),
   reply: (rid, cid, body) => call(() => {
@@ -241,8 +339,12 @@ export const svc = {
     if (decision === "changes") {
       const text = String(note || "").trim();
       if (!text) { const e = new Error("Say what should change so the editor can act on it."); e.code = 400; throw e; }
-      if (req && req.revisionsUsed >= p.revisionLimit) { const e = new Error(`This project's ${p.revisionLimit} included revisions are used. Ask your producer about an extra round.`); e.code = 409; throw e; }
-      r.status = "Changes requested"; if (req) { req.status = "Revision"; req.revisionsUsed += 1; }
+      // One revision round per formal change request on a submitted version; never twice for the same version.
+      if ((r.rounds || []).some((x) => x.version === latestN)) throw conflict(`Changes were already requested on version ${latestN}; that round is already counted.`, "duplicate");
+      const a = allowanceOf(r);
+      if (a.remaining <= 0) throw conflict(`All ${a.total} revision round(s) for this video are used (${a.included} included${a.extra ? `, ${a.extra} additional` : ""}). Ask your producer for an extra round.`, "allowance");
+      r.rounds = r.rounds || []; r.rounds.push({ version: latestN, at: now(), by: user().id, note: text.slice(0, 200), kind: a.used >= a.included ? "additional" : "included" });
+      r.status = "Changes requested"; if (req) { req.status = "Revision"; }
       r.audit.push({ at: now(), by: user().id, action: "Requested changes", detail: text.slice(0, 120) });
       p.editorIds.forEach((e) => notify(e, `Changes requested on ${r.title}: “${text.slice(0, 60)}”`, roomLink(r.id)));
       admins().forEach((a) => notify(a, `Changes requested on ${r.title}`, roomLink(r.id)));
@@ -255,7 +357,7 @@ export const svc = {
       const a = state.assets.find((x) => v && x.videoId === v.id && x.version === latest.n) || state.assets.find((x) => x.projectId === p.id && x.media === latest.media); if (a) a.channel = true;
       state.feed.unshift({ id: id("fd"), ws: p.ws, kind: "approved", by: user().id, at: now(), text: `Approved ${r.title} (version ${r.versions.length}).`,
         assetId: a?.id, comments: [], saves: [] });
-      [...p.editorIds, ...admins()].forEach((e) => notify(e, `${r.title} was approved (version ${r.versions.length})`, roomLink(r.id)));
+      notifyAll([...p.editorIds, ...admins()], `${r.title} was approved (version ${r.versions.length})`, roomLink(r.id));
     } else { const e = new Error("Unknown decision"); e.code = 400; throw e; }
     log(decision === "approve" ? `Approved version ${r.versions.length}` : "Requested changes", r.title, p.ws, p.id); save(); return r;
   }),
@@ -311,31 +413,66 @@ export const svc = {
   posts: (ws) => call(() => {
     const u = user();
     return state.posts.filter((p) => (!ws || p.ws === ws) && (u.role === "admin" || (u.role === "client" && u.workspaceIds.includes(p.ws))))
-      .map((p) => ({ ...p, asset: withMedia(state.assets.find((a) => a.id === p.assetId)), byName: userName(p.by) }));
+      .map((p) => ({ ...p, asset: withMedia(state.assets.find((a) => a.id === p.assetId)), byName: userName(p.by),
+        submittedByName: p.submittedBy ? userName(p.submittedBy) : null, reviewerName: p.reviewerId ? userName(p.reviewerId) : null,
+        owner: state.workspaces.find((w) => w.id === p.ws)?.name, canReview: p.status === "Submitted" && p.submittedBy !== u.id && can(u, "post.review", { ws: p.ws }),
+        history: p.history.map((x) => ({ ...x, byName: userName(x.by) })) }));
   }),
+  /** Saves captions. Editing a submitted or approved post returns it to Draft (new revision): approval covers exact text. */
   savePost: (data) => call(() => {
     const a = state.assets.find((x) => x.id === data.assetId);
     enforce(user(), "post.create", { ws: a?.ws });
     if (!a?.channel) { const e = new Error("Only approved media can be shared. Approve it in Review first."); e.code = 409; throw e; }
     if (!data.platforms?.length) { const e = new Error("Pick at least one channel."); e.code = 400; throw e; }
     let p = data.id && state.posts.find((x) => x.id === data.id);
-    if (!p) { p = { id: id("s"), ws: a.ws, assetId: a.id, status: "Draft", by: user().id, at: now(), history: [] }; state.posts.unshift(p); }
+    if (p && /prepared/i.test(p.status)) throw conflict("This post is prepared for publishing. Make a new draft to change it.");
+    if (!p) { p = { id: id("s"), ws: a.ws, assetId: a.id, status: "Draft", rev: 1, by: user().id, at: now(), submittedBy: null, reviewerId: null, history: [] }; state.posts.unshift(p);
+      p.history.push({ at: now(), by: user().id, action: "Created draft", rev: 1 }); }
+    else if (/submitted|approved|changes/i.test(p.status)) {
+      const was = p.status; p.rev += 1; p.status = "Draft"; p.submittedBy = null;
+      p.history.push({ at: now(), by: user().id, action: was === "Changes requested" ? "Revised after feedback" : `Edited while ${was.toLowerCase()}: needs review again`, rev: p.rev });
+    } else p.history.push({ at: now(), by: user().id, action: "Saved draft", rev: p.rev });
     Object.assign(p, { captions: data.captions || {}, platforms: data.platforms, scheduledFor: data.scheduledFor || null });
-    p.history.push({ at: now(), by: user().id, action: "Saved draft" }); log("Saved social draft", a.name, a.ws); save(); return p;
+    log("Saved social draft", a.name, a.ws); save(); return p;
   }),
-  submitPost: (pid) => call(() => {
+  /** Draft (or Changes requested) → Submitted. Reviewers are told; the submitter can't review it themselves. */
+  submitPost: (pid, expectedRev) => call(() => {
     const p = state.posts.find((x) => x.id === pid); enforce(user(), "post.edit", { ws: p?.ws });
-    p.status = "Awaiting approval"; p.history.push({ at: now(), by: user().id, action: "Sent for approval" }); save(); return p;
+    if (!/^(draft|changes requested)$/i.test(p.status)) throw conflict(`This post is “${p.status.toLowerCase()}”, so it can't be submitted again.`);
+    if (expectedRev != null && p.rev !== Number(expectedRev)) throw conflict("This draft changed since you opened it. Refresh to see the latest.");
+    p.status = "Submitted"; p.submittedBy = user().id; p.reviewerId = null;
+    p.history.push({ at: now(), by: user().id, action: "Submitted for review", rev: p.rev });
+    const asset = state.assets.find((a) => a.id === p.assetId)?.name || "a post";
+    notifyAll([...admins(), ...clientsOf(p.ws)], `Social draft for ${asset} is waiting for your review`, "social");
+    log("Submitted social draft", asset, p.ws); save(); return p;
   }),
-  approvePost: (pid) => call(() => {
-    const p = state.posts.find((x) => x.id === pid); enforce(user(), "post.approve", { ws: p?.ws });
-    p.status = "Approved"; p.history.push({ at: now(), by: user().id, action: "Approved" }); save(); return p;
+  /** Reviewer decision on a submitted post: approve, or request changes with a comment. Stale or repeated → 409. */
+  reviewPost: (pid, decision, note, expectedRev) => call(() => {
+    const p = state.posts.find((x) => x.id === pid); enforce(user(), "post.review", { ws: p?.ws });
+    if (p.status !== "Submitted") throw conflict(p.status === "Draft" ? "Submit the draft for review first." : `This post is already “${p.status.toLowerCase()}”. Refresh to see the latest.`);
+    if (expectedRev != null && p.rev !== Number(expectedRev)) throw conflict("This post was edited after you opened it. Review the latest text.");
+    if (p.submittedBy === user().id) { const e = new Error("You submitted this post, so another reviewer needs to approve it or request changes."); e.code = 403; throw e; }
+    const asset = state.assets.find((a) => a.id === p.assetId)?.name || "a post", text = String(note || "").trim().slice(0, 1000);
+    if (decision === "changes") {
+      if (!text) { const e = new Error("Say what should change so the author can fix it."); e.code = 400; throw e; }
+      p.status = "Changes requested"; p.reviewerId = user().id;
+      p.history.push({ at: now(), by: user().id, action: "Requested changes", note: text, rev: p.rev });
+      notifyAll([p.by, p.submittedBy], `Changes requested on the social draft for ${asset}: “${text.slice(0, 60)}”`, "social");
+    } else if (decision === "approve") {
+      p.status = "Approved"; p.reviewerId = user().id;
+      p.history.push({ at: now(), by: user().id, action: "Approved", note: text || null, rev: p.rev });
+      notifyAll([p.by, p.submittedBy, ...admins()], `Social draft for ${asset} was approved (not published)`, "social");
+    } else { const e = new Error("Unknown decision"); e.code = 400; throw e; }
+    log(decision === "approve" ? "Approved social draft" : "Requested changes on social draft", asset, p.ws); save(); return p;
   }),
-  /** Preparation only: nothing is connected to any social network in the preview. */
+  approvePost: (pid, expectedRev) => svc.reviewPost(pid, "approve", "", expectedRev),
+  /** Approved → Prepared for publishing. Preparation only: no account is connected, so nothing is ever "Published". */
   schedulePost: (pid) => call(() => {
-    const p = state.posts.find((x) => x.id === pid); enforce(user(), "post.schedule", { ws: p?.ws });
-    if (p.status !== "Approved") { const e = new Error("Approve the post before preparing it for scheduling."); e.code = 409; throw e; }
-    p.status = "Ready to schedule (simulated)"; p.history.push({ at: now(), by: user().id, action: "Prepared for scheduling (simulated, nothing posted)" }); save(); return p;
+    const p = state.posts.find((x) => x.id === pid); enforce(user(), "post.prepare", { ws: p?.ws });
+    if (p.status !== "Approved") throw conflict(p.status === "Prepared for publishing" ? "This post is already prepared." : "Approve the post before preparing it for publishing.");
+    p.status = "Prepared for publishing"; p.history.push({ at: now(), by: user().id, action: "Prepared for publishing (simulated; nothing was posted)", rev: p.rev });
+    notify(p.by, `A social post was prepared for publishing (simulated; not published)`, "social");
+    save(); return p;
   }),
 
   // ---- coaching ----
@@ -448,12 +585,12 @@ function newRequest(data, from) {
   if ((data.assetIds || []).length !== footage.length) { const e = new Error("Some of the chosen footage isn't available to this project."); e.code = 400; throw e; }
   const tpl = data.templateId ? state.templates.find((t) => t.id === data.templateId && t.ws === p.ws) : null;
   const r = { id: id("r"), key, ws: p.ws, projectId: p.id, type: data.type || "short", title, brief, aspect: data.aspect || "", length: String(data.length || "").slice(0, 40),
-    due: data.due || "", assigneeId: null, by: user().id, at: now(), status: "Submitted", revisionsUsed: 0, assetIds: footage.map((a) => a.id), templateId: tpl?.id || null };
+    due: data.due || "", dueRev: 0, dueHistory: [], assigneeId: null, by: user().id, at: now(), status: "Submitted", assetIds: footage.map((a) => a.id), templateId: tpl?.id || null };
   state.requests.unshift(r);
   // Its Editing Room: instructions from the brief (and template or source video), checklist from the template or defaults.
   const src = from?.instructions || {}, ti = tpl?.instructions || {};
   const lead = footage.find((a) => a.media && MEDIA[a.media]);
-  const rv = { id: id("rv"), ws: p.ws, projectId: p.id, requestId: r.id, title, status: "Waiting to start", versions: [], comments: [],
+  const rv = { id: id("rv"), ws: p.ws, projectId: p.id, requestId: r.id, title, status: "Waiting to start", versions: [], comments: [], rounds: [], extraRounds: [], extraAsks: [],
     audit: [{ at: now(), by: user().id, action: "Requested this video" }] };
   const v = { id: id("v"), ws: p.ws, projectId: p.id, reviewId: rv.id, requestId: r.id, title, editorId: null,
     original: { media: lead?.media || from?.media || null, label: lead ? `${lead.name} (original)` : from?.media ? "Approved video it builds on" : "No footage attached yet" },
@@ -492,14 +629,15 @@ Object.assign(svc, {
     const decisions = r.audit.filter((a) => /approved|requested changes/i.test(a.action)).map((a) => ({ ...a, byName: userName(a.by) }));
     return { ...v, status: roomStatus(v, r), reviewStatus: r.status, projectName: p.name, workspace: state.workspaces.find((w) => w.id === v.ws)?.name,
       editorName: v.editorId ? userName(v.editorId) : null, versions, files, decisions,
-      request: (() => { const q = state.requests.find((x) => x.id === v.requestId); return q ? { id: q.id, status: q.status, assigneeId: q.assigneeId, due: q.due, byName: userName(q.by), type: q.type } : null; })(),
+      request: (() => { const q = state.requests.find((x) => x.id === v.requestId); return q ? { id: q.id, status: q.status, assigneeId: q.assigneeId, due: q.due, dueRev: q.dueRev || 0, byName: userName(q.by), type: q.type,
+        dueHistory: (q.dueHistory || []).map((x) => ({ ...x, byName: userName(x.by) })) } : null; })(),
       editors: user().role === "admin" ? state.users.filter((u) => u.role === "editor").map((u) => ({ id: u.id, name: u.name })) : [],
       comments: r.comments.map((c) => ({ ...c, byName: userName(c.by), assigneeName: c.assigneeId ? userName(c.assigneeId) : null,
         replies: c.replies.map((x) => ({ ...x, byName: userName(x.by) })) })),
       checklist: v.checklist.map((t) => ({ ...t, ownerName: t.owner ? userName(t.owner) : "Not assigned yet", doneByName: t.doneBy ? userName(t.doneBy) : null,
         notes: t.notes.map((n) => ({ ...n, byName: userName(n.by) })) })),
       activity: [...r.audit, ...v.history].map((a) => ({ ...a, byName: userName(a.by) })).sort((a, b) => b.at.localeCompare(a.at)),
-      revisionLimit: p.revisionLimit, revisionsUsed: state.requests.find((x) => x.id === v.requestId)?.revisionsUsed ?? 0,
+      revisions: allowanceOf(r), revisionLimit: allowanceOf(r).total, revisionsUsed: allowanceOf(r).used,
       team: [...new Set([...p.editorIds, ...state.users.filter((u) => u.role === "admin").map((u) => u.id)])].map((id) => ({ id, name: userName(id) })),
       can: capabilities(v) };
   }),
@@ -575,9 +713,9 @@ Object.assign(svc, {
     const posts = state.posts.filter((p) => p.ws === ws);
     const reused = new Set(posts.map((p) => p.assetId));
     return { videos: vids.length, inProduction: vids.length - approved.length, approved: approved.length, shareable: shareable.length,
-      repurposable: shareable.filter((a) => !reused.has(a.id)).length, drafts: posts.filter((p) => p.status === "Draft").length,
-      awaiting: posts.filter((p) => p.status === "Awaiting approval").length, approvedPosts: posts.filter((p) => p.status === "Approved").length,
-      ready: posts.filter((p) => /ready to schedule/i.test(p.status)).length, published: 0 };
+      repurposable: shareable.filter((a) => !reused.has(a.id)).length, drafts: posts.filter((p) => /^(draft|changes requested)$/i.test(p.status)).length,
+      awaiting: posts.filter((p) => p.status === "Submitted").length, approvedPosts: posts.filter((p) => p.status === "Approved").length,
+      ready: posts.filter((p) => p.status === "Prepared for publishing").length, published: 0 };
   }),
   announcements: () => call(() => state.announcements.filter((a) => !(state.dismissed[user().id] || []).includes(a.id))),
   dismiss: (aid) => call(() => { const me = user().id; state.dismissed[me] = [...new Set([...(state.dismissed[me] || []), aid])]; save(); return true; }),

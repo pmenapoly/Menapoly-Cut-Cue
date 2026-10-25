@@ -5,9 +5,11 @@
 export const ROLES = ["admin", "client", "editor"];
 
 // Plan entitlements gate premium modules (AI Visibility depth, reports). Unknown plans get nothing extra.
+// revisionsIncluded: formal change-request rounds included per video. A workspace or a project can override it
+// (the most specific setting wins); administrators can approve additional rounds with a recorded reason.
 export const PLANS = {
-  essentials: { label: "Essentials", visibility: ["overview", "search", "website"] },
-  growth: { label: "Growth", visibility: ["overview", "search", "website", "social", "video", "competitive", "reports", "actions"] },
+  essentials: { label: "Essentials", revisionsIncluded: 2, visibility: ["overview", "search", "website"] },
+  growth: { label: "Growth", revisionsIncluded: 3, visibility: ["overview", "search", "website", "social", "video", "competitive", "reports", "actions"] },
 };
 
 const inWorkspace = (user, wsId) => user?.role === "client" && (user.workspaceIds || []).includes(wsId);
@@ -80,8 +82,15 @@ export function can(user, action, ctx = {}) {
     case "feed.view": return canViewWorkspace(user, ws, ctx.projects);
     case "feed.comment": return canViewWorkspace(user, ws, ctx.projects);
     case "post.create": case "post.edit": return admin || client(ws);
-    case "post.approve": return admin || client(ws);
-    case "post.schedule": return admin;
+    // Social review: reviewers are the workspace's clients and Menapoly admins. The service also refuses self-review:
+    // whoever submitted a post can't approve it or request changes on it.
+    case "post.review": case "post.approve": return admin || client(ws);
+    case "post.schedule": case "post.prepare": return admin;
+    // Revision allowances: clients ask for an extra round; only administrators approve one (no billing in the preview).
+    case "revision.ask": return admin || client(ws);
+    case "revision.grant": return admin;
+    // Target delivery dates are estimates set by Menapoly administrators; everyone on the project can see them.
+    case "request.schedule": return admin;
     case "visibility.view": {
       if (!(admin || client(ws))) return false;
       const plan = PLANS[ctx.plan];

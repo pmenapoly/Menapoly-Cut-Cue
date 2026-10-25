@@ -74,6 +74,23 @@ export async function studioView(out, [forced], ctx) {
   }
 }
 
+/** Target delivery dates are estimates. Only admins change them; the request's dueRev guards against stale overwrites. */
+export function dueSheet(req, ctx) {
+  const date = h("input", { id: "due-date", type: "date", value: req.due || "" });
+  const why = h("input", { id: "due-reason", maxlength: "200", placeholder: "e.g. Waiting on footage from the client" });
+  const d = sheet("Change target date",
+    h("p", { class: "small muted" }, `“${req.title}”. Target dates are estimates, not guaranteed delivery dates. The editor and the client are told.`),
+    h("div", { class: "field" }, h("label", { for: "due-date" }, "New target date"), date),
+    h("div", { class: "field" }, h("label", { for: "due-reason" }, "Reason (shown in the project activity)"), why),
+    (req.dueHistory || []).length ? h("details", {}, h("summary", { class: "small audit-toggle" }, `Earlier changes (${req.dueHistory.length})`),
+      h("ul", { class: "list" }, [...req.dueHistory].reverse().map((x) => h("li", { class: "item small" }, `${x.from ? fmtDate(x.from) : "not set"} → ${fmtDate(x.to)} · ${x.byName || svc.userName(x.by)}${x.reason ? ` · ${x.reason}` : ""}`)))) : null,
+    h("button", { class: "btn primary", onclick: busy(async () => {
+      try { await svc.setDue(req.id, date.value, why.value, req.dueRev || 0); d.close(); toast("Target date changed. The editor and client have been told."); ctx.refresh(); }
+      catch (e) { toast(e.message, "err"); if (e.code === 409 && /changed this date/.test(e.message)) { d.close(); ctx.refresh(); } } }) }, "Save target date"));
+  setTimeout(() => date.focus(), 50);
+  return d;
+}
+
 /** Admins: every request by stage, plus editor workload. Editors: their own queue. Deadlines and lateness come from the request. */
 async function boardView(me, ctx) {
   const { rows, editors } = await svc.production();
@@ -86,18 +103,23 @@ async function boardView(me, ctx) {
     ["review", "With the client for review", (r) => /review/i.test(r.status), "review"],
     ["done", "Approved", (r) => /approved/i.test(r.status), "done"],
   ];
-  const row = (r) => h("li", {}, h("a", { class: "item", href: r.videoId ? `#video-${r.videoId}` : `#project-${r.projectId}` },
+  const row = (r) => h("li", { class: "board-row", "data-request": r.id }, h("a", { class: "item", href: r.videoId ? `#video-${r.videoId}` : `#project-${r.projectId}` },
     h("span", { class: "grow" }, h("span", { class: "title small" }, r.title),
-      h("span", { class: "tiny faint" }, [r.workspace, r.projectName, r.assignee ? `Editor: ${r.assignee}` : "No editor", r.due ? `due ${fmtDate(r.due)}` : "no deadline",
-        r.tasks ? `${r.done}/${r.tasks} tasks` : null, r.open ? `${r.open} open comment(s)` : null].filter(Boolean).join(" · "))),
-    r.overdue ? h("span", { class: "status", "data-tone": "changes" }, icon("clock", 13), "Overdue") : null, icon("chevron", 18)));
+      h("span", { class: "tiny faint" }, [r.workspace, r.projectName, r.assignee ? `Editor: ${r.assignee}` : "No editor", r.due ? `target ${fmtDate(r.due)}` : "no target date",
+        r.tasks ? `${r.done}/${r.tasks} tasks` : null, r.open ? `${r.open} open comment(s)` : null,
+        r.revisions ? `revisions ${r.revisions.used}/${r.revisions.total}` : null].filter(Boolean).join(" · "))),
+    r.overdue ? h("span", { class: "status", "data-tone": "changes" }, icon("clock", 13), "Overdue") : r.atRisk ? h("span", { class: "status", "data-tone": "review" }, icon("alert", 13), "At risk") : null,
+    icon("chevron", 18)),
+    me.role === "admin" && !/approved/i.test(r.status) ? h("button", { class: "btn sm ghost", "aria-label": `Change target date for ${r.title}`, onclick: () => dueSheet(r, ctx) }, icon("calendar", 16), "Change date") : null);
   return h("div", { class: "stack", style: "gap:16px" },
-    h("p", { class: "muted" }, me.role === "admin" ? `${open.length} open request(s) · ${open.filter((r) => r.overdue).length} overdue · ${open.filter((r) => !r.assigneeId).length} waiting for an editor`
-      : `${open.length} request(s) assigned to you · ${open.filter((r) => r.overdue).length} overdue`),
+    h("p", { class: "muted" }, me.role === "admin" ? `${open.length} open request(s) · ${open.filter((r) => r.overdue).length} overdue · ${open.filter((r) => r.atRisk).length} at risk · ${open.filter((r) => !r.assigneeId).length} waiting for an editor`
+      : `${open.length} request(s) assigned to you · ${open.filter((r) => r.overdue).length} overdue · ${open.filter((r) => r.atRisk).length} at risk`),
+    h("p", { class: "tiny faint" }, "Target dates are estimates. At risk = due within 3 days and not yet with the client."),
     editors.length ? h("section", { class: "card", "aria-label": "Editor workload" }, h("h2", {}, "Editor workload"),
       h("ul", { class: "list" }, editors.map((e) => h("li", { class: "item" }, avatar(e.name, true),
-        h("span", { class: "grow" }, h("span", { class: "title small" }, e.name), h("span", { class: "tiny faint" }, `${e.open} open · ${e.overdue} overdue${e.next ? ` · next due ${fmtDate(e.next)}` : ""}`)),
-        h("span", { class: "status", "data-tone": e.open >= 3 ? "review" : "done" }, e.open >= 3 ? "Busy" : "Has room"))))) : null,
+        h("span", { class: "grow" }, h("span", { class: "title small" }, e.name), h("span", { class: "tiny faint" }, `${e.open} open · ${e.overdue} overdue · ${e.atRisk} at risk${e.next ? ` · next target ${fmtDate(e.next)}` : ""}`)),
+        h("span", { class: "status", "data-tone": e.overdue ? "changes" : e.open >= 3 || e.atRisk ? "review" : "done", "data-editor": e.id },
+          e.overdue ? "Behind" : e.open >= 3 || e.atRisk ? "Busy" : "Has room"))))) : null,
     ...lanes.map(([k, label, test, tone]) => { const list = rows.filter(test); return list.length ? h("section", { class: "card", "data-lane": k },
       h("div", { class: "section-head" }, h("h2", {}, label), h("span", { class: "status", "data-tone": tone }, String(list.length))), h("ul", { class: "list" }, list.map(row))) : null; }),
     rows.length ? null : empty("Nothing in the queue", me.role === "editor" ? "New assignments appear here and in your notifications." : "New editing requests appear here."));
