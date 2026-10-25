@@ -7,6 +7,8 @@ const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 /** Fill a <video> with H.264 and VP9 sources; the browser plays the first one it supports. */
 export function setSources(video, media) {
+  video.closest?.(".vp-stage")?.querySelector(".vp-empty")?.toggleAttribute("hidden", Boolean(media.src));
+  if (!media.src) { video.replaceChildren(); video.removeAttribute("poster"); return; }
   video.replaceChildren(
     h("source", { src: media.src, type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"' }),
     media.webm ? h("source", { src: media.webm, type: 'video/webm; codecs="vp9, opus"' }) : null);
@@ -22,7 +24,9 @@ export function setSources(video, media) {
 export function createPlayer({ media, label, markers = () => [], onMarker = () => {}, onTime = () => {} }) {
   const video = h("video", { playsinline: true, preload: "metadata", "aria-label": label, tabindex: "-1" });
   const canvas = h("canvas", { class: "vp-draw", "aria-hidden": "true" });
-  const stage = h("div", { class: "vp-stage" }, video, canvas);
+  // Shown when there's nothing to play yet (a new request before its first version). Never a fake picture.
+  const nothing = h("div", { class: "vp-empty", hidden: true }, icon("film", 30), h("b", {}, "Nothing to play yet"), h("span", {}, "The first edited version will appear here."));
+  const stage = h("div", { class: "vp-stage" }, video, canvas, nothing);
   const el = h("div", { class: "vp", role: "region", "aria-label": `Player: ${label}` });
   let duration = media.duration || 0, tool = null, draft = null, start = null, shapes = () => [];
 
@@ -62,7 +66,7 @@ export function createPlayer({ media, label, markers = () => [], onMarker = () =
     track.replaceChildren(h("span", { class: "vp-played", style: `width:${(t / d) * 100}%` }));
     pins.replaceChildren(...markers().map((m) => h("button", { class: `vp-pin ${m.resolved ? "resolved" : ""}`, style: `left:${Math.min(100, (m.t / d) * 100)}%`, "aria-label": m.label,
         onclick: (e) => { e.stopPropagation(); onMarker(m.id); } })));
-    time.textContent = `${fmtTime(t)} / ${fmtTime(d)}`;
+    time.textContent = video.children.length ? `${fmtTime(t)} / ${fmtTime(d)}` : "—"; // no invented duration before there's a video
   };
   const seekAt = (x) => { const b = track.getBoundingClientRect(), d = video.duration || duration || 1; video.currentTime = Math.min(d, Math.max(0, ((x - b.left) / b.width) * d)); drawTrack(); paint(); };
   track.addEventListener("pointerdown", (e) => { if (e.target.classList.contains("vp-pin")) return; video.pause(); seekAt(e.clientX); });

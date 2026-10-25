@@ -46,7 +46,7 @@ export const PLATFORMS = [
 
 export function seed() {
   return {
-    version: 4,
+    version: 5,
     workspaces: [
       { id: "ws_nw", name: "Northwind Roasters", industry: "Specialty coffee", plan: "growth", monogram: "NR" },
       { id: "ws_hb", name: "Harborline Fitness", industry: "Boutique gyms", plan: "essentials", monogram: "HF" },

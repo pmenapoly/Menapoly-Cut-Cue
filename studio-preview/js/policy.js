@@ -59,6 +59,8 @@ export function can(user, action, ctx = {}) {
     case "request.view": return canViewProject(user, ctx.project);
     case "request.assign": return admin;
     case "request.start": return admin || assigned(user, ctx.project);
+    // Production board: administrators see every request; editors see only their own queue (filtered by the service).
+    case "production.view": return admin || user.role === "editor";
     case "review.view": return canViewProject(user, ctx.project);
     case "review.comment": return canViewProject(user, ctx.project);
     case "review.resolve": return admin || assigned(user, ctx.project) || (client(ws) && ctx.resource?.by === user.id);

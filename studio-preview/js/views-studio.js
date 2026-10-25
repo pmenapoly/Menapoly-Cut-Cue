@@ -1,5 +1,5 @@
 // Media Studio: projects, editing requests, project detail, media detail, library and the request form.
-import { h, icon, toast, sheet, empty, ago, bytes, kindIcon, statusTone, statusInfo, demoBadge, fmtDate, avatar, initials } from "./ui.js";
+import { h, icon, toast, sheet, empty, ago, bytes, kindIcon, statusTone, statusInfo, statusBadge, demoBadge, fmtDate, avatar, initials, busy } from "./ui.js";
 import { svc } from "./service.js";
 import { REQUEST_TYPES, EXPORT_PRESETS } from "./data.js";
 import { mediaTile, composer, wsPicker, uploaderFilter, filterUploads } from "./views-home.js";
@@ -8,15 +8,18 @@ const mem = (k, v) => { try { if (v === undefined) return sessionStorage.getItem
 const typeLabel = (id) => REQUEST_TYPES.find((t) => t.id === id)?.label || id;
 const STAGES = ["Submitted", "Assigned", "In progress", "In review", "Approved"];
 
-export async function studioView(out, _p, ctx) {
-  const me = svc.me(), tab = mem("cue-studio-tab") || "projects";
+export async function studioView(out, [forced], ctx) {
+  const me = svc.me();
+  if (forced) mem("cue-studio-tab", forced);
+  const boardLabel = me.role === "admin" ? "Production board" : me.role === "editor" ? "My queue" : null;
+  let tab = mem("cue-studio-tab") || "projects"; if (tab === "board" && !boardLabel) tab = "projects";
   const [projects, requests, videos] = await Promise.all([svc.projects(), svc.requests(), svc.videos()]);
   out.append(
     h("div", { class: "section-head" }, h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, "Media Studio"), h("h1", {}, "Production"))),
     h("div", { class: "studio-actions" },
       me.role !== "editor" ? h("a", { class: "btn primary", href: "#request-new" }, icon("plus", 18), "New editing request") : null,
       h("a", { class: "btn sky", href: "#library", "aria-label": "Upload footage" }, icon("upload", 18), "Upload", h("span", { class: "wide-only" }, " footage"))),
-    h("div", { class: "tabs wrap", role: "tablist", "aria-label": "Studio" }, [["projects", "Projects"], ["requests", "Requests"], ["templates", "Templates"], ["presets", "Export presets"]].map(([k, l]) =>
+    h("div", { class: "tabs wrap", role: "tablist", "aria-label": "Studio" }, [["projects", "Projects"], ...(boardLabel ? [["board", boardLabel]] : []), ["requests", "Requests"], ["templates", "Templates"], ["presets", "Export presets"]].map(([k, l]) =>
       h("button", { class: "tab", role: "tab", "aria-selected": String(tab === k), onclick: () => { mem("cue-studio-tab", k); ctx.refresh(); } }, l))));
   if (tab === "projects") {
     const q = (mem("cue-studio-q") || "").toLowerCase(), only = mem("cue-studio-status") || "all", view = mem("cue-studio-view") || "gallery";
@@ -44,6 +47,8 @@ export async function studioView(out, _p, ctx) {
       shown.length ? h("div", { class: `projects ${view === "list" ? "list" : ""}` }, shown.map((p, i) => projectCard(p, info[p.id], i === 0 && info[p.id].st.tone === "review")))
         : projects.length ? empty("No projects match", "Try another status or search.", h("button", { class: "btn", onclick: () => { mem("cue-studio-q", null); mem("cue-studio-status", null); ctx.refresh(); } }, "Clear filters"))
         : empty("No projects", me.role === "editor" ? "You'll see projects here once you're assigned." : "Send an editing request to start one."));
+  } else if (tab === "board") {
+    out.append(await boardView(me, ctx));
   } else if (tab === "requests") {
     out.append(requests.length ? h("section", { class: "card" }, h("ul", { class: "list" }, requests.map((r) => h("li", {}, h("a", { class: "item", href: `#project-${r.projectId}` },
       h("span", { class: "thumb" }, icon("pen", 22)),
@@ -67,6 +72,35 @@ export async function studioView(out, _p, ctx) {
     out.append(h("p", { class: "muted" }, "Presets the editing engine will export to. In the preview, choosing a preset records the delivery request; no file is rendered."),
       h("div", { class: "grid-2" }, EXPORT_PRESETS.map((p) => h("div", { class: "card" }, h("h3", {}, p.label), h("p", { class: "mono small muted" }, p.spec)))));
   }
+}
+
+/** Admins: every request by stage, plus editor workload. Editors: their own queue. Deadlines and lateness come from the request. */
+async function boardView(me, ctx) {
+  const { rows, editors } = await svc.production();
+  const open = rows.filter((r) => !/approved/i.test(r.status));
+  const lanes = [
+    ["needs", "Needs an editor", (r) => !r.assigneeId && !/approved/i.test(r.status), "waiting"],
+    ["start", "Assigned, not started", (r) => r.assigneeId && /assigned|submitted/i.test(r.status), "waiting"],
+    ["editing", "Being edited", (r) => /progress/i.test(r.status), "editing"],
+    ["changes", "Changes requested", (r) => /revision/i.test(r.status), "changes"],
+    ["review", "With the client for review", (r) => /review/i.test(r.status), "review"],
+    ["done", "Approved", (r) => /approved/i.test(r.status), "done"],
+  ];
+  const row = (r) => h("li", {}, h("a", { class: "item", href: r.videoId ? `#video-${r.videoId}` : `#project-${r.projectId}` },
+    h("span", { class: "grow" }, h("span", { class: "title small" }, r.title),
+      h("span", { class: "tiny faint" }, [r.workspace, r.projectName, r.assignee ? `Editor: ${r.assignee}` : "No editor", r.due ? `due ${fmtDate(r.due)}` : "no deadline",
+        r.tasks ? `${r.done}/${r.tasks} tasks` : null, r.open ? `${r.open} open comment(s)` : null].filter(Boolean).join(" · "))),
+    r.overdue ? h("span", { class: "status", "data-tone": "changes" }, icon("clock", 13), "Overdue") : null, icon("chevron", 18)));
+  return h("div", { class: "stack", style: "gap:16px" },
+    h("p", { class: "muted" }, me.role === "admin" ? `${open.length} open request(s) · ${open.filter((r) => r.overdue).length} overdue · ${open.filter((r) => !r.assigneeId).length} waiting for an editor`
+      : `${open.length} request(s) assigned to you · ${open.filter((r) => r.overdue).length} overdue`),
+    editors.length ? h("section", { class: "card", "aria-label": "Editor workload" }, h("h2", {}, "Editor workload"),
+      h("ul", { class: "list" }, editors.map((e) => h("li", { class: "item" }, avatar(e.name, true),
+        h("span", { class: "grow" }, h("span", { class: "title small" }, e.name), h("span", { class: "tiny faint" }, `${e.open} open · ${e.overdue} overdue${e.next ? ` · next due ${fmtDate(e.next)}` : ""}`)),
+        h("span", { class: "status", "data-tone": e.open >= 3 ? "review" : "done" }, e.open >= 3 ? "Busy" : "Has room"))))) : null,
+    ...lanes.map(([k, label, test, tone]) => { const list = rows.filter(test); return list.length ? h("section", { class: "card", "data-lane": k },
+      h("div", { class: "section-head" }, h("h2", {}, label), h("span", { class: "status", "data-tone": tone }, String(list.length))), h("ul", { class: "list" }, list.map(row))) : null; }),
+    rows.length ? null : empty("Nothing in the queue", me.role === "editor" ? "New assignments appear here and in your notifications." : "New editing requests appear here."));
 }
 
 function projectCard(p, info, feature) {
@@ -190,25 +224,39 @@ export async function requestFormView(out, [preProject], ctx) {
     length: h("input", { id: "rq-length", maxlength: "40", value: val("length"), placeholder: "e.g. 3 × 30 s" }),
     due: h("input", { id: "rq-due", type: "date", value: val("due") }),
   };
-  const persist = () => mem("cue-request-draft", JSON.stringify({ type, projectId: f.project.value, title: f.title.value, brief: f.brief.value, aspect: f.aspect.value, length: f.length.value, due: f.due.value }));
+  // One key per draft: resubmitting the same draft (double tap, retry after a network blip) can't create a duplicate.
+  const key = draft.key || `rq-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  let footage = new Set(draft.assetIds || []);
+  const persist = () => mem("cue-request-draft", JSON.stringify({ type, projectId: f.project.value, title: f.title.value, brief: f.brief.value, aspect: f.aspect.value,
+    length: f.length.value, due: f.due.value, templateId: draft.templateId || null, assetIds: [...footage], key }));
   Object.values(f).forEach((el) => el.addEventListener("input", persist));
   drawTypes();
   if (!projects.length) { out.append(h("h1", {}, "New editing request"), empty("No project to attach this to", "Ask your Menapoly producer to open a project first.")); return; }
   const ws = svc.currentWs();
-  const templates = ws ? await svc.templates(ws.id).catch(() => []) : [];
+  const [templates, media] = await Promise.all([ws ? svc.templates(ws.id).catch(() => []) : [], ws ? svc.assets({ ws: ws.id }) : []]);
+  const usable = media.filter((a) => a.kind === "video" || a.kind === "audio" || a.kind === "image");
+  const footageBox = h("fieldset", { class: "stack", style: "border:0;padding:0;margin:0;gap:6px" },
+    h("legend", { style: "font-weight:650;font-size:14px;margin-bottom:6px" }, "Footage for this request"),
+    usable.length ? usable.map((a) => h("label", { class: "check", for: `ft-${a.id}` }, h("input", { type: "checkbox", id: `ft-${a.id}`, checked: footage.has(a.id),
+      onchange: (e) => { if (e.target.checked) footage.add(a.id); else footage.delete(a.id); persist(); } }),
+      h("span", {}, h("b", {}, a.name), h("span", { class: "small faint" }, ` · ${a.kind} · ${a.byName}${a.localUrl ? " · added this session (simulated upload)" : ""}`))))
+      : h("p", { class: "small muted" }, "No footage in this workspace yet. ", h("a", { href: "#library" }, "Upload it in the Library"), " first, or send the request now and add footage later."),
+    h("span", { class: "hint" }, "Only files you can see in this workspace are listed."));
   const tplSel = templates.length ? h("select", { id: "rq-template", onchange: (e) => {
     const t = templates.find((x) => x.id === e.target.value); if (!t) return;
-    mem("cue-request-draft", JSON.stringify({ ...templateDraft(t), projectId: f.project.value, title: f.title.value })); ctx.refresh(); toast(`Started from “${t.name}”`); } },
+    mem("cue-request-draft", JSON.stringify({ ...templateDraft(t), projectId: f.project.value, title: f.title.value, assetIds: [...footage], key })); ctx.refresh(); toast(`Started from “${t.name}”`); } },
     h("option", { value: "" }, "No template"), templates.map((t) => h("option", { value: t.id, selected: t.id === draft.templateId }, t.name))) : null;
   out.append(h("a", { href: "#studio", class: "small" }, "← Media Studio"), h("h1", {}, "New editing request"),
     h("p", { class: "muted" }, "Tell the editor what to make. Your draft is kept on this device until you submit."),
     tplSel ? h("div", { class: "field" }, h("label", { for: "rq-template" }, "Start from a template"), tplSel) : null,
     h("form", { class: "stack", style: "gap:16px", novalidate: true, onsubmit: async (e) => {
       e.preventDefault();
+      const btn = e.currentTarget.querySelector("[type=submit]"); if (btn.disabled) return; btn.disabled = true;
       try {
-        const r = await svc.createRequest({ projectId: f.project.value, type, title: f.title.value, brief: f.brief.value, aspect: f.aspect.value, length: f.length.value, due: f.due.value });
+        const r = await svc.createRequest({ projectId: f.project.value, type, title: f.title.value, brief: f.brief.value, aspect: f.aspect.value, length: f.length.value, due: f.due.value,
+          templateId: draft.templateId || null, assetIds: [...footage], key });
         mem("cue-request-draft", null); toast("Request submitted. Your producer has been notified."); ctx.go(`project-${r.projectId}`);
-      } catch (err) { toast(err.message, "err"); (err.code === 400 ? (f.title.value.trim() ? f.brief : f.title) : f.title).focus(); }
+      } catch (err) { toast(err.message, "err"); (err.code === 400 ? (f.title.value.trim() ? f.brief : f.title) : f.title).focus(); } finally { btn.disabled = false; }
     } },
       h("fieldset", { class: "stack", style: "border:0;padding:0;margin:0" }, h("legend", { style: "font-weight:600;font-size:14px;margin-bottom:8px" }, "What do you need?"), typeGrid),
       h("div", { class: "field" }, h("label", { for: "rq-project" }, "Project"), f.project),
@@ -216,6 +264,8 @@ export async function requestFormView(out, [preProject], ctx) {
       h("div", { class: "field" }, h("label", { for: "rq-brief" }, "Brief"), f.brief, h("span", { class: "hint" }, "One sentence each: goal, audience, must-keep moments, deadline, where it runs.")),
       h("div", { class: "grid-2" }, h("div", { class: "field" }, h("label", { for: "rq-aspect" }, "Aspect ratio"), f.aspect), h("div", { class: "field" }, h("label", { for: "rq-length" }, "Length"), f.length)),
       h("div", { class: "field" }, h("label", { for: "rq-due" }, "Needed by"), f.due),
+      footageBox,
+      draft.templateId ? h("p", { class: "small" }, icon("layers", 14), ` Using the template “${templates.find((t) => t.id === draft.templateId)?.name || "saved template"}”: its checklist and instructions go into the Editing Room.`) : null,
       h("div", { class: "actions" }, h("button", { class: "btn primary", type: "submit" }, icon("send", 18), "Submit request"),
         h("button", { class: "btn ghost", type: "button", onclick: () => { mem("cue-request-draft", null); ctx.refresh(); } }, "Clear draft"))));
 }

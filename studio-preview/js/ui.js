@@ -78,6 +78,16 @@ export function toast(text, kind = "ok") {
   toastBox.append(t); setTimeout(() => t.remove(), kind === "err" ? 6000 : 3200);
 }
 
+/** Runs an async action once: the button is disabled and marked busy until it settles, so a double tap can't send twice. */
+export function busy(fn) {
+  return async (e) => {
+    const b = e?.currentTarget instanceof HTMLElement ? e.currentTarget : null;
+    if (b?.dataset.busy) return;
+    if (b) { b.dataset.busy = "1"; b.disabled = true; b.setAttribute("aria-busy", "true"); }
+    try { await fn(e); } finally { if (b) { delete b.dataset.busy; b.disabled = false; b.removeAttribute("aria-busy"); } }
+  };
+}
+
 export function sheet(title, ...content) {
   const d = h("dialog", { class: "sheet", "aria-label": title },
     h("div", { class: "sheet-head" }, h("h2", {}, title), h("button", { class: "iconbtn", "aria-label": "Close", onclick: () => d.close() }, icon("x", 22))),

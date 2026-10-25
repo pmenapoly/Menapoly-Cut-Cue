@@ -382,6 +382,9 @@ dialog::backdrop { background: rgb(26 20 38 / .42); }
 .vp:fullscreen { display: grid; grid-template-rows: 1fr auto; border-radius: 0; }
 .vp-stage { position: relative; background: #000; display: grid; place-items: center; }
 .vp-stage video { display: block; width: 100%; max-height: 62vh; background: #000; }
+.vp-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 6px; text-align: center; padding: 16px; color: var(--muted); background: var(--stage); }
+.vp-empty[hidden] { display: none; }
+.vp-stage:has(.vp-empty:not([hidden])) { aspect-ratio: 16 / 9; }
 .vp:fullscreen .vp-stage video { max-height: none; height: 100%; }
 .vp-draw { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; touch-action: none; }
 .vp-draw.on { pointer-events: auto; cursor: crosshair; }
@@ -637,3 +640,16 @@ dialog::backdrop { background: rgb(26 20 38 / .42); }
 /* tiles built without a .tile-body (Review list, Project Workspace) */
 .tile > b { padding: 10px 12px 0; }
 .tile > span:not(.poster) { padding: 2px 12px 12px; font-size: 12.5px; color: var(--faint); }
+
+/* content pipeline (Social Sharing, Library): finished video → reuse → drafts → prepared → published (always 0 in the preview) */
+.pipeline { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (min-width: 720px) { .pipeline { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1100px) { .pipeline { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.pipe-step { display: grid; gap: 2px; padding: 12px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line); text-decoration: none; color: var(--text); min-width: 0; }
+.pipe-step b { font-family: var(--display); font-size: 26px; line-height: 1.1; }
+.pipe-step span { font-weight: 700; font-size: 14px; }
+.pipe-step small { font-size: 12.5px; color: var(--faint); }
+.pipe-step[data-tone="editing"] { background: var(--sky); border-color: transparent; } .pipe-step[data-tone="done"] { background: var(--mint); border-color: transparent; }
+.pipe-step[data-tone="review"] { background: var(--amber); border-color: transparent; } .pipe-step[data-tone="waiting"] { background: var(--lilac); border-color: transparent; }
+.pipe-step[data-tone="changes"] { background: var(--surface-2); border: 1px dashed var(--line-strong); }
+a.pipe-step:hover { box-shadow: var(--shadow-1); }

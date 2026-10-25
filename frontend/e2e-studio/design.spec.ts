@@ -53,12 +53,20 @@ test("layout at 360–1440 px: no sideways scroll, no overlaps, Maven reachable,
 
 test("accessibility: axe finds no WCAG 2.1 AA violations on the major screens", async ({ page }) => {
   test.skip(proj() === "android-360", "430 and 1440 cover phone and desktop");
-  for (const [name, token] of [...SCREENS, ["library", "library"], ["ask", "ask"]] as const) {
+  for (const [name, token] of [...SCREENS, ["library", "library"], ["ask", "ask"], ["request-new", "request-new"], ["social", "social"]] as const) {
     await open(page, token);
     const res = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
     const v = res.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
     expect(v, `${name}`).toEqual([]);
   }
+  // The production board (administrator view)
+  await open(page, "settings");
+  await page.locator("#role-select").selectOption("u_admin");
+  await open(page, "studio-board");
+  const board = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  expect(board.violations.map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`), "production board").toEqual([]);
+  await open(page, "settings");
+  await page.locator("#role-select").selectOption("u_jordan");
   // Maven sheet open over the Editing Room
   await open(page, "video-v_launch");
   await page.getByRole("button", { name: /Ask Maven/ }).click();

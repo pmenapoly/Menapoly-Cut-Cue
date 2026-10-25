@@ -73,3 +73,115 @@ and what hasn't been published.
 4. Content pipeline summary on Social Sharing and the Library.
 5. Tests: a 23-step end-to-end workflow spec and a reliability spec. Re-run the authorization, browser, axe and
    visual checks.
+
+---
+
+## After this round
+
+`frontend/e2e-studio/workflow.spec.ts` runs all 23 steps through the interface as four fictional people: Jordan
+(client), Avery (admin), Mika (editor) and Priya (another client, used as the isolation check). It passed **23/23 on
+Android 430 and on desktop 1440**. The per-step record is in `workflow-results/`.
+
+| # | Step | Before | Now | What makes it work (and what's still simulated) |
+|---|---|---|---|---|
+| 1 | Client uploads footage | Simulated | Simulated, verified | Library upload: only the name, size and type are kept |
+| 2 | Client creates a request | Incomplete | **Verified** | Footage picker. A double tap creates one request (draft key) |
+| 3 | Template or instructions | Verified | Verified | The template's checklist and look/sound/captions go into the new Editing Room |
+| 4 | Admin reviews the request | Incomplete | **Verified** | Notification links to the **Production board**; "Needs an editor" lane; workload and overdue counts |
+| 5 | Admin assigns an editor | Verified | Verified | From the board, the Editing Room or the Project Workspace. The editor and the requester are both told |
+| 6 | Editor receives the assignment | Verified | Verified | The notification opens the Editing Room; "My queue" in Studio |
+| 7 | Editor reviews brief and checklist | Missing | **Verified** | Every request now has an Editing Room; checklist tasks are owned by the assigned editor |
+| 8 | Editor submits a version | Simulated (seeded only) | Simulated, verified | "Start editing" then "Upload new version". The version reuses a synthetic clip and is labelled simulated |
+| 9 | Client review notification | Verified | Verified | "Version N of … is ready for your review" opens the room |
+| 10 | Playback and timestamped feedback | Verified | Verified | Real playback of the synthetic clip |
+| 11 | Frame annotation | Verified | Verified | Box saved with the comment |
+| 12 | Request changes | Incomplete | **Verified** | Refused once the video is settled, or when a newer version exists (409) |
+| 13 | Editor receives and resolves feedback | Incomplete | **Verified** | Notifications for each comment, reply, resolve and change request |
+| 14 | New version | Simulated | Simulated, verified | "Start the changes" then upload (status shows "Being edited" while reworking) |
+| 15 | Compare versions | Verified | Verified | |
+| 16 | Client approves | Incomplete | **Verified** | Only the version on screen; a second or stale approval gets 409; single-shot buttons |
+| 17 | Available for reuse | Verified | **Verified (new requests too)** | Each submitted version is a deliverable file; approval makes it shareable |
+| 18 | Make more from this video | Incomplete | **Verified** | Creates a request with its own Editing Room, carrying the source video's brand and look |
+| 19 | Maven repurposing suggestions | Simulated | Simulated (deterministic), verified | Up to three separate proposals per approved video, from its brief and formats; no video analysis |
+| 20 | Approve selected suggestions | Incomplete | **Verified** | Each proposal is approved or declined on its own |
+| 21 | Requests or drafts created | Incomplete | **Verified** | Approval runs the same authorized service call |
+| 22 | Social Sharing preparation | Simulated | Simulated, verified | Draft → approval → "Ready to schedule (simulated)". The pipeline shows **Published: 0** |
+| 23 | Activity and notifications | Incomplete | **Verified** | Per-project Activity; targeted notifications; nothing reaches another workspace |
+
+### New in this round
+
+- **Request lifecycle** (service):
+  - A request creates its Editing Room: instructions, checklist, and attached footage when playable.
+  - Status changes are validated: start only from Assigned or Revision; nothing after approval.
+  - Each version becomes a deliverable file.
+- **Safeguards:**
+  - Request submission is idempotent per draft key.
+  - Approving a Maven proposal can't run twice.
+  - Decisions are refused on a stale version or a settled video.
+  - Buttons are single-shot.
+  - Other tabs' changes reload, with the note "Updated with changes from another tab".
+  - Unsent feedback and change requests survive navigation and reloads.
+- **Production management:**
+  - **Production board** for admins: stages, editor workload, overdue items. **My queue** for editors.
+  - Admin Home shows requests needing an editor.
+  - Assign or start directly from the Editing Room.
+  - Due dates in the room header.
+  - "No editor yet" and "Nothing to play yet" states that invent nothing.
+- **Notifications:** to the assigned editor, the requester, clients, admins and comment authors; never to yourself or
+  other workspaces.
+- **Activity:** each project's activity lists requests, assignments, starts, versions, feedback, resolutions,
+  decisions and approvals.
+- **Maven:**
+  - Knows the signed-in person and role, and the screen (video, project, AI Visibility, elsewhere).
+  - Summarises unresolved feedback.
+  - Suggests next steps for that role, from live demo records.
+  - Drafts editing requests as proposals.
+  - Offers several repurposing suggestions, each approved separately.
+  - Gives navigation help with links.
+  - Explains AI Visibility metrics with their definitions and the FICTIONAL DEMO DATA label, respecting the plan.
+  - Each answer is labelled Information, Recommendation, Draft or Proposed action.
+- **Content growth:** Social Sharing opens with a **content pipeline**: In production → Approved videos → Ready to
+  reuse → Post drafts → Prepared posts → Published (always 0, "publishing isn't connected in the preview").
+
+### Remaining gaps (preview)
+
+- Uploads, renders and versions are simulated. A version reuses a synthetic clip. Uploaded files can't play.
+- Maven follows deterministic rules. It can't watch videos, and it only knows the records your role can see.
+- No real publishing or scheduling; no email or push notifications (in-app only).
+- An admin override for an extra revision round isn't built. Changing due dates after submission isn't built.
+- A client can approve a social draft without first sending it for approval (a shortcut kept from the earlier preview).
+- Cross-tab syncing only works between tabs of one browser on one device.
+
+## Production-readiness blockers (backend requirements for a real-client launch)
+
+Everything above runs in the browser. **The role checks in `policy.js` and `service.js` are frontend checks on a
+mock**: anyone with developer tools can change local state. None of it is server authorization. Before any real
+client uses this:
+
+1. **Enforce on the server:** port `policy.js` to the Worker, deny by default, on every route. Tenancy
+   (`workspace_id`) belongs on every table. The role comes from the Access JWT and the allowlist, never from the
+   client.
+2. **Persist the request lifecycle:** D1 migrations for `videos`, `checklist_tasks`, `annotations`, `templates` (see
+   [editing-room.md](editing-room.md)), plus `requests.idempotency_key`, `requests.template_id`, `request_assets`,
+   `versions.asset_id`, and `activity.project_id`.
+3. **Concurrency:** decisions carry `expected_version`, and the server returns 409 when it's stale. A state machine
+   allows only valid status changes. Idempotency keys apply to every create.
+4. **Media:** private R2 with short-lived presigned URLs, checked against the same policy. The preview's synthetic
+   clips are static files anyone can fetch. That's acceptable for fictional media, never for client footage.
+5. **Uploads and renders:** resumable uploads with type and size validation (and virus scanning), and real versions
+   from the Mac worker. Results only come from what a worker reported.
+6. **Notifications:** server-side fan-out with the same targeting rules (tested), an in-app inbox, and email through
+   the existing mailer.
+7. **Activity:** an append-only, per-project audit log, written by the server.
+8. **AI:** a server-side model that reads through tools scoped to the person's role. It may only propose; actions run
+   through the existing approval endpoint.
+9. **Growth:** social publishing via OAuth integrations with an approval gate. AI Visibility from connected
+   sources, with provenance; fictional numbers never reach a real client.
+10. **Operations:** rate limits, backups and restore, plus axe and visual checks in CI.
+
+## Confirmation
+
+- The work is on `menapoly-cue-studio-preview` only: `studio-preview/`, `frontend/e2e-studio/` and `docs/studio/`.
+- The production Worker, the three queued jobs, Cloudflare and Access, Relay, Growth Loop, DNS, credentials, billing
+  and the Mac worker were not touched.
+- No production calls were made. Only fictional data was used.

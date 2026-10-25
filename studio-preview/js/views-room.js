@@ -1,6 +1,6 @@
 // Project Workspace and the Editing Room (one per video).
 // State per video (tab, version, playhead) is remembered so actions and Maven never lose the viewer's place.
-import { h, icon, toast, sheet, empty, ago, avatar, statusTone, statusInfo, statusBadge, demoBadge, fmtDate, bytes, kindIcon, copyText } from "./ui.js";
+import { h, icon, toast, sheet, empty, ago, avatar, statusTone, statusInfo, statusBadge, demoBadge, fmtDate, bytes, kindIcon, copyText, busy } from "./ui.js";
 import { svc } from "./service.js";
 import { REQUEST_TYPES, EXPORT_PRESETS, CHECKLIST_SECTIONS } from "./data.js";
 import { createPlayer, fmtTime, setSources } from "./player.js";
@@ -15,13 +15,18 @@ const store = new Map();
 const key = (vid) => `${svc.me().id}:${vid}`;
 const memo = { get: (vid) => store.get(key(vid)) };
 const remember = (vid, patch) => store.set(key(vid), { ...(store.get(key(vid)) || {}), ...patch });
+// Unsent text (feedback, change requests) survives navigation and reloads on this device until it's sent.
+const draftKey = (vid, kind) => `cue-draft-${svc.me().id}-${vid}-${kind}`;
+const keepDraft = (el, vid, kind) => { try { el.value = sessionStorage.getItem(draftKey(vid, kind)) || el.value; } catch { /* storage off */ }
+  el.addEventListener("input", () => { try { sessionStorage.setItem(draftKey(vid, kind), el.value); } catch { /* storage off */ } }); return el; };
+const dropDraft = (vid, kind) => { try { sessionStorage.removeItem(draftKey(vid, kind)); } catch { /* storage off */ } };
 const plain = { "Ready for review": "Ready for you to review", "Changes requested": "Back with the editor for changes", "Approved": "Approved and ready to use",
   "Being edited": "The editor is working on it", "Waiting to start": "Waiting for the editor to start" };
 
 /* ============================== Project Workspace ============================== */
 export async function projectView(out, [pid], ctx) {
   const me = svc.me();
-  const [p, videos] = await Promise.all([svc.project(pid), svc.videos()]);
+  const [p, videos, activity] = await Promise.all([svc.project(pid), svc.videos(), svc.projectActivity(pid)]);
   const vids = videos.filter((v) => v.projectId === pid);
   const editors = svc.users().filter((u) => u.role === "editor");
   const people = svc.users().filter((u) => u.role === "admin" || p.editorIds.includes(u.id) || (u.role === "client" && u.workspaceIds.includes(p.ws)));
@@ -48,19 +53,24 @@ export async function projectView(out, [pid], ctx) {
           h("span", { class: "thumb" }, a.mediaInfo?.poster ? h("img", { src: a.mediaInfo.poster, alt: "" }) : icon(kindIcon(a.kind), 22)),
           h("span", { class: "grow" }, h("span", { class: "title small" }, a.name), h("span", { class: "tiny faint" }, `${bytes(a.size)} · ${ago(a.at)}`))))))
           : h("p", { class: "muted small" }, "No files yet.")),
-        h("section", { class: "card" }, h("h2", {}, "Brief"), h("p", { class: "small" }, p.brief)))));
+        h("section", { class: "card" }, h("h2", {}, "Brief"), h("p", { class: "small" }, p.brief)),
+        h("section", { class: "card", "aria-label": "Project activity" }, h("h2", {}, "Activity"),
+          activity.length ? h("ul", { class: "list" }, activity.slice(0, 12).map((a) => h("li", { class: "item small" }, avatar(a.byName, true),
+            h("span", { class: "grow" }, h("span", {}, h("b", {}, a.byName), ` ${a.action.charAt(0).toLowerCase()}${a.action.slice(1)}`, a.detail ? `: ${a.detail}` : ""), h("span", { class: "tiny faint" }, ago(a.at))))))
+            : h("p", { class: "muted small" }, "Nothing has happened in this project during this demo session yet.")))));
 }
 
 function requestCard(r, p, me, editors, ctx) {
   const assign = h("select", { id: `assign-${r.id}`, "aria-label": "Assign editor", style: "width:auto;flex:1 1 160px" },
     h("option", { value: "" }, "Choose editor"), editors.map((e) => h("option", { value: e.id, selected: e.id === r.assigneeId }, e.name)));
   return h("article", { class: "card" },
-    h("div", { class: "section-head" }, h("h3", {}, r.title), h("span", { class: `chip ${statusTone(r.status)}` }, r.status)),
+    h("div", { class: "section-head" }, h("h3", {}, r.title), statusBadge(r.status, r.status)),
     h("p", { class: "small faint" }, `${typeLabel(r.type)} · ${r.aspect || "—"} · ${r.length || "—"} · ${svc.userName(r.by)} · ${ago(r.at)}`),
     h("p", { class: "small" }, r.brief),
-    h("p", { class: "tiny faint" }, `Revisions used: ${r.revisionsUsed} of ${p.revisionLimit}`),
+    h("p", { class: "tiny faint" }, `Revisions used: ${r.revisionsUsed} of ${p.revisionLimit}`, r.due ? ` · due ${fmtDate(r.due)}` : "", r.assigneeId ? ` · editor: ${svc.userName(r.assigneeId)}` : " · no editor yet"),
+    r.videoId ? h("a", { class: "btn sm", href: `#video-${r.videoId}`, style: "justify-self:start" }, icon("studio", 16), "Open Editing Room") : null,
     h("div", { class: "actions" },
-      me.role === "admin" ? [assign, h("button", { class: "btn sm", onclick: async () => { try { await svc.assignRequest(r.id, assign.value); toast("Editor assigned"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, "Assign")] : null,
+      me.role === "admin" ? [assign, h("button", { class: "btn sm", onclick: async () => { try { await svc.assignRequest(r.id, assign.value); toast("Editor assigned and notified"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, r.assigneeId ? "Reassign" : "Assign")] : null,
       me.role === "editor" && r.assigneeId === me.id && /assigned|submitted|revision/i.test(r.status) ? h("button", { class: "btn primary sm", onclick: async () => {
         try { await svc.startRequest(r.id); toast("Marked in progress"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, "Start editing") : null));
 }
@@ -88,7 +98,8 @@ export async function roomView(out, [vid], ctx) {
         h("p", { class: "small faint" }, `${v.workspace} · ${v.projectName}`)),
       h("button", { class: "iconbtn", "aria-label": "More actions", onclick: () => actionsSheet(v, ctx) }, icon("more", 24))),
     h("div", { class: "row" }, h("span", { class: "status", "data-tone": statusInfo(v.status).tone, "data-status": v.status }, icon(statusInfo(v.status).icon, 13), v.status),
-      h("span", { class: "chip" }, avatar(v.editorName, true), `Editor: ${v.editorName}`)));
+      v.editorName ? h("span", { class: "chip" }, avatar(v.editorName, true), `Editor: ${v.editorName}`) : h("span", { class: "chip" }, "No editor yet"),
+      v.request?.due ? h("span", { class: "chip" }, icon("clock", 13), `Due ${fmtDate(v.request.due)}`) : null));
 
   // ---- under the player ----
   const versionSel = h("select", { id: "version-select", "aria-label": "Version", style: "width:auto;flex:1 1 180px" },
@@ -105,7 +116,7 @@ export async function roomView(out, [vid], ctx) {
   const editorFirst = (v.editorName || "The editor").split(" ")[0];
   const latestN = v.versions[v.versions.length - 1].n;
   const HEAD = { review: me.role === "editor" ? "With the client for review" : `Happy with ${latestN ? `version ${latestN}` : "this cut"}?`, changes: `Back with ${editorFirst} for changes`,
-    editing: `${editorFirst} is editing`, done: "It's done. What's next?", waiting: `Waiting for ${editorFirst} to start` };
+    editing: `${editorFirst} is editing`, done: "It's done. What's next?", waiting: v.editorName ? `Waiting for ${editorFirst} to start` : "Waiting for an editor" };
   function drawStatus() {
     const tone = statusInfo(v.status).tone, open = v.comments.filter((c) => !c.resolved).length, done = v.checklist.filter((t) => t.done).length;
     statusCard.dataset.tone = tone;
@@ -113,14 +124,14 @@ export async function roomView(out, [vid], ctx) {
       h("h2", { class: "status-head" }, HEAD[tone]),
       h("p", { class: "small muted" }, `${open} open comment(s) · checklist ${done} of ${v.checklist.length} done`));
     if (v.status === "Ready for review" && v.can["review.decide"]) {
-      const note = h("textarea", { id: "changes-note", placeholder: "What should be different in the next version?", maxlength: "2000" });
-      const form = h("div", { class: "stack", hidden: true }, h("label", { for: "changes-note" }, "What should change?"), note,
-        h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: async () => {
-          try { await svc.decide(v.reviewId, "changes", note.value); toast("Changes requested. The editor has been told."); ctx.refresh(); } catch (e) { toast(e.message, "err"); note.focus(); } } }, "Send to the editor"),
+      const note = keepDraft(h("textarea", { id: "changes-note", placeholder: "What should be different in the next version?", maxlength: "2000" }), vid, "changes");
+      const form = h("div", { class: "stack", hidden: !note.value }, h("label", { for: "changes-note" }, "What should change?"), note,
+        h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: busy(async () => {
+          try { await svc.decide(v.reviewId, "changes", note.value, latestN); dropDraft(vid, "changes"); toast("Changes requested. The editor has been told."); ctx.refresh(); } catch (e) { toast(e.message, "err"); if (e.code === 409) ctx.refresh(); else note.focus(); } }) }, "Send to the editor"),
           h("button", { class: "btn ghost", onclick: () => openMaven(ctx, "Help me request changes") }, icon("spark", 16), "Help me write it")));
       statusCard.append(
         h("div", { class: "decide" },
-          h("button", { class: "btn primary", onclick: async () => { try { await svc.decide(v.reviewId, "approve"); toast("Approved. It's ready to share."); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } },
+          h("button", { class: "btn primary", onclick: busy(async () => { try { await svc.decide(v.reviewId, "approve", "", latestN); toast("Approved. It's ready to share."); ctx.refresh(); } catch (e) { toast(e.message, "err"); if (e.code === 409) ctx.refresh(); } }) },
             icon("check", 18), "Approve video"),
           h("button", { class: "btn", onclick: () => { form.hidden = !form.hidden; if (!form.hidden) note.focus(); } }, icon("message", 18), "Request changes")), form,
         h("p", { class: "tiny faint" }, `Revisions used: ${v.revisionsUsed} of ${v.revisionLimit}`));
@@ -134,10 +145,23 @@ export async function roomView(out, [vid], ctx) {
       statusCard.append(h("button", { class: "btn sm", style: "justify-self:start;background:var(--surface)", onclick: () => { tab = "comments"; remember(vid, { filter: "open" }); drawTab(); panel.scrollIntoView({ block: "start" }); } },
         icon("message", 16), `See the ${open} open comment(s)`));
     }
+    const req = v.request;
+    if (req && !req.assigneeId && v.editors.length) {
+      const pick = h("select", { id: "room-assign", "aria-label": "Assign an editor" }, h("option", { value: "" }, "Choose an editor"), v.editors.map((e) => h("option", { value: e.id }, e.name)));
+      statusCard.append(h("label", { for: "room-assign" }, "Assign an editor"), h("div", { class: "row nowrap" }, pick,
+        h("button", { class: "btn primary", onclick: busy(async () => { try { await svc.assignRequest(req.id, pick.value); toast("Editor assigned and notified"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } }) }, "Assign")));
+    } else if (req && !req.assigneeId) {
+      statusCard.append(h("p", { class: "small muted" }, "A Menapoly producer will assign an editor. You'll get a notification."));
+    }
+    if (req?.assigneeId && /assigned|submitted|revision/i.test(req.status) && v.can["review.upload_version"]) {
+      statusCard.append(h("button", { class: "btn primary", style: "justify-self:start", onclick: busy(async () => {
+        try { await svc.startRequest(req.id); toast("Marked as being edited. The client has been told."); ctx.refresh(); } catch (e) { toast(e.message, "err"); } }) },
+        icon("pen", 18), req.status === "Revision" ? "Start the changes" : "Start editing"));
+    }
     if (v.can["review.upload_version"] && v.status !== "Approved") {
       const vn = h("input", { id: "version-note", placeholder: "What changed in this version?" });
       statusCard.append(h("label", { for: "version-note" }, "Submit a new version"), vn,
-        h("button", { class: `btn ${v.status === "Ready for review" ? "" : "primary"}`, style: "justify-self:start", onclick: async () => { try { await svc.uploadVersion(v.reviewId, vn.value); remember(vid, { version: undefined }); toast("New version submitted (simulated)"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } },
+        h("button", { class: `btn ${v.status === "Ready for review" ? "" : "primary"}`, style: "justify-self:start", onclick: busy(async () => { try { await svc.uploadVersion(v.reviewId, vn.value); remember(vid, { version: undefined }); toast("New version submitted (simulated)"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } }) },
           icon("upload", 18), "Upload new version"), h("p", { class: "tiny" }, demoBadge(), " The preview reuses a demo clip; nothing is uploaded or rendered."));
     }
     statusCard.append(h("div", { class: `progress ${tone === "done" ? "ok" : tone === "editing" ? "info" : ""}`, role: "img", "aria-label": `${done} of ${v.checklist.length} checklist tasks done` },
@@ -161,10 +185,10 @@ export async function roomView(out, [vid], ctx) {
     const tasks = v.checklist.filter((t) => !mine || t.owner === me.id);
     return [
       h("section", { class: "card" }, h("h2", {}, "The brief"), h("p", {}, i.brief),
-        h("h3", {}, "Brand guidelines"), h("ul", { class: "bullets" }, i.brand.map((b) => h("li", {}, b))),
+        h("h3", {}, "Brand guidelines"), i.brand.length ? h("ul", { class: "bullets" }, i.brand.map((b) => h("li", {}, b))) : h("p", { class: "small faint" }, "None given yet."),
         h("h3", {}, "Deliverables"), h("ul", { class: "bullets" }, i.deliverables.map((d) => h("li", {}, h("b", {}, d.label), h("span", { class: "small faint" }, ` · ${presetLabel(d.preset)?.spec || ""}`)))),
-        h("div", { class: "grid-2" }, h("div", {}, h("h3", {}, "Look"), h("p", { class: "small" }, i.visual)), h("div", {}, h("h3", {}, "Sound"), h("p", { class: "small" }, i.audio))),
-        h("h3", {}, "Captions"), h("p", { class: "small" }, i.captions),
+        h("div", { class: "grid-2" }, h("div", {}, h("h3", {}, "Look"), h("p", { class: "small" }, i.visual || "Not specified yet.")), h("div", {}, h("h3", {}, "Sound"), h("p", { class: "small" }, i.audio || "Not specified yet."))),
+        h("h3", {}, "Captions"), h("p", { class: "small" }, i.captions || "Not specified yet."),
         h("button", { class: "btn sm ghost", onclick: () => openMaven(ctx, "Explain the editing instructions") }, icon("spark", 16), "Explain this in plain words")),
       h("section", { class: "card" },
         h("div", { class: "section-head" }, h("h2", {}, "Editing checklist"), h("span", { class: "small faint" }, `${v.checklist.filter((t) => t.done).length} of ${v.checklist.length} done`)),
@@ -190,7 +214,7 @@ export async function roomView(out, [vid], ctx) {
   }
 
   // comments + annotation composer
-  const body = h("textarea", { id: "annotation-body", placeholder: "What should change at this moment?", maxlength: "2000" });
+  const body = keepDraft(h("textarea", { id: "annotation-body", placeholder: "What should change at this moment?", maxlength: "2000" }), vid, "comment");
   const where = h("p", { class: "small" });
   const composerBox = h("div", { class: "card composer-card", hidden: true });
   const toolBtn = (k, label, ic) => h("button", { class: "tool", "aria-pressed": "false", "data-tool": k, onclick: (e) => {
@@ -203,11 +227,11 @@ export async function roomView(out, [vid], ctx) {
     h("div", { class: "tools", role: "group", "aria-label": "Mark the frame" }, toolBtn("rect", "Box", "box"), toolBtn("pen", "Draw", "pen"),
       h("button", { class: "tool", onclick: () => { player.annotate.clear(); updateWhere(); } }, icon("x", 20), "Clear")),
     h("label", { for: "annotation-body", class: "sr" }, "Comment"), body,
-    h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: async () => {
+    h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: busy(async () => {
       try {
         const c = await svc.addComment(v.reviewId, { version: cur().n, t: player.time(), shape: player.annotate.draft(), body: body.value });
-        player.annotate.clear(); player.annotate.setTool(null); remember(vid, { tab: "comments", time: player.time() }); active = c.id; toast("Comment added"); ctx.refresh();
-      } catch (e) { toast(e.message, "err"); } } }, icon("send", 18), "Send feedback"),
+        player.annotate.clear(); player.annotate.setTool(null); dropDraft(vid, "comment"); remember(vid, { tab: "comments", time: player.time() }); active = c.id; toast("Comment added"); ctx.refresh();
+      } catch (e) { toast(e.message, "err"); } }) }, icon("send", 18), "Send feedback"),
       h("button", { class: "btn ghost", onclick: () => { composerBox.hidden = true; player.annotate.setTool(null); player.annotate.clear(); } }, "Cancel")));
   const openComposer = () => { player.pause(); tab = "comments"; drawTab(); composerBox.hidden = false; updateWhere(); body.focus({ preventScroll: true }); player.el.scrollIntoView({ block: "start" }); };
 

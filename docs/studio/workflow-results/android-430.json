@@ -1,0 +1,144 @@
+{
+  "project": "android-430",
+  "at": "2026-10-25T19:36:26.358Z",
+  "steps": [
+    {
+      "n": 1,
+      "step": "Client uploads footage",
+      "result": "passed",
+      "detail": "Library → Add files (simulated: name, size and type only)"
+    },
+    {
+      "n": 2,
+      "step": "Client creates an editing request",
+      "result": "passed",
+      "detail": "Request form with the uploaded footage and a demo clip attached"
+    },
+    {
+      "n": 3,
+      "step": "Client starts from a template",
+      "result": "passed",
+      "detail": "“Reel cut-down pack”: its checklist and instructions go into the new Editing Room"
+    },
+    {
+      "n": 4,
+      "step": "Administrator reviews the request",
+      "result": "passed",
+      "detail": "Avery's notification and the production board's “Needs an editor” lane"
+    },
+    {
+      "n": 5,
+      "step": "Administrator assigns an editor",
+      "result": "passed",
+      "detail": "Assign Mika Chen from the new request's Editing Room"
+    },
+    {
+      "n": 6,
+      "step": "Editor receives the assignment",
+      "result": "passed",
+      "detail": "Mika's inbox links straight to the Editing Room"
+    },
+    {
+      "n": 7,
+      "step": "Editor reviews the brief and checklist",
+      "result": "passed",
+      "detail": "Brief from the request; checklist from the template, owned by Mika"
+    },
+    {
+      "n": 8,
+      "step": "Editor submits an edited version",
+      "result": "passed",
+      "detail": "Start editing → tick a task → submit (simulated: reuses a synthetic clip)"
+    },
+    {
+      "n": 9,
+      "step": "Client receives a review notification",
+      "result": "passed",
+      "detail": "“Version 1 … is ready for your review” in Jordan's inbox"
+    },
+    {
+      "n": 10,
+      "step": "Client plays the video and adds timestamped feedback",
+      "result": "passed",
+      "detail": "Real playback of the synthetic clip, then feedback at the playhead"
+    },
+    {
+      "n": 11,
+      "step": "Client uses a frame annotation",
+      "result": "passed",
+      "detail": "Box drawn on the frame, saved with the comment"
+    },
+    {
+      "n": 12,
+      "step": "Client requests changes",
+      "result": "passed",
+      "detail": "A note is required; the editor and admins are told"
+    },
+    {
+      "n": 13,
+      "step": "Editor receives and resolves the feedback",
+      "result": "passed",
+      "detail": "Notifications for the feedback and the change request; Resolve on the comment"
+    },
+    {
+      "n": 14,
+      "step": "Editor submits a new version",
+      "result": "passed",
+      "detail": "Start the changes → version 2 (simulated)"
+    },
+    {
+      "n": 15,
+      "step": "Client compares versions",
+      "result": "passed",
+      "detail": "Side-by-side sheet with two playable videos"
+    },
+    {
+      "n": 16,
+      "step": "Client approves the completed video",
+      "result": "passed",
+      "detail": "Approval of the version on screen (version 2)"
+    },
+    {
+      "n": 17,
+      "step": "Approved video becomes available for reuse",
+      "result": "passed",
+      "detail": "Its deliverable file is in the Library and counted as ready to reuse"
+    },
+    {
+      "n": 18,
+      "step": "Client chooses “Make more from this video”",
+      "result": "passed",
+      "detail": "Creates a new request with its own Editing Room"
+    },
+    {
+      "n": 19,
+      "step": "Maven prepares repurposing suggestions",
+      "result": "passed",
+      "detail": "Several separate proposals from the approved video (deterministic)"
+    },
+    {
+      "n": 20,
+      "step": "Client approves selected suggestions",
+      "result": "passed",
+      "detail": "Approve the social draft; decline the feed idea; the clips idea stays waiting"
+    },
+    {
+      "n": 21,
+      "step": "New requests and drafts are created",
+      "result": "passed",
+      "detail": "The new request is listed with its Editing Room; the social draft exists"
+    },
+    {
+      "n": 22,
+      "step": "Approved content is prepared for Social Sharing",
+      "result": "passed",
+      "detail": "Send for approval → approve → admin prepares to schedule (simulated; nothing posted)"
+    },
+    {
+      "n": 23,
+      "step": "Activity and notifications reflect the workflow",
+      "result": "passed",
+      "detail": "Project activity, Jordan's inbox, and nothing leaked to Priya"
+    }
+  ]
+}

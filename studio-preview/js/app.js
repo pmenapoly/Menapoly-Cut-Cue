@@ -27,7 +27,7 @@ const allowed = (n) => !n.roles || n.roles.includes(svc.me().role);
 const barTokens = () => ["home", "studio", "review", allowed(NAV.find((n) => n.token === "visibility")) ? "visibility" : "ask"];
 
 const ROUTES = [
-  [/^home$/, homeView], [/^studio$/, studioView], [/^request-new(?:-(p_[\w]+))?$/, requestFormView], [/^project-(p_[\w]+)$/, projectView],
+  [/^home$/, homeView], [/^studio(?:-(board))?$/, studioView], [/^request-new(?:-(p_[\w]+))?$/, requestFormView], [/^project-(p_[\w]+)$/, projectView],
   [/^video-(v_[\w]+)$/, roomView], [/^asset-(a_[\w]+)$/, assetOrRoom], [/^library$/, libraryView], [/^review$/, reviewListView], [/^review-(rv_[\w]+)$/, reviewToRoom],
   [/^social$/, socialView], [/^visibility(?:-([a-z]+))?$/, visibilityView], [/^ask$/, askView],
   [/^lesson-(l_[\w]+)$/, lessonView], [/^inbox$/, inboxView], [/^clients$/, clientsView], [/^team$/, teamView], [/^settings$/, settingsView],
@@ -164,6 +164,8 @@ function buildShellMarkers() {
 }
 
 window.addEventListener("hashchange", render);
+// Changes saved in another tab: re-render so decisions are made on the latest versions, statuses and permissions.
+document.addEventListener("cue:external", () => { toast("Updated with changes from another tab"); buildShellMarkers(); render(); });
 buildShell();
 render();
 export { ago };

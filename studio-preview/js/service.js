@@ -37,11 +37,15 @@ async function call(fn) {
 const user = () => state.users.find((u) => u.id === session.userId) || state.users[0];
 const project = (pid) => state.projects.find((p) => p.id === pid);
 const userName = (uid) => state.users.find((u) => u.id === uid)?.name || "Someone";
-function log(action, detail, ws) {
-  state.activity.unshift({ id: id("act"), at: now(), by: user().id, action, detail, ws });
+function log(action, detail, ws, pid) {
+  state.activity.unshift({ id: id("act"), at: now(), by: user().id, action, detail, ws, pid: pid || null });
   state.activity = state.activity.slice(0, 200);
 }
-function notify(to, text, link) { state.notifications.unshift({ id: id("n"), to, at: now(), text, link, read: false }); }
+function notify(to, text, link) { if (to && to !== user().id) state.notifications.unshift({ id: id("n"), to, at: now(), text, link, read: false }); }
+const admins = () => state.users.filter((u) => u.role === "admin").map((u) => u.id);
+const clientsOf = (ws) => state.users.filter((u) => u.role === "client" && (u.workspaceIds || []).includes(ws)).map((u) => u.id);
+const roomLink = (rid) => { const v = state.videos.find((x) => x.reviewId === rid); return v ? `video-${v.id}` : `review-${rid}`; };
+function conflict(message) { const e = new Error(message); e.code = 409; return e; }
 function visibleProjects(u = user()) { return state.projects.filter((p) => canViewProject(u, p)); }
 function assetCtx(a) { return { resource: a, project: a.projectId ? project(a.projectId) : null, ws: a.ws }; }
 function mediaFor(a) {
@@ -49,6 +53,12 @@ function mediaFor(a) {
   return a.media ? MEDIA[a.media] : null;
 }
 const withMedia = (a) => ({ ...a, mediaInfo: mediaFor(a), projectName: project(a.projectId)?.name, byName: userName(a.by) });
+
+// Another tab saved: reload so this tab never decides on stale data (a real server returns 409 for the same case).
+if (typeof window !== "undefined") window.addEventListener("storage", (e) => {
+  if (e.key !== KEY) return;
+  state = load(); document.dispatchEvent(new CustomEvent("cue:external"));
+});
 
 export const svc = {
   flags,
@@ -77,7 +87,7 @@ export const svc = {
     if (!p) { const e = new Error("That project doesn't exist."); e.code = 404; throw e; }
     enforce(user(), "project.view", { project: p });
     return { ...p, editors: p.editorIds.map(userName), workspace: state.workspaces.find((w) => w.id === p.ws)?.name,
-      requests: state.requests.filter((r) => r.projectId === pid), reviews: state.reviews.filter((r) => r.projectId === pid),
+      requests: state.requests.filter((r) => r.projectId === pid).map((r) => ({ ...r, videoId: state.videos.find((v) => v.requestId === r.id)?.id || null })), reviews: state.reviews.filter((r) => r.projectId === pid),
       assets: state.assets.filter((a) => a.projectId === pid).map(withMedia) };
   }),
   folders: (ws) => call(() => { enforce(user(), "feed.view", { ws, projects: state.projects }); return state.folders.filter((f) => f.ws === ws); }),
@@ -125,31 +135,58 @@ export const svc = {
 
   // ---- editing requests ----
   requests: () => call(() => state.requests.filter((r) => canViewProject(user(), project(r.projectId)))
-    .map((r) => ({ ...r, projectName: project(r.projectId)?.name, assignee: r.assigneeId ? userName(r.assigneeId) : null, byName: userName(r.by) }))
+    .map((r) => ({ ...r, projectName: project(r.projectId)?.name, assignee: r.assigneeId ? userName(r.assigneeId) : null, byName: userName(r.by),
+      videoId: state.videos.find((v) => v.requestId === r.id)?.id || null }))
     .sort((a, b) => b.at.localeCompare(a.at))),
-  createRequest: (data) => call(() => {
-    const p = project(data.projectId);
-    enforce(user(), "request.create", { project: p, ws: p?.ws });
-    const title = String(data.title || "").trim().slice(0, 120), brief = String(data.brief || "").trim().slice(0, 4000);
-    if (!title || !brief) { const e = new Error("Add a title and a brief so the editor knows what to make."); e.code = 400; throw e; }
-    const r = { id: id("r"), ws: p.ws, projectId: p.id, type: data.type, title, brief, aspect: data.aspect, length: String(data.length || "").slice(0, 40),
-      due: data.due, assigneeId: null, by: user().id, at: now(), status: "Submitted", revisionsUsed: 0, assetIds: data.assetIds || [] };
-    state.requests.unshift(r); log("Submitted editing request", title, p.ws);
-    state.users.filter((u) => u.role === "admin").forEach((a) => notify(a.id, `New editing request: ${title}`, `project-${p.id}`));
-    save(); return r;
-  }),
+  /** Submitting is idempotent per draft key: a double tap or a retry returns the first request instead of a duplicate. */
+  createRequest: (data) => call(() => newRequest(data)),
   assignRequest: (rid, editorId) => call(() => {
     const r = state.requests.find((x) => x.id === rid); const p = project(r?.projectId);
     enforce(user(), "request.assign", { project: p });
     const ed = state.users.find((u) => u.id === editorId && u.role === "editor");
     if (!ed) { const e = new Error("Pick an editor."); e.code = 400; throw e; }
-    r.assigneeId = ed.id; r.status = "Assigned"; if (!p.editorIds.includes(ed.id)) p.editorIds.push(ed.id);
-    log("Assigned editor", `${ed.name} → ${r.title}`, p.ws); notify(ed.id, `You were assigned: ${r.title}`, `project-${p.id}`); save(); return r;
+    if (/approved/i.test(r.status)) throw conflict("This request is already approved. Make a new request for more work.");
+    const prev = r.assigneeId;
+    r.assigneeId = ed.id; if (/submitted/i.test(r.status)) r.status = "Assigned"; if (!p.editorIds.includes(ed.id)) p.editorIds.push(ed.id);
+    const v = state.videos.find((x) => x.requestId === r.id);
+    if (v) { v.editorId = ed.id; v.checklist.forEach((t) => { if (!t.owner || t.owner === prev) t.owner = ed.id; });
+      v.history.push({ at: now(), by: user().id, action: `Assigned ${ed.name}` }); }
+    log(prev ? "Reassigned editor" : "Assigned editor", `${ed.name} → ${r.title}`, p.ws, p.id);
+    notify(ed.id, `You were assigned: ${r.title}`, v ? `video-${v.id}` : `project-${p.id}`);
+    if (prev && prev !== ed.id) notify(prev, `${r.title} was reassigned to ${ed.name}`, `project-${p.id}`);
+    notify(r.by, `${ed.name} will edit “${r.title}”`, v ? `video-${v.id}` : `project-${p.id}`);
+    save(); return r;
   }),
   startRequest: (rid) => call(() => {
     const r = state.requests.find((x) => x.id === rid); const p = project(r?.projectId);
     enforce(user(), "request.start", { project: p });
-    r.status = "In progress"; log("Started editing", r.title, p.ws); save(); return r;
+    if (!/assigned|submitted|revision/i.test(r.status)) throw conflict(`This request is “${r.status}”, so editing can't start again.`);
+    if (!r.assigneeId) throw conflict("Assign an editor first.");
+    r.status = "In progress"; log("Started editing", r.title, p.ws, p.id);
+    const v = state.videos.find((x) => x.requestId === r.id); if (v) v.history.push({ at: now(), by: user().id, action: "Started editing" });
+    notify(r.by, `${userName(user().id)} started editing “${r.title}”`, v ? `video-${v.id}` : `project-${p.id}`);
+    save(); return r;
+  }),
+  /** Admin board / editor queue: open requests with owner, deadline and lateness. Editors see only their own. */
+  production: () => call(() => {
+    const u = user(); enforce(u, "production.view", {});
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = state.requests.filter((r) => canViewProject(u, project(r.projectId)) && (u.role === "admin" || r.assigneeId === u.id)).map((r) => {
+      const v = state.videos.find((x) => x.requestId === r.id), rv = v && state.reviews.find((x) => x.id === v.reviewId);
+      return { ...r, projectName: project(r.projectId)?.name, workspace: state.workspaces.find((w) => w.id === r.ws)?.name, assignee: r.assigneeId ? userName(r.assigneeId) : null,
+        byName: userName(r.by), videoId: v?.id || null, stage: v ? roomStatus(v, rv) : r.status, overdue: Boolean(r.due && r.due < today && !/approved/i.test(r.status)),
+        versions: rv?.versions.length || 0, open: rv ? rv.comments.filter((c) => !c.resolved).length : 0,
+        tasks: v ? v.checklist.length : 0, done: v ? v.checklist.filter((t) => t.done).length : 0 };
+    }).sort((a, b) => (a.due || "9999").localeCompare(b.due || "9999"));
+    const editors = u.role === "admin" ? state.users.filter((x) => x.role === "editor").map((ed) => {
+      const mine = rows.filter((r) => r.assigneeId === ed.id && !/approved/i.test(r.status));
+      return { id: ed.id, name: ed.name, title: ed.title, open: mine.length, overdue: mine.filter((r) => r.overdue).length, next: mine[0]?.due || null };
+    }) : [];
+    return { rows, editors };
+  }),
+  projectActivity: (pid) => call(() => {
+    enforce(user(), "project.view", { project: project(pid) });
+    return state.activity.filter((a) => a.pid === pid).slice(0, 40).map((a) => ({ ...a, byName: userName(a.by) }));
   }),
 
   // ---- reviews ----
@@ -174,52 +211,75 @@ export const svc = {
     if (!text) { const e = new Error("Write what should change before sending."); e.code = 400; throw e; }
     const c = { id: id("c"), version, t: Math.max(0, Number(t) || 0), shape: shape || null, body: text, by: user().id, at: now(), resolved: false, replies: [] };
     r.comments.push(c); r.audit.push({ at: now(), by: user().id, action: `Commented at ${fmtT(c.t)}`, detail: text.slice(0, 80) });
-    log("Commented on review", r.title, p.ws); save(); return c;
+    // The other side hears about it: client feedback reaches the editing team, editor notes reach the client.
+    const to = user().role === "client" ? [...p.editorIds, ...admins()] : clientsOf(p.ws);
+    to.forEach((uid) => notify(uid, `${userName(user().id)} left feedback at ${fmtT(c.t)} on ${r.title}`, roomLink(r.id)));
+    log("Left feedback", `${r.title} at ${fmtT(c.t)}`, p.ws, p.id); save(); return c;
   }),
   reply: (rid, cid, body) => call(() => {
     const r = state.reviews.find((x) => x.id === rid); const p = project(r?.projectId); enforce(user(), "review.comment", { project: p });
     const c = r.comments.find((x) => x.id === cid); const text = String(body || "").trim().slice(0, 2000);
     if (!c || !text) { const e = new Error("Write a reply first."); e.code = 400; throw e; }
-    c.replies.push({ by: user().id, body: text, at: now() }); save(); return c;
+    c.replies.push({ by: user().id, body: text, at: now() });
+    notify(c.by, `${userName(user().id)} replied to your feedback on ${r.title}`, roomLink(r.id)); save(); return c;
   }),
   resolve: (rid, cid, resolved) => call(() => {
     const r = state.reviews.find((x) => x.id === rid); const p = project(r?.projectId); const c = r?.comments.find((x) => x.id === cid);
     enforce(user(), "review.resolve", { project: p, resource: c, ws: p?.ws });
-    c.resolved = resolved; r.audit.push({ at: now(), by: user().id, action: resolved ? "Resolved a comment" : "Reopened a comment" }); save(); return c;
+    c.resolved = resolved; r.audit.push({ at: now(), by: user().id, action: resolved ? "Resolved a comment" : "Reopened a comment" });
+    notify(c.by, `${userName(user().id)} ${resolved ? "resolved" : "reopened"} your feedback on ${r.title}`, roomLink(r.id));
+    log(resolved ? "Resolved feedback" : "Reopened feedback", r.title, p.ws, p.id); save(); return c;
   }),
-  decide: (rid, decision, note) => call(() => {
+  /** expectedVersion: the version the person was looking at. A newer version or an earlier decision makes it stale. */
+  decide: (rid, decision, note, expectedVersion) => call(() => {
     const r = state.reviews.find((x) => x.id === rid); const p = project(r?.projectId);
     enforce(user(), "review.decide", { project: p, ws: p?.ws });
     const req = state.requests.find((x) => x.id === r.requestId);
+    if (r.status !== "In review") throw conflict(r.status === "Approved" ? "This video is already approved. Refresh to see the latest." : `This video is “${r.status.toLowerCase()}”, so there's no version waiting for a decision. Refresh to see the latest.`);
+    const latestN = r.versions[r.versions.length - 1]?.n;
+    if (expectedVersion != null && latestN !== Number(expectedVersion)) throw conflict(`Version ${latestN} arrived after you opened version ${expectedVersion}. Watch the newest version before deciding.`);
     if (decision === "changes") {
       const text = String(note || "").trim();
       if (!text) { const e = new Error("Say what should change so the editor can act on it."); e.code = 400; throw e; }
       if (req && req.revisionsUsed >= p.revisionLimit) { const e = new Error(`This project's ${p.revisionLimit} included revisions are used. Ask your producer about an extra round.`); e.code = 409; throw e; }
       r.status = "Changes requested"; if (req) { req.status = "Revision"; req.revisionsUsed += 1; }
       r.audit.push({ at: now(), by: user().id, action: "Requested changes", detail: text.slice(0, 120) });
-      p.editorIds.forEach((e) => notify(e, `Changes requested on ${r.title}`, `review-${r.id}`));
+      p.editorIds.forEach((e) => notify(e, `Changes requested on ${r.title}: “${text.slice(0, 60)}”`, roomLink(r.id)));
+      admins().forEach((a) => notify(a, `Changes requested on ${r.title}`, roomLink(r.id)));
     } else if (decision === "approve") {
       if (!r.versions.length) { const e = new Error("There's no edited version to approve yet."); e.code = 409; throw e; }
       r.status = "Approved"; if (req) req.status = "Approved";
       r.audit.push({ at: now(), by: user().id, action: `Approved version ${r.versions.length}` });
       const latest = r.versions[r.versions.length - 1];
-      const a = state.assets.find((x) => x.projectId === p.id && x.media === latest.media); if (a) a.channel = true;
+      const v = state.videos.find((x) => x.reviewId === r.id);
+      const a = state.assets.find((x) => v && x.videoId === v.id && x.version === latest.n) || state.assets.find((x) => x.projectId === p.id && x.media === latest.media); if (a) a.channel = true;
       state.feed.unshift({ id: id("fd"), ws: p.ws, kind: "approved", by: user().id, at: now(), text: `Approved ${r.title} (version ${r.versions.length}).`,
         assetId: a?.id, comments: [], saves: [] });
-      p.editorIds.forEach((e) => notify(e, `${r.title} was approved`, `review-${r.id}`));
+      [...p.editorIds, ...admins()].forEach((e) => notify(e, `${r.title} was approved (version ${r.versions.length})`, roomLink(r.id)));
     } else { const e = new Error("Unknown decision"); e.code = 400; throw e; }
-    log(decision === "approve" ? "Approved deliverable" : "Requested changes", r.title, p.ws); save(); return r;
+    log(decision === "approve" ? `Approved version ${r.versions.length}` : "Requested changes", r.title, p.ws, p.id); save(); return r;
   }),
   /** Simulated: adds a new version using an existing demo clip. No rendering happens in the preview. */
   uploadVersion: (rid, note) => call(() => {
     const r = state.reviews.find((x) => x.id === rid); const p = project(r?.projectId);
     enforce(user(), "review.upload_version", { project: p });
-    const prev = r.versions[r.versions.length - 1] || { media: state.videos.find((v) => v.reviewId === r.id)?.original.media || "v1" };
-    r.versions.push({ n: r.versions.length + 1, media: prev.media === "v1" ? "v2" : prev.media, by: user().id, at: now(), note: String(note || "Revised cut").slice(0, 200), simulated: true });
-    r.status = "In review"; const req = state.requests.find((x) => x.id === r.requestId); if (req) req.status = "In review";
+    if (r.status === "Approved") throw conflict("This video is already approved. Use “Make more from this video” for new work.");
+    const v = state.videos.find((x) => x.reviewId === r.id), req = state.requests.find((x) => x.id === r.requestId);
+    const prev = r.versions[r.versions.length - 1];
+    // The preview can't render: it reuses a synthetic clip and labels the version simulated.
+    const media = prev ? (prev.media === "v1" ? "v2" : prev.media) : v?.original.media || DEMO_CLIP[req?.type] || "v2";
+    r.versions.push({ n: r.versions.length + 1, media, by: user().id, at: now(), note: String(note || "Revised cut").slice(0, 200), simulated: true });
+    // Each submitted version is a deliverable file (a reused synthetic clip, labelled simulated); approval makes it shareable.
+    if (v && !state.assets.some((a) => a.videoId === v.id && a.version === r.versions.length)) {
+      const slug = r.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+      state.assets.push({ id: id("a"), videoId: v.id, version: r.versions.length, ws: p.ws, projectId: p.id, folderId: null, name: `${slug}-v${r.versions.length}.mp4`, kind: "video",
+        media, size: MEDIA[media] ? 200000 : 0, tags: ["deliverable", "simulated render"], by: user().id, at: now(), channel: false });
+    }
+    r.status = "In review"; if (req) req.status = "In review";
     r.audit.push({ at: now(), by: user().id, action: `Uploaded version ${r.versions.length} (simulated)` });
-    state.users.filter((u) => u.role === "client" && u.workspaceIds.includes(p.ws)).forEach((c) => notify(c.id, `New version of ${r.title} is ready`, `review-${r.id}`));
-    log("Submitted new version", r.title, p.ws); save(); return r;
+    if (v) v.history.push({ at: now(), by: user().id, action: `Submitted version ${r.versions.length} for review` });
+    clientsOf(p.ws).forEach((c) => notify(c, `Version ${r.versions.length} of ${r.title} is ready for your review`, roomLink(r.id)));
+    log(`Submitted version ${r.versions.length}`, r.title, p.ws, p.id); save(); return r;
   }),
 
   // ---- feed ----
@@ -328,6 +388,8 @@ export const svc = {
     const p = state.proposals.find((x) => x.id === pid && x.by === user().id);
     if (!p || p.status !== "Waiting for you") { const e = new Error("That suggestion was already handled."); e.code = 409; throw e; }
     if (!approve) { p.status = "Declined"; save(); return clone(p); }
+    p.status = "Working"; // a second tap while the first approval runs can't run it twice
+    try {
     // Approval runs the same authorized service call a person would make; a denied action stays unexecuted.
     if (p.kind === "request") await svc.createRequest(p.payload);
     else if (p.kind === "comment") await svc.addComment(p.payload.reviewId, p.payload);
@@ -335,6 +397,8 @@ export const svc = {
     else if (p.kind === "changes") await svc.decide(p.payload.reviewId, "changes", p.payload.note);
     else if (p.kind === "post") await svc.savePost(p.payload);
     else if (p.kind === "feed") await svc.videoAction(p.payload.videoId, "feed", p.payload);
+    else if (p.kind === "another") await svc.videoAction(p.payload.videoId, "another", p.payload);
+    } catch (e) { p.status = "Waiting for you"; save(); throw e; }
     p.status = "Done"; save(); return clone(p);
   },
   chat: () => clone(state.chat[user().id] || []),
@@ -350,11 +414,13 @@ const templateSafe = (text, v) => {
   return String(text || "").split(w?.name || "\u0000").join("the client").split(p?.name || "\u0000").join("this project");
 };
 function roomStatus(v, r) {
-  if (r.status === "Approved") return "Approved";
-  if (r.status === "Changes requested") return "Changes requested";
-  if (r.versions.length && r.status === "In review") return "Ready for review";
   const req = state.requests.find((x) => x.id === v.requestId);
-  return req && /progress|revision/i.test(req.status) ? "Being edited" : r.versions.length ? "Ready for review" : "Waiting to start";
+  if (r.status === "Approved") return "Approved";
+  if (r.versions.length && r.status === "In review") return "Ready for review";
+  if (req && /progress/i.test(req.status)) return "Being edited"; // includes reworking requested changes
+  if (r.status === "Changes requested") return "Changes requested";
+  if (req && /revision/i.test(req.status)) return "Being edited";
+  return r.versions.length ? "Ready for review" : "Waiting to start";
 }
 function capabilities(v) {
   const u = user(), c = videoCtx(v), all = ["review.comment", "review.decide", "review.assign", "review.upload_version", "checklist.update", "checklist.comment",
@@ -362,11 +428,54 @@ function capabilities(v) {
   return Object.fromEntries(all.map((a) => [a, can(u, a, c)]));
 }
 
+/* ---------------- Request lifecycle: every request gets its own Editing Room ---------------- */
+const DEMO_CLIP = { short: "reel", captions: "reel", aspect: "reel", highlights: "podcast", podcast: "podcast" };
+const DEFAULT_CHECKLIST = [
+  ["Before editing", "Read the brief and watch all the footage"], ["Video and sound", "Assemble the cut"],
+  ["Video and sound", "Clean and level the sound"], ["Captions and graphics", "Add captions and brand graphics"], ["Final checks", "Play every deliverable through"]];
+const presetFor = (aspect = "") => /9:16/.test(aspect) ? "reels" : /1:1|4:5/.test(aspect) ? "li" : "yt";
+
+function newRequest(data, from) {
+  const p = project(data.projectId);
+  enforce(user(), "request.create", { project: p, ws: p?.ws });
+  const key = data.key ? String(data.key).slice(0, 80) : null;
+  const dup = key && state.requests.find((x) => x.key === key && x.by === user().id);
+  if (dup) return dup;
+  const title = String(data.title || "").trim().slice(0, 120), brief = String(data.brief || "").trim().slice(0, 4000);
+  if (!title || !brief) { const e = new Error("Add a title and a brief so the editor knows what to make."); e.code = 400; throw e; }
+  // Footage must be media this person can see, in the same workspace.
+  const footage = (data.assetIds || []).map((aid) => state.assets.find((a) => a.id === aid)).filter((a) => a && a.ws === p.ws && canViewAsset(user(), a, project(a.projectId)));
+  if ((data.assetIds || []).length !== footage.length) { const e = new Error("Some of the chosen footage isn't available to this project."); e.code = 400; throw e; }
+  const tpl = data.templateId ? state.templates.find((t) => t.id === data.templateId && t.ws === p.ws) : null;
+  const r = { id: id("r"), key, ws: p.ws, projectId: p.id, type: data.type || "short", title, brief, aspect: data.aspect || "", length: String(data.length || "").slice(0, 40),
+    due: data.due || "", assigneeId: null, by: user().id, at: now(), status: "Submitted", revisionsUsed: 0, assetIds: footage.map((a) => a.id), templateId: tpl?.id || null };
+  state.requests.unshift(r);
+  // Its Editing Room: instructions from the brief (and template or source video), checklist from the template or defaults.
+  const src = from?.instructions || {}, ti = tpl?.instructions || {};
+  const lead = footage.find((a) => a.media && MEDIA[a.media]);
+  const rv = { id: id("rv"), ws: p.ws, projectId: p.id, requestId: r.id, title, status: "Waiting to start", versions: [], comments: [],
+    audit: [{ at: now(), by: user().id, action: "Requested this video" }] };
+  const v = { id: id("v"), ws: p.ws, projectId: p.id, reviewId: rv.id, requestId: r.id, title, editorId: null,
+    original: { media: lead?.media || from?.media || null, label: lead ? `${lead.name} (original)` : from?.media ? "Approved video it builds on" : "No footage attached yet" },
+    instructions: { brief, brand: tpl?.brand?.length ? [...tpl.brand] : [...(src.brand || [])],
+      deliverables: tpl?.outputs?.length ? tpl.outputs.map((o) => ({ label: o === "reels" ? "Vertical cut" : o === "li" ? "Square cut" : "Main edit", preset: o }))
+        : [{ label: `${title} (${r.aspect || "16:9"})`, preset: presetFor(r.aspect) }],
+      visual: ti.visual || src.visual || "", audio: ti.audio || src.audio || "", captions: ti.captions || src.captions || "" },
+    checklist: (tpl?.checklist?.length ? tpl.checklist.map((t) => [t.section, t.text]) : DEFAULT_CHECKLIST)
+      .map(([section, text], i) => ({ id: `t${i + 1}`, section, text, owner: null, done: false, src: "", out: "", notes: [] })),
+    history: [{ at: now(), by: user().id, action: from ? `Requested from “${from.title}”` : tpl ? `Requested from the template “${tpl.name}”` : "Requested this video" },
+      ...footage.map((a) => ({ at: now(), by: user().id, action: `Attached footage: ${a.name}` }))] };
+  state.reviews.push(rv); state.videos.push(v); r.videoId = v.id;
+  log("Submitted editing request", title, p.ws, p.id);
+  admins().forEach((a) => notify(a, `New editing request: ${title} (needs an editor)`, "studio-board"));
+  save(); return r;
+}
+
 Object.assign(svc, {
   videos: ({ ws } = {}) => call(() => state.videos.filter((v) => (!ws || v.ws === ws) && canViewProject(user(), project(v.projectId))).map((v) => {
     const r = state.reviews.find((x) => x.id === v.reviewId), last = r.versions[r.versions.length - 1];
     return { id: v.id, title: v.title, ws: v.ws, projectId: v.projectId, projectName: project(v.projectId)?.name, status: roomStatus(v, r),
-      editor: userName(v.editorId), poster: MEDIA[last?.media || v.original.media].poster, versions: r.versions.length,
+      editor: v.editorId ? userName(v.editorId) : null, poster: MEDIA[last?.media || v.original.media]?.poster || null, versions: r.versions.length,
       done: v.checklist.filter((t) => t.done).length, tasks: v.checklist.length, open: r.comments.filter((c) => !c.resolved).length };
   })),
   videoForAsset: (aid) => state.assets.find((a) => a.id === aid)?.videoId || null,
@@ -376,15 +485,18 @@ Object.assign(svc, {
     if (!v) { const e = new Error("That video doesn't exist."); e.code = 404; throw e; }
     enforce(user(), "project.view", videoCtx(v));
     const r = state.reviews.find((x) => x.id === v.reviewId), p = project(v.projectId);
-    const versions = [{ n: 0, label: v.original.label, ...MEDIA[v.original.media], by: null, at: null, note: "The footage as it was uploaded" },
+    const versions = [{ n: 0, label: v.original.label, ...(MEDIA[v.original.media] || { src: null, poster: null, duration: 0 }), by: null, at: null,
+      note: v.original.media ? "The footage as it was uploaded" : "No playable footage yet: the first edited version will appear here" },
       ...r.versions.map((x) => ({ ...x, label: `Version ${x.n}`, ...MEDIA[x.media], byName: userName(x.by) }))];
     const files = state.assets.filter((a) => a.ws === v.ws && (a.projectId === v.projectId || (!a.projectId && canViewAsset(user(), a, null)))).map(withMedia);
     const decisions = r.audit.filter((a) => /approved|requested changes/i.test(a.action)).map((a) => ({ ...a, byName: userName(a.by) }));
     return { ...v, status: roomStatus(v, r), reviewStatus: r.status, projectName: p.name, workspace: state.workspaces.find((w) => w.id === v.ws)?.name,
-      editorName: userName(v.editorId), versions, files, decisions,
+      editorName: v.editorId ? userName(v.editorId) : null, versions, files, decisions,
+      request: (() => { const q = state.requests.find((x) => x.id === v.requestId); return q ? { id: q.id, status: q.status, assigneeId: q.assigneeId, due: q.due, byName: userName(q.by), type: q.type } : null; })(),
+      editors: user().role === "admin" ? state.users.filter((u) => u.role === "editor").map((u) => ({ id: u.id, name: u.name })) : [],
       comments: r.comments.map((c) => ({ ...c, byName: userName(c.by), assigneeName: c.assigneeId ? userName(c.assigneeId) : null,
         replies: c.replies.map((x) => ({ ...x, byName: userName(x.by) })) })),
-      checklist: v.checklist.map((t) => ({ ...t, ownerName: userName(t.owner), doneByName: t.doneBy ? userName(t.doneBy) : null,
+      checklist: v.checklist.map((t) => ({ ...t, ownerName: t.owner ? userName(t.owner) : "Not assigned yet", doneByName: t.doneBy ? userName(t.doneBy) : null,
         notes: t.notes.map((n) => ({ ...n, byName: userName(n.by) })) })),
       activity: [...r.audit, ...v.history].map((a) => ({ ...a, byName: userName(a.by) })).sort((a, b) => b.at.localeCompare(a.at)),
       revisionLimit: p.revisionLimit, revisionsUsed: state.requests.find((x) => x.id === v.requestId)?.revisionsUsed ?? 0,
@@ -443,16 +555,29 @@ Object.assign(svc, {
     if (kind === "another" || kind === "translate") {
       enforce(user(), kind === "another" ? "video.another" : "video.translate", c);
       const lang = String(opts.language || "Spanish").slice(0, 40);
-      const req = { id: id("r"), ws: v.ws, projectId: v.projectId, type: kind === "another" ? "short" : "captions",
-        title: kind === "another" ? `New version of ${v.title}` : `${lang} captions for ${v.title}`,
-        brief: kind === "another" ? String(opts.brief || `A new version of ${v.title}. Keep what worked; change: ${opts.change || "see notes"}.`).slice(0, 4000)
+      const req = newRequest({ projectId: v.projectId, key: opts.key, type: kind === "another" ? (opts.type || "short") : "captions",
+        title: String(opts.title || (kind === "another" ? `New version of ${v.title}` : `${lang} captions for ${v.title}`)).slice(0, 120),
+        brief: kind === "another" ? String(opts.brief || `A new version of ${v.title}. Keep what worked; change: ${opts.change || "see notes"}.`)
           : `Translated ${lang} captions for ${v.title}. The preview can't translate; an editor or translator does this.`,
-        aspect: opts.aspect || "9:16", length: opts.length || "", due: "", assigneeId: null, by: user().id, at: now(), status: "Submitted", revisionsUsed: 0 };
-      state.requests.unshift(req); v.history.push({ at: now(), by: user().id, action: `Requested: ${req.title}` });
-      state.users.filter((u) => u.role === "admin").forEach((a) => notify(a.id, `New editing request: ${req.title}`, `project-${v.projectId}`));
-      save(); return req;
+        aspect: opts.aspect || "9:16", length: opts.length || "", due: opts.due || "",
+        assetIds: latestAsset && r.status === "Approved" ? [latestAsset.id] : [] }, { title: v.title, instructions: v.instructions, media: latest?.media });
+      v.history.push({ at: now(), by: user().id, action: `Requested: ${req.title}` }); save(); return req;
     }
     const e = new Error("Unknown action"); e.code = 400; throw e;
+  }),
+  /** Where content stands, from completed video to social preparation. "Published" is always 0: the preview can't publish. */
+  pipeline: (ws) => call(() => {
+    enforce(user(), "feed.view", { ws, projects: state.projects });
+    const vids = state.videos.filter((v) => v.ws === ws && canViewProject(user(), project(v.projectId)));
+    const status = (v) => roomStatus(v, state.reviews.find((x) => x.id === v.reviewId));
+    const approved = vids.filter((v) => status(v) === "Approved");
+    const shareable = state.assets.filter((a) => a.ws === ws && a.channel && canViewAsset(user(), a, project(a.projectId)));
+    const posts = state.posts.filter((p) => p.ws === ws);
+    const reused = new Set(posts.map((p) => p.assetId));
+    return { videos: vids.length, inProduction: vids.length - approved.length, approved: approved.length, shareable: shareable.length,
+      repurposable: shareable.filter((a) => !reused.has(a.id)).length, drafts: posts.filter((p) => p.status === "Draft").length,
+      awaiting: posts.filter((p) => p.status === "Awaiting approval").length, approvedPosts: posts.filter((p) => p.status === "Approved").length,
+      ready: posts.filter((p) => /ready to schedule/i.test(p.status)).length, published: 0 };
   }),
   announcements: () => call(() => state.announcements.filter((a) => !(state.dismissed[user().id] || []).includes(a.id))),
   dismiss: (aid) => call(() => { const me = user().id; state.dismissed[me] = [...new Set([...(state.dismissed[me] || []), aid])]; save(); return true; }),

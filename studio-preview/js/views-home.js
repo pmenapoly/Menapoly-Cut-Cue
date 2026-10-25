@@ -36,13 +36,15 @@ export async function homeView(out, _p, ctx) {
   const [reviews, notes, feed, notices, spot, uploaders, videos, projects, allUploads] = await Promise.all([svc.reviews(), svc.notifications(), svc.feed(ws.id), svc.announcements(),
     svc.spotlight(), svc.uploaders(ws.id), svc.videos({ ws: ws.id }), svc.projects(), svc.assets({ ws: ws.id })]);
   const uploads = filterUploads(allUploads, { who, pick, me });
+  const board = me.role === "admin" ? (await svc.production()).rows : [];
+  const unassigned = board.filter((r) => !r.assigneeId && !/approved/i.test(r.status)), overdue = board.filter((r) => r.overdue);
   const vidStatus = Object.fromEntries(videos.map((v) => [v.id, v.status]));
   const toReview = reviews.filter((r) => r.ws === ws.id && r.status === "In review");
   const openComments = reviews.filter((r) => r.ws === ws.id).reduce((n, r) => n + r.open, 0);
   const soon = projects.filter((p) => p.ws === ws.id && p.due && (new Date(p.due) - Date.now()) / 864e5 <= 7 && !/approved|delivered/i.test(p.status));
   const mine = videos.filter((v) => /edit|waiting|changes/i.test(v.status) && (me.role !== "editor" || v.editor === me.name));
   const hour = new Date().getHours(), first = me.name.split(" ")[0];
-  const waiting = me.role === "editor" ? mine.length : toReview.length + (openComments ? 1 : 0) + soon.length;
+  const waiting = me.role === "editor" ? mine.length : toReview.length + (openComments ? 1 : 0) + soon.length + (unassigned.length ? 1 : 0);
   const greet = `${hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"}, `;
 
   // 1 · What needs me? (amber, compact, one obvious action)
@@ -54,12 +56,19 @@ export async function homeView(out, _p, ctx) {
         h("span", { style: "min-width:0" }, h("span", { class: "eyebrow" }, icon("clock", 14), "Ready for your review"), h("b", {}, `${r.title} · version ${r.latest.n}`))),
       h("ul", {}, toReview.length > 1 ? h("li", {}, `${toReview.length - 1} more video(s) waiting for review`) : null,
         openComments ? h("li", {}, `${openComments} open comment(s) across your videos`) : null,
+        unassigned.length ? h("li", {}, h("a", { href: "#studio-board" }, `${unassigned.length} request(s) need an editor`)) : null,
+        overdue.length ? h("li", {}, h("a", { href: "#studio-board" }, `${overdue.length} overdue`)) : null,
         soon.map((p) => h("li", {}, h("a", { href: `#project-${p.id}` }, p.name), ` · due ${fmtDate(p.due)}`))),
       h("a", { class: "btn primary lg block", href: `#video-${r.videoId}` }, "Review now"));
+  } else if (me.role === "admin" && unassigned.length) {
+    attention = h("section", { class: "attention o-attn", "aria-label": "Needs your attention" },
+      h("span", { class: "eyebrow" }, icon("clock", 14), "Needs an editor"), h("b", { style: "font-family:var(--display);font-size:19px" }, unassigned[0].title),
+      h("ul", {}, h("li", {}, `${unassigned.length} request(s) waiting for an editor`), overdue.length ? h("li", {}, `${overdue.length} overdue`) : null),
+      h("a", { class: "btn primary lg block", href: "#studio-board" }, "Open the production board"));
   } else if (me.role === "editor" && mine.length) {
     const v = mine[0];
     attention = h("section", { class: "attention o-attn", style: "background:var(--sky)", "aria-label": "Your editing queue" },
-      h("a", { class: "lead", href: `#video-${v.id}` }, h("img", { src: v.poster, alt: "" }),
+      h("a", { class: "lead", href: `#video-${v.id}` }, v.poster ? h("img", { src: v.poster, alt: "" }) : null,
         h("span", { style: "min-width:0" }, h("span", { class: "eyebrow", style: "color:var(--sky-ink)" }, icon("pen", 14), v.status), h("b", {}, v.title))),
       h("ul", { style: "color:var(--sky-ink)" }, h("li", {}, `${v.done} of ${v.tasks} checklist tasks done`), mine.length > 1 ? h("li", {}, `${mine.length - 1} more in your queue`) : null),
       h("a", { class: "btn primary lg block", href: `#video-${v.id}` }, "Open the Editing Room"));
@@ -121,7 +130,7 @@ export async function homeView(out, _p, ctx) {
       h("aside", { class: "col" }, maven, discover,
         h("section", { class: "card o-progress" }, h("h2", {}, "Videos in progress"),
           videos.length ? h("ul", { class: "list" }, videos.map((v) => h("li", {}, h("a", { class: "item", href: `#video-${v.id}` },
-            h("span", { class: "thumb" }, h("img", { src: v.poster, alt: "" })),
+            h("span", { class: "thumb" }, v.poster ? h("img", { src: v.poster, alt: "" }) : icon("film", 22)),
             h("span", { class: "grow" }, h("span", { class: "title small" }, v.title), h("span", { class: "row", style: "gap:6px" }, statusBadge(v.status, v.status), h("span", { class: "tiny faint" }, `${v.done}/${v.tasks} tasks`))), icon("chevron", 18)))))
             : h("p", { class: "muted small" }, "No videos you can see yet.")),
         h("section", { class: "card o-notes" }, h("div", { class: "section-head" }, h("h2", {}, "Notifications"), h("a", { href: "#inbox", class: "small" }, "Inbox")),

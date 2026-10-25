@@ -9,14 +9,28 @@ import { composer, wsPicker } from "./views-home.js";
 const mem = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch { return null; } return v; };
 
 /* ================= Social Sharing ================= */
+/** From finished video to prepared post, with honest labels: drafts are drafts and nothing is published. */
+export function pipelineStrip(p) {
+  const step = (n, label, sub, tone, link) => h(link ? "a" : "div", { class: "pipe-step", "data-tone": tone, href: link ? `#${link}` : null },
+    h("b", {}, String(n)), h("span", {}, label), sub ? h("small", {}, sub) : null);
+  return h("section", { class: "pipeline", "aria-label": "Content pipeline" },
+    step(p.inProduction, "In production", "being made or reviewed", "editing", "studio"),
+    step(p.approved, "Approved videos", "finished and signed off", "done", "review"),
+    step(p.repurposable, "Ready to reuse", `of ${p.shareable} in the sharing library`, "waiting", "library"),
+    step(p.drafts + p.awaiting, "Post drafts", `${p.awaiting} waiting for approval`, "review"),
+    step(p.approvedPosts + p.ready, "Prepared posts", `${p.ready} marked ready to schedule (simulated)`, "done"),
+    step(p.published, "Published", "publishing isn't connected in the preview", "changes"));
+}
+
 export async function socialView(out, _p, ctx) {
   const me = svc.me(), ws = svc.currentWs();
   const tab = mem("cue-social-tab") || "drafts";
-  const [posts, approved] = await Promise.all([svc.posts(ws?.id), svc.assets({ ws: ws?.id, channel: true })]);
+  const [posts, approved, pipe] = await Promise.all([svc.posts(ws?.id), svc.assets({ ws: ws?.id, channel: true }), svc.pipeline(ws?.id)]);
   out.append(
     h("div", { class: "section-head" }, h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, ws?.name || ""), h("h1", {}, "Social Sharing")),
       h("div", { class: "row" }, wsPicker(() => ctx.rerenderShell()), h("button", { class: "btn primary", onclick: () => composer(ws, ctx) }, icon("pen", 18), "Draft a post"))),
     h("p", { class: "small" }, demoBadge("Preparation only"), " Captions, approvals and calendars work here. No account is connected and nothing is posted."),
+    pipelineStrip(pipe),
     h("div", { class: "tabs", role: "tablist", "aria-label": "Social" }, [["drafts", "Posts"], ["calendar", "Calendar"], ["ideas", "Reuse ideas"]].map(([k, l]) =>
       h("button", { class: "tab", role: "tab", "aria-selected": String(tab === k), onclick: () => { mem("cue-social-tab", k); ctx.refresh(); } }, l))));
   if (tab === "calendar") { out.append(calendar(posts)); return; }

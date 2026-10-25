@@ -53,3 +53,6 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
 - Studio light design (docs/studio/light-design.md): tokens in studio-preview/styles.css (player is the only dark surface),
   statusInfo()/statusBadge() in js/ui.js; bar = Home/Studio/Review/AI Visibility/More. Design checks: e2e-studio/design.spec.ts
   (7-width layout sweep, axe WCAG AA, toHaveScreenshot baselines; update with --update-snapshots only for intended changes).
+- Studio workflow (docs/studio/workflow-audit.md): every request gets an Editing Room (service newRequest); decisions take
+  expectedVersion (409 when stale); request keys are idempotent; production board = #studio-board (svc.production).
+  e2e-studio/workflow.spec.ts (23 steps, results in docs/studio/workflow-results/) and reliability.spec.ts.
