@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>B · Media Studio</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&amp;family=Figtree:wght@400;500;600;700;800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#5B3FC4}a:hover{color:#332450}
+</style>
+</helmet>
+<div style="width: 390px; height: 1320px; position: relative; overflow: hidden; background: #FAF9FF; color: #332450; font-family: Figtree, system-ui, sans-serif; font-size: 15px; line-height: 1.45">
+  <header style="display: flex; align-items: center; gap: 6px; padding: 10px 16px; background: #FFFFFF; box-shadow: 0 1px 0 #ECE7F8">
+    <span aria-hidden="true" style="width: 34px; height: 34px; border-radius: 10px; background: conic-gradient(from 210deg, #8657F2, #C3AEFF, #69B7F8, #8657F2); display: flex; align-items: center; justify-content: center; color: #FFFFFF"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"></path></svg></span>
+    <b style="flex-grow: 1; font-family: 'Bricolage Grotesque', sans-serif; font-size: 19px; font-weight: 800">Media Studio</b>
+    <button aria-label="Ask Maven, Cue's assistant" style="display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: linear-gradient(120deg, #C3AEFF, #E4DAFF); color: #332450; font: 800 14px Figtree, sans-serif"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"></path></svg>Maven</button>
+    <span aria-label="Jordan Lee" style="width: 36px; height: 36px; border-radius: 18px; background: #F0EAFF; color: #5B3FC4; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800">JL</span>
+  </header>
+
+  <section style="padding: 18px 16px 0">
+    <div style="display: flex; gap: 10px">
+      <a href="#" style="flex-grow: 1; display: flex; align-items: center; justify-content: center; gap: 8px; height: 52px; border-radius: 14px; background: #6D3FE0; color: #FFFFFF; font-weight: 800; text-decoration: none"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>New editing request</a>
+      <a href="#" style="display: flex; align-items: center; justify-content: center; gap: 6px; height: 52px; padding: 0 16px; border-radius: 14px; background: #DDF0FF; color: #18527F; font-weight: 800; text-decoration: none"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"></path></svg>Upload</a>
+    </div>
+    <label style="display: flex; align-items: center; gap: 8px; height: 46px; margin-top: 12px; padding: 0 14px; border-radius: 14px; background: #FFFFFF; box-shadow: 0 0 0 1px #E4DDF7; color: #64627A"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg><input aria-label="Search media" placeholder="Search projects, videos and files" style="border: 0; outline: 0; background: none; flex-grow: 1; font: 15px Figtree, sans-serif; color: #332450"></label>
+  </section>
+
+  <section aria-label="Filter by status" style="display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 16px 0; font-size: 13px; font-weight: 800">
+    <a href="#" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 18px; background: #FFF0C9; color: #8A5A00; text-decoration: none">1 to review</a>
+    <a href="#" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 18px; background: #DDF0FF; color: #18527F; text-decoration: none">1 being edited</a>
+    <a href="#" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 18px; background: #FDE6E7; color: #B4233B; text-decoration: none">1 changes</a>
+    <a href="#" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 18px; background: #F0EAFF; color: #5B3FC4; text-decoration: none">1 needs footage</a>
+    <a href="#" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 18px; background: #DDF7EC; color: #0D5F53; text-decoration: none">1 done</a>
+  </section>
+
+  <section aria-label="Projects" style="padding: 18px 16px 0">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <h1 style="margin: 0; flex-grow: 1; font-family: 'Bricolage Grotesque', sans-serif; font-size: 24px; font-weight: 800">Projects</h1>
+      <span role="group" aria-label="View" style="display: flex; padding: 3px; border-radius: 12px; background: #EEEAF9">
+        <button aria-pressed="true" aria-label="Gallery view" style="width: 40px; height: 36px; border: 0; border-radius: 9px; background: #FFFFFF; color: #332450"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"></rect><rect x="13" y="4" width="7" height="7" rx="1.5"></rect><rect x="4" y="13" width="7" height="7" rx="1.5"></rect><rect x="13" y="13" width="7" height="7" rx="1.5"></rect></svg></button>
+        <button aria-pressed="false" aria-label="List view" style="width: 40px; height: 36px; border: 0; border-radius: 9px; background: none; color: #64627A"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg></button>
+      </span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px">
+      <a href="#" style="grid-column: span 2; text-decoration: none; color: #332450; background: #FFFFFF; border-radius: 18px; overflow: hidden; box-shadow: 0 8px 22px rgb(51 36 80 / 0.10)">
+        <span style="display: block; position: relative"><img src="/_blob/51d7ad5c3690db5a1132746b2ca16cfc" alt="" style="display: block; width: 100%; height: 150px; object-fit: cover"><span style="position: absolute; left: 10px; top: 10px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 10px; background: #FFF0C9; color: #8A5A00; font-size: 12.5px; font-weight: 800"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Awaiting your review</span></span>
+        <span style="display: flex; align-items: center; gap: 10px; padding: 12px 14px 14px"><span style="flex-grow: 1"><b style="display: block; font-family: 'Bricolage Grotesque', sans-serif; font-size: 19px; font-weight: 800">Spring Launch Campaign</b><span style="font-size: 13px; color: #64627A">Hero spot v2 · due Oct 28</span></span><span aria-label="Editor: Sam Rivera" style="width: 32px; height: 32px; border-radius: 16px; background: #DDF0FF; color: #18527F; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800">SR</span></span>
+      </a>
+      <a href="#" style="text-decoration: none; color: #332450; background: #FFFFFF; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 18px rgb(51 36 80 / 0.08)">
+        <img src="/_blob/3dbd4fd06b60d96c1b60f30666a2754c" alt="" style="display: block; width: 100%; height: 96px; object-fit: cover">
+        <span style="display: block; padding: 10px 12px 12px"><span style="display: inline-flex; padding: 2px 8px; border-radius: 8px; background: #DDF0FF; color: #18527F; font-size: 12px; font-weight: 800">Being edited</span><b style="display: block; margin-top: 4px; font-size: 14.5px">Brew Tips — six reels</b><span style="display: block; height: 5px; margin-top: 8px; border-radius: 3px; background: #E3EEF9"><span style="display: block; width: 33%; height: 5px; border-radius: 3px; background: #69B7F8"></span></span><span style="font-size: 12px; color: #64627A">2 of 6 delivered · Mika</span></span>
+      </a>
+      <a href="#" style="text-decoration: none; color: #332450; background: #FFFFFF; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 18px rgb(51 36 80 / 0.08)">
+        <img src="/_blob/2643301e398db43ee7e2d4e60ef4521d" alt="" style="display: block; width: 100%; height: 96px; object-fit: cover">
+        <span style="display: block; padding: 10px 12px 12px"><span style="display: inline-flex; padding: 2px 8px; border-radius: 8px; background: #FDE6E7; color: #B4233B; font-size: 12px; font-weight: 800">Changes requested</span><b style="display: block; margin-top: 4px; font-size: 14.5px">Origin story</b><span style="font-size: 12px; color: #64627A">3 notes open · Mika</span></span>
+      </a>
+      <a href="#" style="text-decoration: none; color: #332450; background: #FFFFFF; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 18px rgb(51 36 80 / 0.08)">
+        <span aria-hidden="true" style="display: flex; align-items: center; justify-content: center; height: 96px; background: #F0EAFF; color: #5B3FC4"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"></path></svg></span>
+        <span style="display: block; padding: 10px 12px 12px"><span style="display: inline-flex; padding: 2px 8px; border-radius: 8px; background: #F0EAFF; color: #5B3FC4; font-size: 12px; font-weight: 800">Needs footage</span><b style="display: block; margin-top: 4px; font-size: 14.5px">Holiday gift guide</b><span style="font-size: 12px; color: #64627A">Footage due Oct 30</span></span>
+      </a>
+      <a href="#" style="text-decoration: none; color: #332450; background: #FFFFFF; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 18px rgb(51 36 80 / 0.08)">
+        <img src="/_blob/a043cd7e4c309eefb0edc6801a25b2de" alt="" style="display: block; width: 100%; height: 96px; object-fit: cover">
+        <span style="display: block; padding: 10px 12px 12px"><span style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 8px; background: #DDF7EC; color: #0D5F53; font-size: 12px; font-weight: 800"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"></path></svg>Completed</span><b style="display: block; margin-top: 4px; font-size: 14.5px">Café opening teaser</b><span style="font-size: 12px; color: #64627A">Approved Oct 12</span></span>
+      </a>
+    </div>
+  </section>
+
+  <section aria-label="Uploads" style="padding: 20px 16px 0">
+    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
+      <h2 style="margin: 0; flex-grow: 1; font-family: 'Bricolage Grotesque', sans-serif; font-size: 19px; font-weight: 800">Uploads</h2>
+      <a href="#" aria-current="true" style="padding: 6px 10px; border-radius: 10px; background: #332450; color: #FFFFFF; font-size: 13px; font-weight: 700; text-decoration: none">All</a>
+      <a href="#" style="padding: 6px 10px; color: #332450; font-size: 13px; font-weight: 700; text-decoration: none">Mine</a>
+      <a href="#" style="padding: 6px 10px; color: #332450; font-size: 13px; font-weight: 700; text-decoration: none">Others</a>
+      <select aria-label="Uploaded by" style="height: 36px; border: 0; border-radius: 10px; background: #EEEAF9; color: #332450; font: 700 13px Figtree, sans-serif"><option>Anyone</option></select>
+    </div>
+  </section>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); height: 68px; background: #FFFFFF; box-shadow: 0 -1px 0 #ECE7F8; font-size: 12px; font-weight: 700">
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"></path></svg>Home</a>
+    <a href="#" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #5B3FC4; text-decoration: none"><span style="display: flex; padding: 3px 16px; border-radius: 14px; background: #F0EAFF"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"></rect><path d="M10 9.5v5l4.5-2.5z"></path></svg></span>Studio</a>
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>Review</a>
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"></path></svg>Ask Cue</a>
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1320}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

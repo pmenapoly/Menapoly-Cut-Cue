@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>C · AI Visibility</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#5B3FC4}a:hover{color:#332450}
+</style>
+</helmet>
+<div style="width: 390px; height: 1320px; position: relative; overflow: hidden; background: #F7F7FA; color: #241B38; font-family: Geist, system-ui, sans-serif; font-size: 15px; line-height: 1.45">
+  <header style="display: flex; align-items: center; gap: 6px; padding: 10px 16px; background: #FFFFFF; border-bottom: 1px solid #E7E6EE">
+    <span style="flex-grow: 1; display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; letter-spacing: -0.01em"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 3px; background: #6D3FE0"></span>menapoly cue</span>
+    <button aria-label="Ask Maven, Cue's assistant" style="display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px; border: 1px solid #D9CCFF; border-radius: 10px; background: #F6F2FF; color: #5B3FC4; font: 600 14px Geist, sans-serif"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"></path></svg>Maven</button>
+    <span aria-label="Jordan Lee" style="width: 34px; height: 34px; border-radius: 8px; background: #241B38; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">JL</span>
+  </header>
+  <p style="margin: 0; padding: 6px 16px; background: #FFF0C9; color: #6E4800; font-size: 12px; font-weight: 700; letter-spacing: 0.06em">FICTIONAL DEMO DATA · every number is invented</p>
+
+  <section style="padding: 18px 16px 0">
+    <h1 style="margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.025em">AI Visibility</h1>
+    <div style="display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap">
+      <select aria-label="Date range" style="height: 38px; border: 1px solid #E2E1EA; border-radius: 8px; background: #FFFFFF; color: #241B38; font: 600 13px Geist, sans-serif"><option>Last 8 weeks</option></select>
+      <select aria-label="Compare with" style="height: 38px; border: 1px solid #E2E1EA; border-radius: 8px; background: #FFFFFF; color: #241B38; font: 600 13px Geist, sans-serif"><option>vs Competitor A</option></select>
+      <span role="group" aria-label="Section" style="display: flex; padding: 2px; border-radius: 8px; background: #EDECF3; font-size: 13px; font-weight: 600"><a href="#" aria-current="true" style="padding: 8px 10px; border-radius: 6px; background: #FFFFFF; color: #241B38; text-decoration: none">AI search</a><a href="#" style="padding: 8px 10px; color: #64627A; text-decoration: none">Social</a></span>
+    </div>
+  </section>
+
+  <section aria-label="Key metrics" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 14px 16px 0; background: #FFFFFF; border: 1px solid #E7E6EE; border-radius: 12px">
+    <div style="padding: 12px; border-right: 1px solid #EFEEF4"><p style="margin: 0; font-size: 12px; color: #64627A">Mentions / wk</p><p style="margin: 2px 0 0; font-family: 'Geist Mono', monospace; font-size: 26px; letter-spacing: -0.04em">51</p><p style="margin: 0; font-size: 12px; font-weight: 600; color: #11786A">▲ 19 vs W1</p></div>
+    <div style="padding: 12px; border-right: 1px solid #EFEEF4"><p style="margin: 0; font-size: 12px; color: #64627A">Citations</p><p style="margin: 2px 0 0; font-family: 'Geist Mono', monospace; font-size: 26px; letter-spacing: -0.04em">22</p><p style="margin: 0; font-size: 12px; font-weight: 600; color: #11786A">▲ 7 vs W1</p></div>
+    <div style="padding: 12px"><p style="margin: 0; font-size: 12px; color: #64627A">Share of voice</p><p style="margin: 2px 0 0; font-family: 'Geist Mono', monospace; font-size: 26px; letter-spacing: -0.04em">31%</p><p style="margin: 0; font-size: 12px; font-weight: 600; color: #64627A">A: 27%</p></div>
+  </section>
+
+  <section aria-label="Trend" style="margin: 12px 16px 0; padding: 14px 12px 10px; background: #FFFFFF; border: 1px solid #E7E6EE; border-radius: 12px">
+    <div style="display: flex; gap: 14px; font-size: 12.5px; color: #4A4560"><span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 3px; border-radius: 2px; background: #6D3FE0"></span>Mentions</span><span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 3px; border-radius: 2px; background: #2F7FC6"></span>Citations</span></div>
+    <svg role="img" aria-label="Mentions rose from 32 to 51 a week and citations from 15 to 22 over 8 weeks" width="334" height="140" viewBox="0 0 360 140" style="display: block; margin-top: 6px">
+      <g stroke="#EFEEF4" stroke-width="1"><line x1="30" y1="20" x2="356" y2="20"></line><line x1="30" y1="53.3" x2="356" y2="53.3"></line><line x1="30" y1="86.7" x2="356" y2="86.7"></line><line x1="30" y1="120" x2="356" y2="120" stroke="#DAD8E4"></line></g>
+      <g fill="#64627A" font-family="Geist Mono, monospace" font-size="10"><text x="0" y="24">60</text><text x="0" y="57">40</text><text x="0" y="90">20</text><text x="6" y="124">0</text><text x="30" y="136">W1</text><text x="336" y="136">W8</text></g>
+      <polyline points="30,66.7 75.7,58.3 121.4,41.7 167.1,48.3 212.9,31.7 258.6,28.3 304.3,33.3 350,35" fill="none" stroke="#6D3FE0" stroke-width="2.5" stroke-linejoin="round"></polyline>
+      <polyline points="30,95 75.7,100 121.4,100 167.1,96.7 212.9,96.7 258.6,90 304.3,93.3 350,83.3" fill="none" stroke="#2F7FC6" stroke-width="2.5" stroke-linejoin="round" stroke-dasharray="6 4"></polyline>
+      <circle cx="350" cy="35" r="4" fill="#6D3FE0"></circle><circle cx="350" cy="83.3" r="4" fill="#2F7FC6"></circle>
+    </svg>
+  </section>
+
+  <section aria-label="Insight" style="margin: 12px 16px 0; padding: 14px; border-radius: 12px; background: linear-gradient(160deg, #F3EEFF, #FBF9FF); border: 1px solid #E2D8FF">
+    <p style="margin: 0; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #5B3FC4"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"></path></svg>Insight</p>
+    <dl style="margin: 8px 0 0; display: grid; grid-template-columns: 96px 1fr; gap: 6px 10px; font-size: 14px">
+      <dt style="color: #64627A">What happened</dt><dd style="margin: 0">Brewing guides drove the rise (9 of 10 prompts).</dd>
+      <dt style="color: #64627A">Why it matters</dt><dd style="margin: 0">Gifting is the gap: 2 of 8, before the holidays.</dd>
+      <dt style="color: #5B3FC4; font-weight: 600">Do next</dt><dd style="margin: 0; font-weight: 600">Gift-guide answer page with the Spring Launch clip.</dd>
+    </dl>
+    <a href="#" style="display: flex; align-items: center; justify-content: center; height: 46px; margin-top: 12px; border-radius: 10px; background: #6D3FE0; color: #FFFFFF; font-weight: 600; text-decoration: none">Explore this action</a>
+  </section>
+
+  <section aria-label="Prompt coverage" style="margin: 12px 16px 0; padding: 12px; background: #FFFFFF; border: 1px solid #E7E6EE; border-radius: 12px">
+    <h2 style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #64627A">Prompt coverage</h2>
+    <div style="display: grid; grid-template-columns: 1fr 96px 40px; gap: 8px 10px; align-items: center; margin-top: 8px; font-size: 13.5px">
+      <span>How to brew pour-over</span><span style="height: 8px; border-radius: 4px; background: #EDECF3"><span style="display: block; width: 90%; height: 8px; border-radius: 4px; background: #6D3FE0"></span></span><span style="font-family: 'Geist Mono', monospace; font-size: 12.5px">9/10</span>
+      <span>Best single-origin</span><span style="height: 8px; border-radius: 4px; background: #EDECF3"><span style="display: block; width: 58%; height: 8px; border-radius: 4px; background: #6D3FE0"></span></span><span style="font-family: 'Geist Mono', monospace; font-size: 12.5px">7/12</span>
+      <span>Ethical roasters</span><span style="height: 8px; border-radius: 4px; background: #EDECF3"><span style="display: block; width: 33%; height: 8px; border-radius: 4px; background: #6D3FE0"></span></span><span style="font-family: 'Geist Mono', monospace; font-size: 12.5px">3/9</span>
+      <span style="font-weight: 600">Coffee gift ideas</span><span style="height: 8px; border-radius: 4px; background: #EDECF3"><span style="display: block; width: 25%; height: 8px; border-radius: 4px; background: #F17F86"></span></span><span style="font-family: 'Geist Mono', monospace; font-size: 12.5px; color: #B4233B">2/8</span>
+    </div>
+    <p style="margin: 10px 0 0; font-size: 12.5px; color: #64627A">Sources: pour-over guide 34% · local news 22% · reviews 19% · <a href="#">all evidence</a></p>
+  </section>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); height: 64px; background: #FFFFFF; border-top: 1px solid #E7E6EE; font-size: 11.5px; font-weight: 600">
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"></path></svg>Home</a>
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"></rect><path d="M10 9.5v5l4.5-2.5z"></path></svg>Studio</a>
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>Review</a>
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"></path></svg>Ask Cue</a>
+    <a href="#" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #5B3FC4; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1320}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

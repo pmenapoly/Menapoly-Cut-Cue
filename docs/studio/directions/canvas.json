@@ -1,0 +1,29 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-10-25T12:00:00Z"},
+  "title": "Cue Light Directions",
+  "launch": {"view": "canvas"},
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 390, "h": 1320, "title": "A · Home"},
+    "A-Studio.dc.html": {"x": 470, "y": 0, "w": 390, "h": 1320, "title": "A · Media Studio"},
+    "A-Room.dc.html": {"x": 940, "y": 0, "w": 390, "h": 1320, "title": "A · Editing Room"},
+    "A-Visibility.dc.html": {"x": 1410, "y": 0, "w": 390, "h": 1320, "title": "A · AI Visibility"},
+    "B-Home.dc.html": {"x": 0, "y": 1700, "w": 390, "h": 1320, "title": "B · Home"},
+    "B-Studio.dc.html": {"x": 470, "y": 1700, "w": 390, "h": 1320, "title": "B · Media Studio"},
+    "B-Room.dc.html": {"x": 940, "y": 1700, "w": 390, "h": 1320, "title": "B · Editing Room"},
+    "B-Visibility.dc.html": {"x": 1410, "y": 1700, "w": 390, "h": 1320, "title": "B · AI Visibility"},
+    "C-Home.dc.html": {"x": 0, "y": 3400, "w": 390, "h": 1320, "title": "C · Home"},
+    "C-Studio.dc.html": {"x": 470, "y": 3400, "w": 390, "h": 1320, "title": "C · Media Studio"},
+    "C-Room.dc.html": {"x": 940, "y": 3400, "w": 390, "h": 1320, "title": "C · Editing Room"},
+    "C-Visibility.dc.html": {"x": 1410, "y": 3400, "w": 390, "h": 1320, "title": "C · AI Visibility"}
+  },
+  "order": ["Main.dc.html", "A-Studio.dc.html", "A-Room.dc.html", "A-Visibility.dc.html", "B-Home.dc.html", "B-Studio.dc.html", "B-Room.dc.html", "B-Visibility.dc.html", "C-Home.dc.html", "C-Studio.dc.html", "C-Room.dc.html", "C-Visibility.dc.html"],
+  "notes": {
+    "titleA": {"x": 0, "y": -300, "text": "A — Light Luxe Executive Creative", "kind": "title1", "maxW": 1800},
+    "titleB": {"x": 0, "y": 1400, "text": "B — Light Creative Command Center", "kind": "title1", "maxW": 1800},
+    "titleC": {"x": 0, "y": 3100, "text": "C — Light Modern Intelligence Studio", "kind": "title1", "maxW": 1800},
+    "fold": {"x": 1880, "y": 0, "w": 300, "text": "Each board is a 390 px Android screen scrolled end to end. The first 844 px is what shows before scrolling. All names, numbers and media are fictional demo data.", "fill": "purple"}
+  },
+  "designSystems": []
+}

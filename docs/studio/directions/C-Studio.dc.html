@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>C · Media Studio</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@500&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#5B3FC4}a:hover{color:#332450}
+</style>
+</helmet>
+<div style="width: 390px; height: 1320px; position: relative; overflow: hidden; background: #F7F7FA; color: #241B38; font-family: Geist, system-ui, sans-serif; font-size: 15px; line-height: 1.45">
+  <header style="display: flex; align-items: center; gap: 6px; padding: 10px 16px; background: #FFFFFF; border-bottom: 1px solid #E7E6EE">
+    <span style="flex-grow: 1; display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; letter-spacing: -0.01em"><span aria-hidden="true" style="width: 10px; height: 10px; border-radius: 3px; background: #6D3FE0"></span>menapoly cue</span>
+    <button aria-label="Ask Maven, Cue's assistant" style="display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 14px; border: 1px solid #D9CCFF; border-radius: 10px; background: #F6F2FF; color: #5B3FC4; font: 600 14px Geist, sans-serif"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"></path></svg>Maven</button>
+    <span aria-label="Jordan Lee" style="width: 34px; height: 34px; border-radius: 8px; background: #241B38; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">JL</span>
+  </header>
+
+  <section style="padding: 18px 16px 0">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <h1 style="margin: 0; flex-grow: 1; font-size: 24px; font-weight: 700; letter-spacing: -0.025em">Media Studio</h1>
+      <a href="#" style="display: inline-flex; align-items: center; height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid #DAD8E4; background: #FFFFFF; color: #241B38; font-weight: 600; font-size: 14px; text-decoration: none">Upload</a>
+      <a href="#" style="display: inline-flex; align-items: center; height: 44px; padding: 0 14px; border-radius: 10px; background: #6D3FE0; color: #FFFFFF; font-weight: 600; font-size: 14px; text-decoration: none">New request</a>
+    </div>
+    <div role="img" aria-label="5 projects: 1 to review, 1 being edited, 1 changes requested, 1 needs footage, 1 completed" style="display: flex; gap: 3px; height: 8px; margin-top: 16px">
+      <span style="flex: 1; border-radius: 4px; background: #F1B760"></span><span style="flex: 1; border-radius: 4px; background: #69B7F8"></span><span style="flex: 1; border-radius: 4px; background: #F17F86"></span><span style="flex: 1; border-radius: 4px; background: #C3AEFF"></span><span style="flex: 1; border-radius: 4px; background: #57D1B7"></span>
+    </div>
+    <p style="margin: 6px 0 0; font-size: 12.5px; color: #64627A">5 projects · 1 to review · 1 editing · 1 changes · 1 needs footage · 1 done</p>
+  </section>
+
+  <section style="padding: 14px 16px 0; display: flex; flex-direction: column; gap: 8px">
+    <label style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border-radius: 10px; background: #FFFFFF; border: 1px solid #E2E1EA; color: #64627A"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg><input aria-label="Search media" placeholder="Search projects and media" style="border: 0; outline: 0; background: none; flex-grow: 1; font: 15px Geist, sans-serif; color: #241B38"></label>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap">
+      <span role="group" aria-label="Uploads" style="display: flex; padding: 2px; border-radius: 8px; background: #EDECF3; font-size: 13px; font-weight: 600"><a href="#" aria-current="true" style="padding: 8px 10px; border-radius: 6px; background: #FFFFFF; color: #241B38; text-decoration: none">All uploads</a><a href="#" style="padding: 8px 10px; color: #64627A; text-decoration: none">Mine</a><a href="#" style="padding: 8px 10px; color: #64627A; text-decoration: none">Others</a></span>
+      <select aria-label="Uploaded by" style="height: 38px; border: 1px solid #E2E1EA; border-radius: 8px; background: #FFFFFF; color: #241B38; font: 600 13px Geist, sans-serif"><option>Anyone</option></select>
+      <select aria-label="Status" style="height: 38px; border: 1px solid #E2E1EA; border-radius: 8px; background: #FFFFFF; color: #241B38; font: 600 13px Geist, sans-serif"><option>Any status</option></select>
+    </div>
+  </section>
+
+  <section aria-label="Projects" style="padding: 14px 16px 0">
+    <div style="display: flex; align-items: center; font-size: 12.5px; color: #64627A; padding: 0 2px 6px"><span style="flex-grow: 1">PROJECT</span><span>Gallery · <b style="color: #241B38">List</b></span></div>
+    <ul style="list-style: none; margin: 0; padding: 0; background: #FFFFFF; border: 1px solid #E7E6EE; border-radius: 12px">
+      <li style="display: flex; gap: 12px; align-items: center; padding: 12px"><img src="/_blob/51d7ad5c3690db5a1132746b2ca16cfc" alt="" style="width: 64px; height: 44px; object-fit: cover; border-radius: 6px"><span style="flex-grow: 1; min-width: 0"><b style="display: block; font-weight: 600">Spring Launch Campaign</b><span style="font-size: 12.5px; color: #64627A">Sam Rivera · due Oct 28</span></span><span style="padding: 3px 8px; border-radius: 6px; background: #FFF0C9; color: #8A5A00; font-size: 12px; font-weight: 600">To review</span></li>
+      <li style="display: flex; gap: 12px; align-items: center; padding: 12px; border-top: 1px solid #EFEEF4"><img src="/_blob/3dbd4fd06b60d96c1b60f30666a2754c" alt="" style="width: 64px; height: 44px; object-fit: cover; border-radius: 6px"><span style="flex-grow: 1; min-width: 0"><b style="display: block; font-weight: 600">Brew Tips — six reels</b><span style="font-size: 12.5px; color: #64627A">Mika Chen · <span style="font-family: 'Geist Mono', monospace">2/6</span> delivered</span></span><span style="padding: 3px 8px; border-radius: 6px; background: #DDF0FF; color: #1F5F99; font-size: 12px; font-weight: 600">Editing</span></li>
+      <li style="display: flex; gap: 12px; align-items: center; padding: 12px; border-top: 1px solid #EFEEF4"><img src="/_blob/2643301e398db43ee7e2d4e60ef4521d" alt="" style="width: 64px; height: 44px; object-fit: cover; border-radius: 6px"><span style="flex-grow: 1; min-width: 0"><b style="display: block; font-weight: 600">Origin story</b><span style="font-size: 12.5px; color: #64627A">Mika Chen · 3 notes open</span></span><span style="padding: 3px 8px; border-radius: 6px; background: #FDE6E7; color: #B4233B; font-size: 12px; font-weight: 600">Changes</span></li>
+      <li style="display: flex; gap: 12px; align-items: center; padding: 12px; border-top: 1px solid #EFEEF4"><span aria-hidden="true" style="width: 64px; height: 44px; border-radius: 6px; background: #F3EEFF; display: flex; align-items: center; justify-content: center; color: #5B3FC4"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"></path></svg></span><span style="flex-grow: 1; min-width: 0"><b style="display: block; font-weight: 600">Holiday gift guide</b><span style="font-size: 12.5px; color: #64627A">Not assigned · due Oct 30</span></span><span style="padding: 3px 8px; border-radius: 6px; background: #F3EEFF; color: #5B3FC4; font-size: 12px; font-weight: 600">Needs footage</span></li>
+      <li style="display: flex; gap: 12px; align-items: center; padding: 12px; border-top: 1px solid #EFEEF4"><img src="/_blob/a043cd7e4c309eefb0edc6801a25b2de" alt="" style="width: 64px; height: 44px; object-fit: cover; border-radius: 6px"><span style="flex-grow: 1; min-width: 0"><b style="display: block; font-weight: 600">Café opening teaser</b><span style="font-size: 12.5px; color: #64627A">Sam Rivera · approved Oct 12</span></span><span style="padding: 3px 8px; border-radius: 6px; background: #DDF7EC; color: #0D5F53; font-size: 12px; font-weight: 600">✓ Done</span></li>
+    </ul>
+  </section>
+
+  <section aria-label="Folders" style="padding: 18px 16px 0">
+    <h2 style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #64627A">Library folders</h2>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px">
+      <a href="#" style="padding: 12px; border-radius: 10px; background: #FFFFFF; border: 1px solid #E7E6EE; color: #241B38; text-decoration: none; font-size: 13.5px; font-weight: 600">Brand assets<span style="display: block; font-family: 'Geist Mono', monospace; font-size: 12px; color: #64627A">12 files</span></a>
+      <a href="#" style="padding: 12px; border-radius: 10px; background: #FFFFFF; border: 1px solid #E7E6EE; color: #241B38; text-decoration: none; font-size: 13.5px; font-weight: 600">Raw footage<span style="display: block; font-family: 'Geist Mono', monospace; font-size: 12px; color: #64627A">31 files</span></a>
+      <a href="#" style="padding: 12px; border-radius: 10px; background: #FFFFFF; border: 1px solid #E7E6EE; color: #241B38; text-decoration: none; font-size: 13.5px; font-weight: 600">Approved<span style="display: block; font-family: 'Geist Mono', monospace; font-size: 12px; color: #64627A">9 files</span></a>
+    </div>
+  </section>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); height: 64px; background: #FFFFFF; border-top: 1px solid #E7E6EE; font-size: 11.5px; font-weight: 600">
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"></path></svg>Home</a>
+    <a href="#" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #5B3FC4; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"></rect><path d="M10 9.5v5l4.5-2.5z"></path></svg>Studio</a>
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>Review</a>
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"></path></svg>Ask Cue</a>
+    <a href="#" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #64627A; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="19" cy="12" r="1.6"></circle></svg>More</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1320}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
