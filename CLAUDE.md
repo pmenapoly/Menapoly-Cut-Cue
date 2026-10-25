@@ -50,3 +50,6 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
 - Studio Editing Room: js/views-room.js (Project Workspace #project-*, Editing Room #video-*), js/player.js (custom
   controls + annotation canvas), js/maven.js (header launcher, contextual proposals). No Coaching tab; Home = feed +
   announcements + 14-day spotlight + upload filters. Contract and real/simulated list: docs/studio/editing-room.md.
+- Studio light design (docs/studio/light-design.md): tokens in studio-preview/styles.css (player is the only dark surface),
+  statusInfo()/statusBadge() in js/ui.js; bar = Home/Studio/Review/AI Visibility/More. Design checks: e2e-studio/design.spec.ts
+  (7-width layout sweep, axe WCAG AA, toHaveScreenshot baselines; update with --update-snapshots only for intended changes).

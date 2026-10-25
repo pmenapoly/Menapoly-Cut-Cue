@@ -1,6 +1,6 @@
 // Project Workspace and the Editing Room (one per video).
 // State per video (tab, version, playhead) is remembered so actions and Maven never lose the viewer's place.
-import { h, icon, toast, sheet, empty, ago, avatar, statusTone, demoBadge, fmtDate, bytes, kindIcon, copyText } from "./ui.js";
+import { h, icon, toast, sheet, empty, ago, avatar, statusTone, statusInfo, statusBadge, demoBadge, fmtDate, bytes, kindIcon, copyText } from "./ui.js";
 import { svc } from "./service.js";
 import { REQUEST_TYPES, EXPORT_PRESETS, CHECKLIST_SECTIONS } from "./data.js";
 import { createPlayer, fmtTime, setSources } from "./player.js";
@@ -87,48 +87,61 @@ export async function roomView(out, [vid], ctx) {
       h("div", { class: "stack", style: "gap:4px;flex:1;min-width:0" }, h("h1", { class: "room-title" }, v.title),
         h("p", { class: "small faint" }, `${v.workspace} · ${v.projectName}`)),
       h("button", { class: "iconbtn", "aria-label": "More actions", onclick: () => actionsSheet(v, ctx) }, icon("more", 24))),
-    h("div", { class: "row" }, h("span", { class: `chip ${statusTone(v.status)}`, "data-status": v.status }, v.status),
+    h("div", { class: "row" }, h("span", { class: "status", "data-tone": statusInfo(v.status).tone, "data-status": v.status }, icon(statusInfo(v.status).icon, 13), v.status),
       h("span", { class: "chip" }, avatar(v.editorName, true), `Editor: ${v.editorName}`)));
 
   // ---- under the player ----
   const versionSel = h("select", { id: "version-select", "aria-label": "Version", style: "width:auto;flex:1 1 180px" },
     v.versions.map((x, i) => h("option", { value: String(i), selected: i === version }, x.n === 0 ? x.label : `${x.label}${i === v.versions.length - 1 ? " (latest)" : ""}`)));
   versionSel.addEventListener("change", () => { version = Number(versionSel.value); remember(vid, { version }); player.setMedia(cur(), `${v.title}, ${cur().label}`); drawTab(); player.refresh(); });
-  const tools = h("div", { class: "row" }, versionSel,
-    v.versions.length > 1 ? h("button", { class: "btn sm", onclick: () => compareSheet(v, version) }, icon("compare", 16), "Compare with original") : null,
+  const tools = h("div", { class: "room-tools" }, versionSel,
+    v.versions.length > 1 ? h("button", { class: "btn sm", onclick: () => compareSheet(v, version) }, icon("compare", 16), "Compare versions") : null,
     h("button", { class: "btn sm", onclick: () => sheet("Transcript", h("div", { class: "state" }, icon("doc", 28), h("h3", {}, "No transcript for this video"),
       h("p", { class: "muted small" }, "This demo clip has no speech. When a real video is processed, the transcript appears here with timecodes you can tap.")),
       h("p", { class: "tiny faint" }, "Transcripts come from the editing engine; the preview never invents one.")) }, icon("doc", 16), "Transcript"));
 
   // ---- status / decision card ----
-  const statusCard = h("section", { class: "card status-card" });
+  const statusCard = h("section", { class: "card status-card", "aria-label": "Where it stands" });
+  const editorFirst = (v.editorName || "The editor").split(" ")[0];
+  const latestN = v.versions[v.versions.length - 1].n;
+  const HEAD = { review: me.role === "editor" ? "With the client for review" : `Happy with ${latestN ? `version ${latestN}` : "this cut"}?`, changes: `Back with ${editorFirst} for changes`,
+    editing: `${editorFirst} is editing`, done: "It's done. What's next?", waiting: `Waiting for ${editorFirst} to start` };
   function drawStatus() {
-    statusCard.replaceChildren(h("div", { class: "row" }, h("span", { class: "eyebrow" }, "Where it stands"), h("span", { class: `chip ${statusTone(v.status)}` }, v.status)),
-      h("p", {}, plain[v.status] || v.status));
+    const tone = statusInfo(v.status).tone, open = v.comments.filter((c) => !c.resolved).length, done = v.checklist.filter((t) => t.done).length;
+    statusCard.dataset.tone = tone;
+    statusCard.replaceChildren(h("span", { class: "eyebrow" }, icon(statusInfo(v.status).icon, 14), plain[v.status] || v.status),
+      h("h2", { class: "status-head" }, HEAD[tone]),
+      h("p", { class: "small muted" }, `${open} open comment(s) · checklist ${done} of ${v.checklist.length} done`));
     if (v.status === "Ready for review" && v.can["review.decide"]) {
       const note = h("textarea", { id: "changes-note", placeholder: "What should be different in the next version?", maxlength: "2000" });
       const form = h("div", { class: "stack", hidden: true }, h("label", { for: "changes-note" }, "What should change?"), note,
         h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: async () => {
           try { await svc.decide(v.reviewId, "changes", note.value); toast("Changes requested. The editor has been told."); ctx.refresh(); } catch (e) { toast(e.message, "err"); note.focus(); } } }, "Send to the editor"),
           h("button", { class: "btn ghost", onclick: () => openMaven(ctx, "Help me request changes") }, icon("spark", 16), "Help me write it")));
-      statusCard.append(h("p", { class: "small faint" }, `Revisions used: ${v.revisionsUsed} of ${v.revisionLimit}`),
-        h("div", { class: "actions" },
-          h("button", { class: "btn ok", onclick: async () => { try { await svc.decide(v.reviewId, "approve"); toast("Approved. It's ready to share."); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } },
+      statusCard.append(
+        h("div", { class: "decide" },
+          h("button", { class: "btn primary", onclick: async () => { try { await svc.decide(v.reviewId, "approve"); toast("Approved. It's ready to share."); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } },
             icon("check", 18), "Approve video"),
-          h("button", { class: "btn", onclick: () => { form.hidden = !form.hidden; if (!form.hidden) note.focus(); } }, icon("message", 18), "Request changes")), form);
+          h("button", { class: "btn", onclick: () => { form.hidden = !form.hidden; if (!form.hidden) note.focus(); } }, icon("message", 18), "Request changes")), form,
+        h("p", { class: "tiny faint" }, `Revisions used: ${v.revisionsUsed} of ${v.revisionLimit}`));
     } else if (v.status === "Approved") {
       const d = v.decisions.filter((x) => /approved/i.test(x.action)).pop();
+      const more = actionList(v, ctx).find((a) => a.k === "another");
       statusCard.append(d ? h("p", { class: "small faint" }, `Approved ${ago(d.at)} by ${d.byName}`) : null,
-        h("h3", {}, "What's next"), nextActions(v, ctx, true));
-    } else if (v.can["review.upload_version"]) {
+        more ? h("button", { class: "btn primary lg block", onclick: more.run }, icon("spark", 18), "Make more from this video") : null,
+        nextActions(v, ctx, true));
+    } else if (v.status === "Changes requested" && open) {
+      statusCard.append(h("button", { class: "btn sm", style: "justify-self:start;background:var(--surface)", onclick: () => { tab = "comments"; remember(vid, { filter: "open" }); drawTab(); panel.scrollIntoView({ block: "start" }); } },
+        icon("message", 16), `See the ${open} open comment(s)`));
+    }
+    if (v.can["review.upload_version"] && v.status !== "Approved") {
       const vn = h("input", { id: "version-note", placeholder: "What changed in this version?" });
       statusCard.append(h("label", { for: "version-note" }, "Submit a new version"), vn,
-        h("button", { class: "btn", onclick: async () => { try { await svc.uploadVersion(v.reviewId, vn.value); remember(vid, { version: undefined }); toast("New version submitted (simulated)"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } },
+        h("button", { class: `btn ${v.status === "Ready for review" ? "" : "primary"}`, style: "justify-self:start", onclick: async () => { try { await svc.uploadVersion(v.reviewId, vn.value); remember(vid, { version: undefined }); toast("New version submitted (simulated)"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } },
           icon("upload", 18), "Upload new version"), h("p", { class: "tiny" }, demoBadge(), " The preview reuses a demo clip; nothing is uploaded or rendered."));
     }
-    const done = v.checklist.filter((t) => t.done).length;
-    statusCard.append(h("div", { class: "row small faint" }, `Checklist: ${done} of ${v.checklist.length} done`),
-      h("div", { class: "progress", "aria-label": `${done} of ${v.checklist.length} checklist tasks done` }, h("span", { style: `width:${(done / Math.max(1, v.checklist.length)) * 100}%` })));
+    statusCard.append(h("div", { class: `progress ${tone === "done" ? "ok" : tone === "editing" ? "info" : ""}`, role: "img", "aria-label": `${done} of ${v.checklist.length} checklist tasks done` },
+      h("span", { style: `width:${(done / Math.max(1, v.checklist.length)) * 100}%` })));
   }
 
   // ---- tabs ----
@@ -186,7 +199,7 @@ export async function roomView(out, [vid], ctx) {
     if (on) toast(on === "rect" ? "Drag on the video to mark an area" : "Draw on the video"); void e; } }, icon(ic, 20), label);
   const updateWhere = () => where.replaceChildren(icon("clock", 16), ` At ${fmtTime(player.time())} on ${cur().label}`, player.annotate.draft() ? " · area marked" : "");
   player.el.addEventListener("draft", updateWhere);
-  composerBox.append(h("h3", {}, "Add a comment"), where,
+  composerBox.append(h("h3", {}, "Leave feedback"), where,
     h("div", { class: "tools", role: "group", "aria-label": "Mark the frame" }, toolBtn("rect", "Box", "box"), toolBtn("pen", "Draw", "pen"),
       h("button", { class: "tool", onclick: () => { player.annotate.clear(); updateWhere(); } }, icon("x", 20), "Clear")),
     h("label", { for: "annotation-body", class: "sr" }, "Comment"), body,
@@ -194,7 +207,7 @@ export async function roomView(out, [vid], ctx) {
       try {
         const c = await svc.addComment(v.reviewId, { version: cur().n, t: player.time(), shape: player.annotate.draft(), body: body.value });
         player.annotate.clear(); player.annotate.setTool(null); remember(vid, { tab: "comments", time: player.time() }); active = c.id; toast("Comment added"); ctx.refresh();
-      } catch (e) { toast(e.message, "err"); } } }, icon("send", 18), "Send comment"),
+      } catch (e) { toast(e.message, "err"); } } }, icon("send", 18), "Send feedback"),
       h("button", { class: "btn ghost", onclick: () => { composerBox.hidden = true; player.annotate.setTool(null); player.annotate.clear(); } }, "Cancel")));
   const openComposer = () => { player.pause(); tab = "comments"; drawTab(); composerBox.hidden = false; updateWhere(); body.focus({ preventScroll: true }); player.el.scrollIntoView({ block: "start" }); };
 
@@ -202,8 +215,8 @@ export async function roomView(out, [vid], ctx) {
     const f = memo.get(vid)?.filter || "open";
     const list = commentsFor().filter((c) => f === "all" || (f === "open" ? !c.resolved : f === "resolved" ? c.resolved : c.assigneeId === me.id)).sort((a, b) => a.version - b.version || a.t - b.t);
     return [
-      v.can["review.comment"] ? h("button", { class: "btn primary block", onclick: openComposer }, icon("message", 18), `Comment at ${fmtTime(player.time())}`) : null,
-      h("div", { class: "tabs", role: "group", "aria-label": "Filter comments" }, [["open", "Open"], ["resolved", "Resolved"], ["mine", "Assigned to me"], ["all", "All"]].map(([k, l]) =>
+      v.can["review.comment"] ? h("button", { class: "btn primary block", onclick: openComposer }, icon("message", 18), `Leave feedback at ${fmtTime(player.time())}`) : null,
+      h("div", { class: "tabs wrap", role: "group", "aria-label": "Filter comments" }, [["open", "Open"], ["resolved", "Resolved"], ["mine", "Assigned to me"], ["all", "All"]].map(([k, l]) =>
         h("button", { class: `tab ${f === k ? "on" : ""}`, "aria-pressed": String(f === k), onclick: () => { remember(vid, { filter: k }); drawTab(); } }, l))),
       h("label", { class: "check", for: "all-versions" }, h("input", { type: "checkbox", id: "all-versions", checked: Boolean(memo.get(vid)?.allVersions),
         onchange: (e) => { remember(vid, { allVersions: e.target.checked }); m.allVersions = e.target.checked; drawTab(); } }), "Show comments from every version"),
@@ -269,8 +282,9 @@ export async function roomView(out, [vid], ctx) {
   drawStatus(); drawTab();
   out.append(header, h("div", { class: "room" },
     // The comment composer sits right under the player so the drawing tools and the frame stay together on a phone.
-    h("div", { class: "room-main stack" }, player.el, composerBox, tools, statusCard),
-    h("div", { class: "room-side stack" }, tabBar, panel)));
+    // Phones: player → feedback → version tools → status → tabs. Desktop: the status and next action head the side panel.
+    h("div", { class: "room-main stack" }, player.el, composerBox, tools),
+    h("div", { class: "room-side stack" }, statusCard, tabBar, panel)));
   const onChanged = () => { if (location.hash === `#video-${vid}`) ctx.refresh(); };
   document.addEventListener("cue:changed", onChanged, { once: true });
 }
@@ -281,8 +295,8 @@ function actionList(v, ctx) {
   const later = "Available once the video is approved.";
   return [
     { k: "cue", title: "Create with Cue", text: "Get ideas for new content from this video.", show: true, run: () => openMaven(ctx, "Turn this video into a content idea") },
-    { k: "another", title: "Make another version", text: "Ask the editor for a different cut, length or format.", show: v.can["video.another"], run: () => anotherSheet(v, ctx) },
-    { k: "translate", title: "Translate video", text: "Request captions in another language. An editor or translator makes them; the preview can't translate.", show: v.can["video.translate"], run: () => translateSheet(v, ctx) },
+    { k: "another", title: "Make more from this video", text: "Ask the editor for another cut, length or format.", show: v.can["video.another"], run: () => anotherSheet(v, ctx) },
+    { k: "translate", title: "Add captions in another language", text: "Ask for captions in another language. A person makes them; the preview can't translate.", show: v.can["video.translate"], run: () => translateSheet(v, ctx) },
     { k: "library", title: "Add to sharing library", text: "Make it available to share across your team.", show: v.can["video.library"], off: !approved && later,
       run: async () => { try { await svc.videoAction(v.id, "library"); toast("Added to the sharing library"); } catch (e) { toast(e.message, "err"); } } },
     { k: "social", title: "Share on social", text: "Draft captions for each channel. Nothing is posted from the preview.", show: v.can["video.share"], off: !approved && later,
@@ -298,8 +312,8 @@ function actionTile(a, close) {
     h("b", {}, a.title), h("span", {}, a.off ? `${a.text} ${a.off}` : a.text));
 }
 function nextActions(v, ctx) {
-  return h("div", { class: "action-grid" }, actionList(v, ctx).filter((a) => ["social", "library", "another", "template"].includes(a.k)).map((a) => actionTile(a)),
-    h("button", { class: "action-tile", onclick: () => actionsSheet(v, ctx) }, h("b", {}, "All actions"), h("span", {}, "Translate, add to feed, copy link and more.")));
+  return h("div", { class: "action-grid" }, actionList(v, ctx).filter((a) => ["social", "library", "template"].includes(a.k)).map((a) => actionTile(a)),
+    h("button", { class: "action-tile", onclick: () => actionsSheet(v, ctx) }, h("b", {}, "All actions"), h("span", {}, "Captions in another language, add to feed, copy link and more.")));
 }
 function actionsSheet(v, ctx) {
   const d = sheet("What you can do with this video", h("div", { class: "action-grid" }, actionList(v, ctx).map((a) => actionTile(a, () => d.close()))));
@@ -308,14 +322,14 @@ function actionsSheet(v, ctx) {
 function anotherSheet(v, ctx) {
   const change = h("textarea", { id: "another-change", placeholder: "e.g. A 30-second vertical cut for Reels", maxlength: "2000" });
   const fmt = h("select", { id: "another-format" }, ["9:16", "16:9", "1:1", "4:5"].map((a) => h("option", {}, a)));
-  const d = sheet("Make another version", h("div", { class: "field" }, h("label", { for: "another-change" }, "What should be different?"), change),
+  const d = sheet("Make more from this video", h("div", { class: "field" }, h("label", { for: "another-change" }, "What should be different?"), change),
     h("div", { class: "field" }, h("label", { for: "another-format" }, "Shape"), fmt),
     h("button", { class: "btn primary", onclick: async () => {
       try { const r = await svc.videoAction(v.id, "another", { change: change.value.trim() || "see notes", aspect: fmt.value }); d.close(); toast(`Requested: ${r.title}`); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, "Send request"));
 }
 function translateSheet(v, ctx) {
   const lang = h("select", { id: "translate-lang" }, ["Spanish", "French", "Portuguese", "German", "Arabic"].map((l) => h("option", {}, l)));
-  const d = sheet("Translate video", h("p", { class: "small muted" }, "Automatic translation isn't available yet. This sends a request for translated captions to the editing team."),
+  const d = sheet("Add captions in another language", h("p", { class: "small muted" }, "Automatic translation isn't available yet. This sends a request for translated captions to the editing team."),
     h("div", { class: "field" }, h("label", { for: "translate-lang" }, "Language"), lang),
     h("button", { class: "btn primary", onclick: async () => {
       try { const r = await svc.videoAction(v.id, "translate", { language: lang.value }); d.close(); toast(`Requested: ${r.title}`); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, "Request translated captions"));

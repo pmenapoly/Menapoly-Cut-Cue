@@ -1,8 +1,8 @@
 // Media Studio: projects, editing requests, project detail, media detail, library and the request form.
-import { h, icon, toast, sheet, empty, ago, bytes, kindIcon, statusTone, demoBadge, fmtDate, avatar } from "./ui.js";
+import { h, icon, toast, sheet, empty, ago, bytes, kindIcon, statusTone, statusInfo, demoBadge, fmtDate, avatar, initials } from "./ui.js";
 import { svc } from "./service.js";
 import { REQUEST_TYPES, EXPORT_PRESETS } from "./data.js";
-import { mediaTile, composer, wsPicker } from "./views-home.js";
+import { mediaTile, composer, wsPicker, uploaderFilter, filterUploads } from "./views-home.js";
 
 const mem = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); if (v === null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch { return null; } return v; };
 const typeLabel = (id) => REQUEST_TYPES.find((t) => t.id === id)?.label || id;
@@ -10,18 +10,40 @@ const STAGES = ["Submitted", "Assigned", "In progress", "In review", "Approved"]
 
 export async function studioView(out, _p, ctx) {
   const me = svc.me(), tab = mem("cue-studio-tab") || "projects";
-  const [projects, requests] = await Promise.all([svc.projects(), svc.requests()]);
+  const [projects, requests, videos] = await Promise.all([svc.projects(), svc.requests(), svc.videos()]);
   out.append(
-    h("div", { class: "section-head" }, h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, "Media Studio"), h("h1", {}, "Production")),
-      me.role !== "editor" ? h("a", { class: "btn primary", href: "#request-new" }, icon("plus", 18), "New editing request") : null),
-    h("div", { class: "tabs", role: "tablist", "aria-label": "Studio" }, [["projects", "Projects"], ["requests", "Requests"], ["templates", "Templates"], ["presets", "Export presets"]].map(([k, l]) =>
+    h("div", { class: "section-head" }, h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, "Media Studio"), h("h1", {}, "Production"))),
+    h("div", { class: "studio-actions" },
+      me.role !== "editor" ? h("a", { class: "btn primary", href: "#request-new" }, icon("plus", 18), "New editing request") : null,
+      h("a", { class: "btn sky", href: "#library", "aria-label": "Upload footage" }, icon("upload", 18), "Upload", h("span", { class: "wide-only" }, " footage"))),
+    h("div", { class: "tabs wrap", role: "tablist", "aria-label": "Studio" }, [["projects", "Projects"], ["requests", "Requests"], ["templates", "Templates"], ["presets", "Export presets"]].map(([k, l]) =>
       h("button", { class: "tab", role: "tab", "aria-selected": String(tab === k), onclick: () => { mem("cue-studio-tab", k); ctx.refresh(); } }, l))));
   if (tab === "projects") {
-    out.append(projects.length ? h("div", { class: "grid-2" }, projects.map((p) => h("a", { class: "card", href: `#project-${p.id}`, style: "text-decoration:none;color:inherit" },
-      h("div", { class: "row" }, h("span", { class: `chip ${statusTone(p.status)}` }, p.status), p.pendingReview ? h("span", { class: "chip accent" }, "Review waiting") : null),
-      h("h2", {}, p.name), h("p", { class: "muted small" }, p.brief),
-      h("div", { class: "row small faint" }, icon("clock", 16), `Due ${fmtDate(p.due)}`, "·", p.editors.length ? `Editor: ${p.editors.join(", ")}` : "No editor yet"))))
-      : empty("No projects", me.role === "editor" ? "You'll see projects here once you're assigned." : "Send an editing request to start one."));
+    const q = (mem("cue-studio-q") || "").toLowerCase(), only = mem("cue-studio-status") || "all", view = mem("cue-studio-view") || "gallery";
+    const info = Object.fromEntries(projects.map((p) => {
+      const vids = videos.filter((v) => v.projectId === p.id), review = vids.find((v) => /review/i.test(v.status)), lead = review || vids[0];
+      const st = review ? review.status : p.status, done = vids.reduce((n, v) => n + v.done, 0), tasks = vids.reduce((n, v) => n + v.tasks, 0);
+      return [p.id, { st: statusInfo(st), poster: lead?.poster, done, tasks, vids }];
+    }));
+    const counts = {}; projects.forEach((p) => { const t = info[p.id].st.tone; counts[t] = (counts[t] || 0) + 1; });
+    const shown = projects.filter((p) => (only === "all" || info[p.id].st.tone === only) && (!q || `${p.name} ${p.brief}`.toLowerCase().includes(q)))
+      .sort((a, b) => (info[b.id].st.tone === "review") - (info[a.id].st.tone === "review"));
+    const search = h("input", { id: "studio-search", type: "search", value: mem("cue-studio-q") || "", placeholder: "Find a project", "aria-label": "Find a project",
+      onchange: (e) => { mem("cue-studio-q", e.target.value.trim()); ctx.refresh(); } });
+    const toneLabel = { review: "to review", editing: "being edited", changes: "with changes", waiting: "not started", done: "completed" };
+    out.append(
+      h("div", { class: "search" }, icon("search", 18), search),
+      h("div", { class: "status-filters", role: "group", "aria-label": "Filter by status" },
+        h("button", { "data-tone": "all", "aria-pressed": String(only === "all"), onclick: () => { mem("cue-studio-status", null); ctx.refresh(); } }, `All ${projects.length}`),
+        Object.keys(toneLabel).filter((t) => counts[t]).map((t) => h("button", { "data-tone": t, "aria-pressed": String(only === t), onclick: () => { mem("cue-studio-status", only === t ? null : t); ctx.refresh(); } },
+          `${counts[t]} ${toneLabel[t]}`))),
+      h("div", { class: "section-head", style: "align-items:center" }, h("p", { class: "small faint" }, only === "all" && !q ? `${projects.length} project(s)` : `${shown.length} of ${projects.length} project(s)`),
+        h("div", { class: "seg", role: "group", "aria-label": "View" },
+          h("button", { "aria-pressed": String(view === "gallery"), onclick: () => { mem("cue-studio-view", "gallery"); ctx.refresh(); } }, icon("grid", 16), "Gallery"),
+          h("button", { "aria-pressed": String(view === "list"), onclick: () => { mem("cue-studio-view", "list"); ctx.refresh(); } }, icon("layers", 16), "List"))),
+      shown.length ? h("div", { class: `projects ${view === "list" ? "list" : ""}` }, shown.map((p, i) => projectCard(p, info[p.id], i === 0 && info[p.id].st.tone === "review")))
+        : projects.length ? empty("No projects match", "Try another status or search.", h("button", { class: "btn", onclick: () => { mem("cue-studio-q", null); mem("cue-studio-status", null); ctx.refresh(); } }, "Clear filters"))
+        : empty("No projects", me.role === "editor" ? "You'll see projects here once you're assigned." : "Send an editing request to start one."));
   } else if (tab === "requests") {
     out.append(requests.length ? h("section", { class: "card" }, h("ul", { class: "list" }, requests.map((r) => h("li", {}, h("a", { class: "item", href: `#project-${r.projectId}` },
       h("span", { class: "thumb" }, icon("pen", 22)),
@@ -45,6 +67,17 @@ export async function studioView(out, _p, ctx) {
     out.append(h("p", { class: "muted" }, "Presets the editing engine will export to. In the preview, choosing a preset records the delivery request; no file is rendered."),
       h("div", { class: "grid-2" }, EXPORT_PRESETS.map((p) => h("div", { class: "card" }, h("h3", {}, p.label), h("p", { class: "mono small muted" }, p.spec)))));
   }
+}
+
+function projectCard(p, info, feature) {
+  const { st, poster, done, tasks } = info, badge = () => h("span", { class: "status", "data-tone": st.tone }, icon(st.icon, 13), st.label);
+  return h("a", { class: `pcard ${feature ? "feature" : ""}`, href: `#project-${p.id}`, "data-status": st.tone },
+    h("span", { class: "cover" }, poster ? h("img", { src: poster, alt: "", loading: "lazy" }) : icon(st.tone === "waiting" ? "upload" : "studio", 30), badge()),
+    h("span", { class: "pbody" }, badge(), h("h2", {}, p.name),
+      h("span", { class: "meta" }, p.editors.length ? h("span", { class: "avatar sm", title: `Editor: ${p.editors[0]}` }, initials(p.editors[0])) : null,
+        h("span", {}, `${p.editors.length ? p.editors.join(", ") : "No editor yet"} · due ${fmtDate(p.due)}`)),
+      tasks ? h("span", { class: `progress ${st.tone === "done" ? "ok" : st.tone === "editing" ? "info" : ""}`, role: "img", "aria-label": `${done} of ${tasks} checklist tasks done` },
+        h("span", { style: `width:${(done / tasks) * 100}%` })) : null));
 }
 
 export async function assetView(out, [aid], ctx) {
@@ -72,7 +105,9 @@ export async function libraryView(out, _p, ctx) {
   const me = svc.me(), ws = svc.currentWs();
   if (!ws) { out.append(h("h1", {}, "Library"), empty("No workspace", "You'll see media once you're assigned to a project.")); return; }
   const folder = mem("cue-lib-folder") || "", kind = mem("cue-lib-kind") || "all", q = mem("cue-lib-q") || "";
-  const [folders, assets, projects] = await Promise.all([me.role === "editor" ? Promise.resolve([]) : svc.folders(ws.id), svc.assets({ ws: ws.id, folderId: folder || null, kind, q }), svc.projects()]);
+  const who = mem("lib-uploads") || "all", pick = mem("lib-uploader") || "";
+  const [folders, found, projects, uploaders] = await Promise.all([me.role === "editor" ? Promise.resolve([]) : svc.folders(ws.id), svc.assets({ ws: ws.id, folderId: folder || null, kind, q }), svc.projects(), svc.uploaders(ws.id)]);
+  const assets = filterUploads(found, { who, pick, me });
   const search = h("input", { id: "lib-search", type: "search", value: q, placeholder: "Search files, tags and projects", "aria-label": "Search the library",
     onchange: (e) => { mem("cue-lib-q", e.target.value.trim()); ctx.refresh(); } });
   const picker = h("input", { id: "lib-file", type: "file", multiple: true, class: "sr", "aria-label": "Choose files to add",
@@ -105,13 +140,14 @@ export async function libraryView(out, _p, ctx) {
       me.role !== "editor" ? h("button", { class: "folder", onclick: () => newFolder(ws, ctx) }, icon("plus", 18), "New folder") : null) : null,
     h("div", { class: "tabs", role: "group", "aria-label": "File type" }, kinds.map(([k, l]) =>
       h("button", { class: `tab ${kind === k ? "on" : ""}`, "aria-pressed": String(kind === k), onclick: () => { mem("cue-lib-kind", k); ctx.refresh(); } }, l))),
+    uploaderFilter({ key: "lib", who, pick, me, uploaders, ctx }),
     queue,
     h("p", { class: "small faint" }, `${assets.length} file(s)${q ? ` matching “${q}”` : ""}`),
     assets.length ? h("div", { class: "tiles" }, assets.map((a) => h("div", { class: "stack", style: "gap:6px" }, mediaTile(a),
         folders.length ? h("button", { class: "btn sm", "aria-label": `Move ${a.name}`, onclick: () => moveSheet(a, folders, ctx) }, icon("folder", 16), "Move") : null)))
       : folder && !q && kind === "all" ? empty("This folder is empty", "Open a file and use Move to put it here.")
       : empty(q || kind !== "all" || folder ? "Nothing matches" : "No files yet", q || kind !== "all" || folder ? "Try another search, type or folder." : "Add footage to get started.",
-        q || kind !== "all" || folder ? h("button", { class: "btn", onclick: () => { mem("cue-lib-q", null); mem("cue-lib-kind", null); mem("cue-lib-folder", null); ctx.refresh(); } }, "Clear filters") : null));
+        q || kind !== "all" || folder || who !== "all" || pick ? h("button", { class: "btn", onclick: () => { mem("cue-lib-q", null); mem("cue-lib-kind", null); mem("cue-lib-folder", null); mem("lib-uploads", null); mem("lib-uploader", null); ctx.refresh(); } }, "Clear filters") : null));
 }
 
 function moveSheet(a, folders, ctx) {

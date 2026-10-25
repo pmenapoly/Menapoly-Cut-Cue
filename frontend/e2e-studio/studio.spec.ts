@@ -28,7 +28,7 @@ async function asRole(page: Page, userId: string) {
   await expect(page.locator(".role-chip")).toBeVisible();
 }
 async function navTo(page: Page, label: string) {
-  const bar: Record<string, string> = { Home: "Home", "Media Studio": "Studio", Review: "Review", "Ask Cue": "Ask Cue" };
+  const bar: Record<string, string> = { Home: "Home", "Media Studio": "Studio", Review: "Review", "AI Visibility": "Visibility" };
   if (!phone()) return page.locator(".rail").getByRole("link", { name: new RegExp(`^${label}`) }).click();
   if (bar[label]) return page.locator(".bar a", { hasText: bar[label] }).click();
   await page.locator(".bar button", { hasText: "More" }).click();
@@ -165,7 +165,7 @@ test("roles: editors and other clients can't reach what isn't theirs", async ({ 
   await open(page, "project-p_launch");
   await expect(page.getByText("You don't have access to this")).toBeVisible();
   await open(page, "studio");
-  await expect(page.locator(".card h2")).toHaveText(["Harborline Talks — Ep. 12", "January Membership Promo"]);
+  await expect(page.locator(".pcard h2")).toHaveText(["Harborline Talks — Ep. 12", "January Membership Promo"]);
   await open(page, "clients");
   await expect(page.getByText("You don't have access to this")).toBeVisible();
   await asRole(page, "u_admin");
@@ -183,7 +183,7 @@ test("AI Visibility: fictional labels, filters, modules and plan gating", async 
   await expect.poll(async () => (await ticks()).some((t) => t === "W4") && !(await ticks()).some((t) => t === "W12")).toBe(true);
   for (const m of ["AI Search", "Website", "Social", "Video", "Competitive", "Reports", "Actions"]) {
     await page.getByRole("navigation", { name: "Visibility modules" }).getByRole("link", { name: m }).click();
-    await expect(page.locator(".card h2").first()).toBeVisible();
+    await expect(page.locator(".panel h2, .card h2").first()).toBeVisible();
     await expect(page.getByText("Fictional demo data").first()).toBeVisible();
   }
   await shot(page, "09-visibility");

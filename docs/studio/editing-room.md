@@ -14,18 +14,18 @@ to do next.
 
 ## Editing Room layout
 
-- **Header:** back to the project; the title; workspace · project; status chip; assigned editor; **More actions** (⋯).
+- **Header:** back to the project; the title; workspace · project; status (word, icon and colour); assigned editor; **More actions** (⋯).
 - **Player** (`js/player.js`):
   - play/pause, a seek bar with comment pins, timecodes, volume and mute, speed (0.5–2×) and full screen;
   - a drawing layer for frame marks (box or freehand);
   - H.264 and VP9 sources, so the browser picks one it plays.
 - **Under the player:** the comment composer (kept next to the frame so the drawing tools work on a phone), a version
-  picker (Original plus each version), *Compare with original* and *Transcript*. The transcript states that none
+  picker (Original plus each version), *Compare versions* and *Transcript*. The transcript states that none
   exists: the synthetic clips have no speech, and the preview never invents one.
 - **Where it stands:** a plain-language status and the actions that fit it:
   - *Ready for review*: **Approve video** / **Request changes** (a note is required; *Help me write it* opens Maven).
-  - *Approved*: **What's next** (Share on social, Add to sharing library, Make another version, Make a template, All
-    actions).
+  - *Approved*: **Make more from this video** (the main action), then Share on social, Add to sharing library, Make a template
+    and All actions.
   - Otherwise, for the editing team: submit a new version (simulated).
   - Always: checklist progress.
 - **Tabs:**
@@ -72,7 +72,7 @@ authorized service call as the button would; *Decline* changes nothing.
 | Approve and request changes, with history and revision limits | **Social:** preparation only, nothing posts | **Automatic translation:** a request for translated captions is sent to the team instead |
 | Checklist ticks, notes and history, by permission | **Delivery and export presets:** recorded, not rendered | **Transcripts:** none exist for the synthetic clips |
 | Templates: make, list, reuse; workspace-scoped and stripped of client details | | **Live AI model:** Maven is deterministic |
-| Make another version and translated-caption requests (they create editing requests) | | |
+| Make more from this video, and captions in another language (both create editing requests) | | |
 | Add to sharing library, add to feed | | |
 | Home: announcements (dismiss persists), the 14-day spotlight from approved entries, upload filters, search | | |
 | Role and workspace rules on every service call | | |

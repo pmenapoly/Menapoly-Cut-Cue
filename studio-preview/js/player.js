@@ -30,12 +30,14 @@ export function createPlayer({ media, label, markers = () => [], onMarker = () =
   const playBtn = h("button", { class: "vp-btn", "aria-label": "Play", "aria-pressed": "false" }, icon("play", 22));
   const time = h("span", { class: "vp-time mono", "aria-live": "off" }, "0:00.0 / 0:00.0");
   const track = h("div", { class: "vp-track", role: "slider", tabindex: "0", "aria-label": "Seek", "aria-valuemin": "0", "aria-valuenow": "0" });
+  // Comment pins are buttons, so they sit in a layer over the slider rather than inside it (no nested controls).
+  const pins = h("div", { class: "vp-pins" });
   const mute = h("button", { class: "vp-btn", "aria-label": "Mute", "aria-pressed": "false" }, icon("volume", 20));
   const vol = h("input", { class: "vp-vol", type: "range", min: "0", max: "1", step: "0.05", value: "1", "aria-label": "Volume" });
   const speed = h("select", { class: "vp-speed", "aria-label": "Playback speed" }, SPEEDS.map((s) => h("option", { value: String(s), selected: s === 1 }, `${s}×`)));
   const full = h("button", { class: "vp-btn", "aria-label": "Full screen" }, icon("expand", 20));
-  el.append(stage, h("div", { class: "vp-bar" }, track,
-    h("div", { class: "vp-row" }, playBtn, time, h("span", { class: "vp-gap" }), mute, vol, speed, full)));
+  el.append(stage, h("div", { class: "vp-bar" }, h("div", { class: "vp-seek" }, h("div", { class: "vp-scrub" }, track, pins), time),
+    h("div", { class: "vp-row" }, playBtn, h("span", { class: "vp-gap" }), mute, vol, speed, full)));
 
   const toggle = async () => {
     if (video.paused) { try { await video.play(); } catch { toast("This video can't play in this browser.", "err"); } } else video.pause();
@@ -57,8 +59,8 @@ export function createPlayer({ media, label, markers = () => [], onMarker = () =
     const d = video.duration || duration || 1, t = video.currentTime || 0;
     track.setAttribute("aria-valuemax", String(Math.round(d))); track.setAttribute("aria-valuenow", String(Math.round(t)));
     track.setAttribute("aria-valuetext", `${fmtTime(t)} of ${fmtTime(d)}`);
-    track.replaceChildren(h("span", { class: "vp-played", style: `width:${(t / d) * 100}%` }),
-      ...markers().map((m) => h("button", { class: `vp-pin ${m.resolved ? "resolved" : ""}`, style: `left:${Math.min(100, (m.t / d) * 100)}%`, "aria-label": m.label,
+    track.replaceChildren(h("span", { class: "vp-played", style: `width:${(t / d) * 100}%` }));
+    pins.replaceChildren(...markers().map((m) => h("button", { class: `vp-pin ${m.resolved ? "resolved" : ""}`, style: `left:${Math.min(100, (m.t / d) * 100)}%`, "aria-label": m.label,
         onclick: (e) => { e.stopPropagation(); onMarker(m.id); } })));
     time.textContent = `${fmtTime(t)} / ${fmtTime(d)}`;
   };

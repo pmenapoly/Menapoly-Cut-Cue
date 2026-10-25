@@ -111,7 +111,17 @@ export function bytes(n) { const u = ["B", "KB", "MB", "GB"]; let i = 0; while (
 export const initials = (name) => name.split(" ").map((x) => x[0]).join("").slice(0, 2).toUpperCase();
 export const avatar = (name, sm) => h("span", { class: `avatar ${sm ? "sm" : ""}`, "aria-hidden": "true" }, initials(name));
 export const kindIcon = (k) => ({ video: "film", audio: "wave", image: "image", document: "doc" }[k] || "doc");
-export const statusTone = (s) => /approved|ready|done|complete/i.test(s) ? "ok" : /changes|revision|overdue/i.test(s) ? "warn" : /review|awaiting/i.test(s) ? "accent" : "";
+export const statusTone = (s) => /review|awaiting/i.test(s) ? "warn" : /changes|revision|overdue/i.test(s) ? "danger" : /approved|ready|done|complete|delivered/i.test(s) ? "ok"
+  : /edit|progress|assigned/i.test(s) ? "info" : /waiting|brief|requested|submitted/i.test(s) ? "accent" : "";
+/** One status language for projects and videos: a tone (colour) plus plain words, so colour is never the only signal. */
+export function statusInfo(s) {
+  if (/review/i.test(s)) return { tone: "review", label: "Ready for review", icon: "clock" };
+  if (/changes|revision/i.test(s)) return { tone: "changes", label: "Changes requested", icon: "message" };
+  if (/approved|done|complete|delivered/i.test(s)) return { tone: "done", label: "Completed", icon: "check" };
+  if (/edit|progress|assigned/i.test(s)) return { tone: "editing", label: "Being edited", icon: "pen" };
+  return { tone: "waiting", label: /brief/i.test(s) ? "Awaiting footage" : "Waiting to start", icon: "upload" };
+}
+export const statusBadge = (s, label) => { const i = statusInfo(s); return h("span", { class: "status", "data-tone": i.tone }, icon(i.icon, 13), label || i.label); };
 export async function copyText(text, el) {
   try { await navigator.clipboard.writeText(text); toast("Copied"); }
   catch { if (el) { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } toast("Select the highlighted text and copy it", "err"); }
@@ -137,19 +147,19 @@ export function lineChart({ labels, series, height = 200, label }) {
     if (ser.area) svg.append(s("polygon", { points: `${x(0)},${y(0)} ${pts} ${x(ser.values.length - 1)},${y(0)}`, fill: ser.color, "fill-opacity": 0.14 }));
     svg.append(s("polyline", { points: pts, fill: "none", stroke: ser.color, "stroke-width": 2.5, "stroke-linejoin": "round", "stroke-linecap": "round" }));
     const li = ser.values.length - 1;
-    svg.append(s("circle", { cx: x(li), cy: y(ser.values[li]), r: 4.5, fill: ser.color, stroke: "#090B17", "stroke-width": 2 }));
+    svg.append(s("circle", { cx: x(li), cy: y(ser.values[li]), r: 4.5, fill: ser.color, stroke: "#FFFFFF", "stroke-width": 2 }));
   });
   return svg;
 }
 
-export function barChart({ items, max: mx, height, unit = "", label, color = "#8F6DFF" }) {
+export function barChart({ items, max: mx, height, unit = "", label, color = "#6D3FE0" }) {
   const W = 640, row = 34, H = height || items.length * row + 8, L = 170, R = 56;
   const max = mx || niceMax(Math.max(...items.map((i) => i.value)));
   const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": label });
   items.forEach((it, i) => {
     const y = 4 + i * row, w = ((W - L - R) * it.value) / max;
     svg.append(txt(L - 10, y + 19, it.label.length > 24 ? it.label.slice(0, 23) + "…" : it.label, "end"));
-    svg.append(s("rect", { x: L, y: y + 6, width: W - L - R, height: 18, rx: 6, fill: "#1F2449" }));
+    svg.append(s("rect", { x: L, y: y + 6, width: W - L - R, height: 18, rx: 6, fill: "#EEEAF9" }));
     svg.append(s("rect", { x: L, y: y + 6, width: Math.max(2, w), height: 18, rx: 6, fill: it.color || color }));
     svg.append(txt(L + Math.max(2, w) + 8, y + 19, `${it.value}${unit}`, "start"));
   });
@@ -165,4 +175,5 @@ export function donut({ items, label, size = 180 }) {
     off += len; });
   return svg;
 }
-export const PALETTE = ["#A88CFF", "#7CC3FF", "#45D19F", "#F4C35A", "#FF8A98", "#D2C4FF"];
+// Chart colours: each ≥ 3:1 against white so marks stay visible; series are also named in a legend.
+export const PALETTE = ["#6D3FE0", "#2F7FC6", "#11786A", "#B7791F", "#C9405A", "#8657F2"];

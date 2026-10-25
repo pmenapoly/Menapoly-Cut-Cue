@@ -83,14 +83,13 @@ export async function visibilityView(out, [mod], ctx) {
   const ws = svc.currentWs(); const module = mod || "overview";
   const weeks = Number(mem("cue-vis-weeks") || 12);
   out.append(
-    h("div", { class: "section-head" }, h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, ws?.name || ""), h("h1", {}, "AI Visibility")),
-      h("div", { class: "row" }, wsPicker(() => ctx.rerenderShell()),
-        h("select", { id: "vis-range", "aria-label": "Date range", style: "width:auto", onchange: (e) => { mem("cue-vis-weeks", e.target.value); ctx.refresh(); } },
-          [[4, "Last 4 weeks"], [8, "Last 8 weeks"], [12, "Last 12 weeks"]].map(([v, l]) => h("option", { value: v, selected: v === weeks }, l))))),
-    h("div", { class: "card", style: "border-color:color-mix(in oklab,var(--demo) 50%,var(--line))" }, h("div", { class: "row" }, fictional(),
-      h("span", { class: "small muted" }, "Every number on this page is invented for the preview. Live metrics will show their source, timestamp and calculation."))),
-    h("nav", { class: "tabs", "aria-label": "Visibility modules" }, MODULES.map(([k, l]) => h("a", { class: `tab ${k === module ? "on" : ""}`, href: `#visibility-${k}`,
-      "aria-current": k === module ? "page" : null, style: "text-decoration:none;display:inline-flex;align-items:center" }, svc.entitled(ws.id, k) ? null : icon("lock", 14), l))));
+    h("div", { class: "section-head" }, h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, ws?.name || ""), h("h1", {}, "AI Visibility"))),
+    h("div", { class: "vis-banner", role: "note" }, icon("alert", 18), h("span", {}, h("b", {}, "FICTIONAL DEMO DATA"), " · every number on this page is invented for the preview. Live metrics will show their source, timestamp and calculation.")),
+    h("div", { class: "vis-filters" }, wsPicker(() => ctx.rerenderShell()),
+      h("select", { id: "vis-range", "aria-label": "Date range", onchange: (e) => { mem("cue-vis-weeks", e.target.value); ctx.refresh(); } },
+        [[4, "Last 4 weeks"], [8, "Last 8 weeks"], [12, "Last 12 weeks"]].map(([v, l]) => h("option", { value: v, selected: v === weeks }, l)))),
+    h("nav", { class: "vis-tabs", "aria-label": "Visibility modules" }, MODULES.map(([k, l]) => h("a", { class: k === module ? "on" : "", href: `#visibility-${k}`,
+      "aria-current": k === module ? "page" : null }, svc.entitled(ws.id, k) ? null : icon("lock", 14), l))));
   if (!svc.entitled(ws.id, module)) {
     out.append(h("section", { class: "locked" }, h("div", { class: "veil" }, icon("lock", 30), h("h2", {}, `${MODULES.find((m) => m[0] === module)[1]} isn't in the ${PLANS[ws.plan]?.label} plan`),
       h("p", { class: "muted small", style: "max-width:46ch" }, "Your Menapoly producer can walk you through what it adds. Nothing is purchased from the preview."),
@@ -99,17 +98,51 @@ export async function visibilityView(out, [mod], ctx) {
   }
   const { data: v } = await svc.visibility(ws.id, module, weeks);
   const method = (text) => h("p", { class: "method" }, h("b", {}, "When live: "), text);
-  const card = (title, ...kids) => h("section", { class: "card" }, h("div", { class: "section-head" }, h("h2", {}, title), fictional()), ...kids);
+  const card = (title, ...kids) => h("section", { class: "panel" }, h("div", { class: "panel-head" }, h("h2", {}, title), fictional()), ...kids);
   const delta = (arr) => { const a = arr[0] || 0, b = arr[arr.length - 1] || 0; return a ? `${b >= a ? "+" : ""}${Math.round(((b - a) / a) * 100)}%` : "—"; };
   const legend = (items) => h("div", { class: "legend" }, items.map(([l, c]) => h("span", {}, h("i", { style: `background:${c}` }), l)));
+  const byCover = [...v.prompts].sort((a, b) => a.covered / a.total - b.covered / b.total), weakest = byCover[0], strongest = byCover[byCover.length - 1];
 
-  if (module === "overview") out.append(
-    h("div", { class: "stats" }, [["Brand mentions", v.mentions], ["Citations", v.citations], ["Site visits", v.visits], ["AI referrals", v.aiReferrals]].map(([l, s]) =>
-      h("div", { class: "stat" }, h("b", {}, s[s.length - 1].toLocaleString()), h("span", {}, `${l} · ${delta(s)} over ${weeks} wk`)))),
-    card("Visibility trend", legend([["Brand mentions", PALETTE[0]], ["Citations", PALETTE[1]]]),
-      lineChart({ labels: v.weeks, series: [{ values: v.mentions, color: PALETTE[0], area: true }, { values: v.citations, color: PALETTE[1] }], label: "Weekly brand mentions and citations, fictional" }),
-      method("Mentions and citations come from a scheduled prompt panel run against named AI assistants, stored with the prompt, the answer, the timestamp and the cited URLs.")),
-    card("Recommended next actions", h("ol", { class: "stack", style: "padding-left:20px;margin:0" }, v.actions.slice(0, 3).map((a) => h("li", {}, h("b", {}, a.t), h("div", { class: "small muted" }, a.why))))));
+  if (module === "overview") {
+    const last = (a) => a[a.length - 1], change = (a) => last(a) - a[0];
+    const metric = (label, value, d, lead) => h("div", { class: `metric ${lead ? "lead" : ""}` }, h("span", { class: "label" }, label), h("span", { class: "value" }, value),
+      d == null ? null : h("span", { class: `delta ${d > 0 ? "" : d < 0 ? "down" : "flat"}` }, `${d > 0 ? "▲ up" : d < 0 ? "▼ down" : "no change,"} ${Math.abs(d).toLocaleString()} vs week 1`));
+    const competitive = svc.entitled(ws.id, "competitive"), search = svc.entitled(ws.id, "search");
+    const rivals = v.competitors.slice(1), vs = mem("cue-vis-vs") || rivals[0].name, you = v.competitors[0], rival = rivals.find((c) => c.name === vs) || rivals[0];
+    const top = v.actions[0];
+    out.append(
+      h("section", { class: "metrics", "aria-label": "Key metrics, fictional demo data" },
+        metric("AI mentions per week", last(v.mentions).toLocaleString(), change(v.mentions), true),
+        metric("Citations per week", last(v.citations).toLocaleString(), change(v.citations)),
+        competitive ? metric("Share of voice", `${you.sov}%`, null) : metric("AI referrals per week", last(v.aiReferrals).toLocaleString(), change(v.aiReferrals)),
+        metric("Site visits per week", last(v.visits).toLocaleString(), change(v.visits))),
+      h("div", { class: "vis-grid" },
+        h("div", { class: "col" },
+          card("Mentions and citations", legend([["AI mentions", PALETTE[0]], ["Citations", PALETTE[1]]]),
+            lineChart({ labels: v.weeks, series: [{ values: v.mentions, color: PALETTE[0], area: true }, { values: v.citations, color: PALETTE[1] }], label: `Weekly AI mentions rose from ${v.mentions[0]} to ${last(v.mentions)} and citations from ${v.citations[0]} to ${last(v.citations)}, fictional` }),
+            method("Mentions and citations come from a scheduled prompt panel run against named AI assistants, stored with the prompt, the answer, the timestamp and the cited URLs.")),
+          search ? card("Where AI assistants cite you", h("div", { class: "coverage" }, v.prompts.map((p) => h("div", { class: `crow ${p === weakest ? "low" : ""}` },
+            h("span", {}, p === weakest ? h("b", {}, `${p.category} · lowest`) : p.category),
+            h("span", { class: "bar-track", role: "img", "aria-label": `${p.covered} of ${p.total} prompts` }, h("i", { style: `width:${(p.covered / p.total) * 100}%` })),
+            h("span", { class: "val" }, `${p.covered}/${p.total}`)))),
+            h("p", { class: "small faint" }, `Evidence: ${v.sources.slice(0, 3).map((x) => `${x.title} ${x.share}%`).join(" · ")} · `, h("a", { href: "#visibility-search" }, "all sources"))) : null),
+        h("div", { class: "col" },
+          h("section", { class: "insight", "aria-label": "Insight" },
+            h("div", { class: "panel-head" }, h("span", { class: "eyebrow", style: "display:inline-flex;gap:6px;align-items:center" }, icon("spark", 14), "Insight"), fictional()),
+            h("p", { class: "editorial" }, search ? `Strong on “${strongest.category}”, quiet on “${weakest.category}”.` : `Mentions ${delta(v.mentions)} in ${weeks} weeks.`),
+            h("dl", {},
+              h("div", {}, h("dt", {}, h("span", { class: "n a", "aria-hidden": "true" }, "1"), "What happened"), h("dd", {}, `AI mentions went from ${v.mentions[0]} to ${last(v.mentions)} a week (${delta(v.mentions)}); citations from ${v.citations[0]} to ${last(v.citations)}.`)),
+              h("div", {}, h("dt", {}, h("span", { class: "n b", "aria-hidden": "true" }, "2"), "Why it matters"), h("dd", {}, search ? `Assistants mention you on ${strongest.covered} of ${strongest.total} “${strongest.category}” prompts but only ${weakest.covered} of ${weakest.total} on “${weakest.category}”, so they recommend others there.` : "Steady growth means assistants are starting to trust your pages as a source.")),
+              h("div", {}, h("dt", {}, h("span", { class: "n c", "aria-hidden": "true" }, "3"), "What to do next"), h("dd", {}, h("b", {}, top.t)))),
+            h("button", { class: "btn primary lg block", onclick: () => exploreAction(top, ctx) }, "Explore this action")),
+          competitive ? card("Share of voice", h("label", { class: "field" }, h("span", { class: "small faint" }, "Compare with"),
+              h("select", { id: "vis-compare", onchange: (e) => { mem("cue-vis-vs", e.target.value); ctx.refresh(); } }, rivals.map((c) => h("option", { selected: c.name === rival.name }, c.name)))),
+            h("div", { class: "sov" }, [you, rival].map((c, i) => h("div", { class: `srow ${i ? "" : "you"}` }, h("b", {}, c.name),
+              h("span", { class: "bar-track", role: "img", "aria-label": `${c.sov}%` }, h("i", { style: `width:${c.sov}%` })), h("span", { class: "val" }, `${c.sov}%`)))),
+            h("p", { class: "small faint" }, you.sov >= rival.sov ? `You're ${you.sov - rival.sov} points ahead of ${rival.name}.` : `${rival.name} is ${rival.sov - you.sov} points ahead.`)) : null,
+          card("More recommended actions", h("ul", { class: "list" }, v.actions.slice(1, 3).map((a) => h("li", { class: "item" },
+            h("span", { class: `chip ${a.p === "High" ? "warn" : a.p === "Medium" ? "accent" : ""}` }, a.p), h("span", { class: "grow" }, h("span", { class: "title small" }, a.t), h("span", { class: "tiny faint" }, a.why)))))))));
+  }
   if (module === "search") out.append(
     card("Prompt-category coverage", barChart({ items: v.prompts.map((p) => ({ label: p.category, value: Math.round((p.covered / p.total) * 100) })), max: 100, unit: "%", label: "Share of prompts in each category where the brand is mentioned, fictional" }),
       method("Coverage = prompts in the category where an assistant's answer names the brand ÷ prompts run. The prompt list is agreed with the client.")),
@@ -132,7 +165,7 @@ export async function visibilityView(out, [mod], ctx) {
     card("Production volume", lineChart({ labels: v.weeks, series: [{ values: v.citations.map((c) => Math.max(1, Math.round(c / 3))), color: PALETTE[3], area: true }], label: "Videos delivered per week, fictional" }),
       method("Volume comes from Cue's own delivery records. Watch time comes only from platforms that report it; others show “not reported”.")));
   if (module === "competitive") out.append(
-    card("Share of voice (estimate)", barChart({ items: v.competitors.map((c, i) => ({ label: c.name, value: c.sov, color: i ? "#434A85" : PALETTE[0] })), max: 100, unit: "%", label: "Estimated share of voice, fictional" }),
+    card("Share of voice (estimate)", barChart({ items: v.competitors.map((c, i) => ({ label: c.name, value: c.sov, color: i ? "#8E85A8" : PALETTE[0] })), max: 100, unit: "%", label: "Estimated share of voice, fictional" }),
       method("Estimate = brand's mentions ÷ all tracked brands' mentions across the same prompt panel and period. Competitors are named by the client; it is an estimate, not a market share.")));
   if (module === "reports") {
     const summary = `${ws.name} — AI Visibility summary (FICTIONAL DEMO DATA), last ${weeks} weeks.\nBrand mentions ${delta(v.mentions)}, citations ${delta(v.citations)}, AI referrals ${delta(v.aiReferrals)}.\nStrongest prompt category: ${[...v.prompts].sort((a, b) => b.covered / b.total - a.covered / a.total)[0].category}.\nWeakest: ${[...v.prompts].sort((a, b) => a.covered / a.total - b.covered / b.total)[0].category}.\nTop action: ${v.actions[0].t}.`;
@@ -143,7 +176,19 @@ export async function visibilityView(out, [mod], ctx) {
   }
   if (module === "actions") out.append(card("Prioritized recommendations", h("ul", { class: "list" }, v.actions.map((a) => h("li", { class: "item" },
     h("span", { class: `chip ${a.p === "High" ? "warn" : a.p === "Medium" ? "accent" : ""}` }, a.p), h("span", { class: "grow" }, h("span", { class: "title" }, a.t), h("span", { class: "small faint" }, a.why)),
-    /reel|cut|clip/i.test(a.t) ? h("a", { class: "btn sm", href: "#request-new" }, "Request") : null)))));
+    h("button", { class: "btn sm", onclick: () => exploreAction(a, ctx) }, "Explore"))))));
+}
+
+/** Explain a recommendation and offer the next step. Nothing is created until the person submits the request form. */
+function exploreAction(a, ctx) {
+  const me = svc.me();
+  const d = sheet("Recommended action", h("p", {}, fictional()), h("h3", {}, a.t), h("p", { class: "muted" }, `Why: ${a.why}`),
+    h("p", { class: "small faint" }, "Priority: ", h("b", {}, a.p), ". Based on fictional demo data; live recommendations will link to their evidence."),
+    me.role !== "editor" ? h("div", { class: "actions" },
+      h("button", { class: "btn primary", onclick: () => { mem("cue-request-draft", JSON.stringify({ type: /reel|clip|cut/i.test(a.t) ? "short" : "promo", title: a.t, brief: `${a.t}. Why: ${a.why}` }));
+        d.close(); ctx.go("request-new"); } }, "Start an editing request"),
+      h("button", { class: "btn", onclick: () => d.close() }, "Not now")) : null,
+    h("p", { class: "tiny faint" }, "The request form opens pre-filled; nothing is sent until you submit it."));
 }
 
 /* ================= Ask Cue ================= */

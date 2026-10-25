@@ -14,7 +14,7 @@ const NAV = [
   { token: "studio", label: "Media Studio", short: "Studio", icon: "studio", group: "Workspace" },
   { token: "review", label: "Review", icon: "review", group: "Workspace" },
   { token: "social", label: "Social Sharing", icon: "share", group: "Workspace", roles: ["admin", "client"] },
-  { token: "visibility", label: "AI Visibility", icon: "chart", group: "Workspace", roles: ["admin", "client"] },
+  { token: "visibility", label: "AI Visibility", short: "Visibility", icon: "chart", group: "Workspace", roles: ["admin", "client"] },
   { token: "ask", label: "Ask Cue", icon: "spark", group: "Workspace" },
   { token: "library", label: "Library", icon: "grid", group: "Resources" },
   { token: "inbox", label: "Inbox", icon: "inbox", group: "Resources" },
@@ -22,8 +22,9 @@ const NAV = [
   { token: "team", label: "Team", icon: "team", group: "Menapoly", roles: ["admin"] },
   { token: "settings", label: "Settings", icon: "gear", group: "Menapoly" },
 ];
-const BAR = ["home", "studio", "review", "ask"];
 const allowed = (n) => !n.roles || n.roles.includes(svc.me().role);
+// Bottom bar: Home, Studio, Review, AI Visibility, More. Editors can't open AI Visibility, so their fourth slot is Ask Cue.
+const barTokens = () => ["home", "studio", "review", allowed(NAV.find((n) => n.token === "visibility")) ? "visibility" : "ask"];
 
 const ROUTES = [
   [/^home$/, homeView], [/^studio$/, studioView], [/^request-new(?:-(p_[\w]+))?$/, requestFormView], [/^project-(p_[\w]+)$/, projectView],
@@ -85,7 +86,7 @@ export function searchSheet() {
 }
 
 function moreSheet() {
-  const d = sheet("More", h("ul", { class: "list" }, NAV.filter((n) => !BAR.includes(n.token) && allowed(n)).map((n) =>
+  const d = sheet("More", h("ul", { class: "list" }, NAV.filter((n) => !barTokens().includes(n.token) && allowed(n)).map((n) =>
     h("li", {}, h("a", { class: "item", href: `#${n.token}`, onclick: () => d.close() }, h("span", { class: "thumb" }, icon(n.icon, 22)),
       h("span", { class: "grow" }, h("span", { class: "title" }, n.label)), icon("chevron", 18))))));
 }
@@ -106,7 +107,7 @@ function buildShell() {
         h("div", { class: "top-inner" },
           h("a", { class: "brand", href: "#home", "aria-label": "Menapoly Cue home" }, h("span", { class: "mark" }, markSvg()), h("span", { class: "brand-text" }, h("b", {}, "Cue"))),
           h("div", { class: "grow" }),
-          h("button", { class: "top-search btn ghost", style: "justify-content:flex-start;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--faint)", onclick: searchSheet },
+          h("button", { class: "top-search btn search-launch", onclick: searchSheet },
             icon("search", 18), "Search projects, media, reviews…"),
           mavenButton(ctx),
           h("button", { class: "iconbtn search-btn", "aria-label": "Search", onclick: searchSheet }, icon("search", 22)),
@@ -117,9 +118,9 @@ function buildShell() {
           h("button", { onclick: () => go("settings") }, "Details"))),
       h("main", { id: "main", tabindex: "-1" }),
       h("nav", { class: "bar", "aria-label": "Main" },
-        ...BAR.map((t) => { const n = NAV.find((x) => x.token === t);
-          return h("a", { href: `#${t}`, class: tok === t ? "on" : "", "aria-current": tok === t ? "page" : null }, icon(n.icon, 22), h("span", {}, n.short || n.label)); }),
-        h("button", { class: BAR.includes(tok) ? "" : "on", onclick: moreSheet, "aria-label": "More sections" }, icon("more", 22), h("span", {}, "More")))));
+        ...barTokens().map((t) => { const n = NAV.find((x) => x.token === t);
+          return h("a", { href: `#${t}`, class: tok === t ? "on" : "", "aria-current": tok === t ? "page" : null, "aria-label": n.short ? n.label : null }, icon(n.icon, 22), h("span", {}, n.short || n.label)); }),
+        h("button", { class: barTokens().includes(tok) ? "" : "on", onclick: moreSheet, "aria-label": "More sections" }, icon("more", 22), h("span", {}, "More")))));
 }
 
 let lastToken = null;
@@ -153,11 +154,11 @@ async function render() {
 
 function buildShellMarkers() {
   const tok = section(current());
-  document.querySelectorAll(".rail a[href^='#'], .bar a").forEach((a) => {
+  document.querySelectorAll(".rail a[href^='#']:not(.brand), .bar a").forEach((a) => {
     const on = a.getAttribute("href") === `#${tok}`;
     a.classList.toggle("on", on); if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   });
-  const more = document.querySelector(".bar button"); if (more) more.classList.toggle("on", !BAR.includes(tok));
+  const more = document.querySelector(".bar button"); if (more) more.classList.toggle("on", !barTokens().includes(tok));
   const unread = svc.unread(), dot = document.querySelector(".top a[href='#inbox']");
   if (dot) { dot.querySelector(".dot")?.remove(); if (unread) dot.append(h("span", { class: "dot" })); }
 }

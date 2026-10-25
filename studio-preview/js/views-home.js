@@ -1,7 +1,8 @@
 // Home (dashboard + content feed + composer) and Inbox.
-import { h, icon, toast, sheet, empty, ago, avatar, kindIcon, statusTone, demoBadge, fmtDate } from "./ui.js";
+import { h, icon, toast, sheet, empty, ago, avatar, kindIcon, statusTone, statusBadge, demoBadge, fmtDate } from "./ui.js";
 import { svc } from "./service.js";
 import { PLATFORMS } from "./data.js";
+import { openMaven } from "./maven.js";
 
 const remember = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch { return null; } return v; };
 
@@ -13,73 +14,129 @@ export function wsPicker(onChange) {
   return sel;
 }
 
+/** Upload filters shared by Home and the Library: All uploads / My uploads / Others, plus a searchable uploader picker. */
+export function uploaderFilter({ key, who, pick, me, uploaders, ctx }) {
+  return h("div", { class: "row" },
+    h("div", { class: "seg", role: "group", "aria-label": "Whose uploads" }, [["all", "All uploads"], ["mine", "My uploads"], ["others", "Others"]].map(([k, l]) =>
+      h("button", { class: `tab ${who === k ? "on" : ""}`, "aria-pressed": String(who === k), onclick: () => { remember(`${key}-uploads`, k); ctx.refresh(); } }, l))),
+    who !== "mine" ? h("select", { id: key === "cue" ? "uploader" : `${key}-uploader`, "aria-label": "Uploaded by", style: "width:auto;flex:1 1 150px",
+      onchange: (e) => { remember(`${key}-uploader`, e.target.value); ctx.refresh(); } },
+      h("option", { value: "" }, "Anyone"), uploaders.filter((u) => who !== "others" || u.id !== me.id).map((u) => h("option", { value: u.id, selected: u.id === pick }, u.name))) : null);
+}
+export function filterUploads(list, { who, pick, me }) {
+  let out = who === "mine" ? list.filter((a) => a.by === me.id) : who === "others" ? list.filter((a) => a.by !== me.id) : list;
+  if (pick && who !== "mine") out = out.filter((a) => a.by === pick);
+  return out;
+}
+
 export async function homeView(out, _p, ctx) {
   const me = svc.me(), ws = svc.currentWs();
   if (!ws) { out.append(h("h1", {}, `Hi, ${me.name.split(" ")[0]}`), empty("No workspace yet", "You'll see work here once you're assigned to a project.")); return; }
   const who = remember("cue-uploads") || "all", pick = remember("cue-uploader") || "";
-  const [reviews, notes, feed, notices, spot, uploaders, videos] = await Promise.all([svc.reviews(), svc.notifications(), svc.feed(ws.id), svc.announcements(),
-    svc.spotlight(), svc.uploaders(ws.id), svc.videos({ ws: ws.id })]);
-  let uploads = await svc.assets({ ws: ws.id, mine: who === "mine" });
-  if (who === "others") uploads = uploads.filter((a) => a.by !== me.id);
-  if (pick && who !== "mine") uploads = uploads.filter((a) => a.by === pick);
+  const [reviews, notes, feed, notices, spot, uploaders, videos, projects, allUploads] = await Promise.all([svc.reviews(), svc.notifications(), svc.feed(ws.id), svc.announcements(),
+    svc.spotlight(), svc.uploaders(ws.id), svc.videos({ ws: ws.id }), svc.projects(), svc.assets({ ws: ws.id })]);
+  const uploads = filterUploads(allUploads, { who, pick, me });
+  const vidStatus = Object.fromEntries(videos.map((v) => [v.id, v.status]));
   const toReview = reviews.filter((r) => r.ws === ws.id && r.status === "In review");
-  const hour = new Date().getHours();
+  const openComments = reviews.filter((r) => r.ws === ws.id).reduce((n, r) => n + r.open, 0);
+  const soon = projects.filter((p) => p.ws === ws.id && p.due && (new Date(p.due) - Date.now()) / 864e5 <= 7 && !/approved|delivered/i.test(p.status));
+  const mine = videos.filter((v) => /edit|waiting|changes/i.test(v.status) && (me.role !== "editor" || v.editor === me.name));
+  const hour = new Date().getHours(), first = me.name.split(" ")[0];
+  const waiting = me.role === "editor" ? mine.length : toReview.length + (openComments ? 1 : 0) + soon.length;
+  const greet = `${hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"}, `;
 
-  out.append(
-    h("section", { class: "stack", style: "gap:14px" },
-      h("div", { class: "section-head" },
+  // 1 · What needs me? (amber, compact, one obvious action)
+  let attention;
+  if (me.role !== "editor" && toReview.length) {
+    const r = toReview[0];
+    attention = h("section", { class: "attention o-attn", "aria-label": "Needs your attention" },
+      h("a", { class: "lead", href: `#video-${r.videoId}` }, r.poster ? h("img", { src: r.poster, alt: "" }) : null,
+        h("span", { style: "min-width:0" }, h("span", { class: "eyebrow" }, icon("clock", 14), "Ready for your review"), h("b", {}, `${r.title} · version ${r.latest.n}`))),
+      h("ul", {}, toReview.length > 1 ? h("li", {}, `${toReview.length - 1} more video(s) waiting for review`) : null,
+        openComments ? h("li", {}, `${openComments} open comment(s) across your videos`) : null,
+        soon.map((p) => h("li", {}, h("a", { href: `#project-${p.id}` }, p.name), ` · due ${fmtDate(p.due)}`))),
+      h("a", { class: "btn primary lg block", href: `#video-${r.videoId}` }, "Review now"));
+  } else if (me.role === "editor" && mine.length) {
+    const v = mine[0];
+    attention = h("section", { class: "attention o-attn", style: "background:var(--sky)", "aria-label": "Your editing queue" },
+      h("a", { class: "lead", href: `#video-${v.id}` }, h("img", { src: v.poster, alt: "" }),
+        h("span", { style: "min-width:0" }, h("span", { class: "eyebrow", style: "color:var(--sky-ink)" }, icon("pen", 14), v.status), h("b", {}, v.title))),
+      h("ul", { style: "color:var(--sky-ink)" }, h("li", {}, `${v.done} of ${v.tasks} checklist tasks done`), mine.length > 1 ? h("li", {}, `${mine.length - 1} more in your queue`) : null),
+      h("a", { class: "btn primary lg block", href: `#video-${v.id}` }, "Open the Editing Room"));
+  } else {
+    attention = h("section", { class: "attention calm o-attn", "aria-label": "Needs your attention" },
+      h("span", { class: "eyebrow" }, icon("check", 14), "All caught up"), h("p", {}, "Nothing is waiting on you. A good moment to make something new."));
+  }
+
+  // 2 · What can I create?
+  const create = h("nav", { class: "create o-create", "aria-label": "Create" },
+    h("a", { class: "sky", href: "#library" }, icon("upload", 24), h("span", {}, "Upload footage")),
+    me.role !== "editor" ? h("a", { class: "mint", href: "#request-new" }, icon("plus", 24), h("span", {}, "New editing request")) : h("a", { class: "mint", href: "#studio" }, icon("studio", 24), h("span", {}, "My projects")),
+    me.role !== "editor" ? h("button", { class: "peach", onclick: () => composer(ws, ctx) }, icon("pen", 24), h("span", {}, "Draft a post")) : null,
+    h("button", { class: "lilac", onclick: () => openMaven(ctx) }, icon("spark", 24), h("span", {}, "Ideas with Maven")));
+
+  // 4 · What's new: the approved 14-day spotlight, and dismissible discovery
+  const spotlight = spot ? h("section", { class: "spotlight o-spot", "aria-label": "Thought leadership spotlight" },
+    h("div", { class: "art", "aria-hidden": "true" }, h("span", { class: "quote" }, "“"), h("span", { class: "chip" }, icon("spark", 13), "Spotlight")),
+    h("div", { class: "body" },
+      h("p", { class: "meta" }, h("b", { style: "color:var(--accent-strong)" }, "Thought leadership"), ` · changes every 14 days · featured until ${fmtDate(spot.until)}`),
+      h("h2", {}, spot.title), h("p", { class: "muted" }, spot.body), h("p", { class: "small faint" }, spot.author),
+      h("div", { class: "actions" },
+        me.role !== "editor" ? h("button", { class: "btn dark", onclick: () => { remember("cue-request-draft", JSON.stringify({ type: "short", title: `Content from “${spot.title}”`,
+          brief: `A short video built on this idea: ${spot.title}. ${spot.body}`, aspect: "9:16" })); ctx.go("request-new"); } }, icon("spark", 16), "Create something from this") : null,
+        spot.lessonId ? h("a", { class: "btn ghost", href: `#lesson-${spot.lessonId}` }, icon("cap", 16), "Read more") : null),
+      me.role === "admin" && spot.next ? h("span", { class: "tiny faint" }, `Next: “${spot.next.title}” on ${fmtDate(spot.next.start)}`) : null)) : null;
+  const discover = notices.length ? h("section", { class: "discover o-discover", "aria-label": "Announcements" }, notices.map((n) => h("div", { class: "announce", "data-id": n.id, "data-kind": n.kind },
+    h("a", { class: "announce-body", href: `#${n.link}` }, h("span", { class: "eyebrow" }, n.kind === "Tutorial" ? "Tutorial" : n.kind),
+      h("b", {}, n.title), h("span", { class: "small muted" }, n.body), h("span", { class: "go" }, n.kind === "Tutorial" ? "Watch tutorial →" : "Explore idea →")),
+    h("button", { class: "iconbtn", "aria-label": `Dismiss: ${n.title}`, onclick: async () => { await svc.dismiss(n.id); ctx.refresh(); } }, icon("x", 18))))) : null;
+
+  // 5 · Where Maven can help (a suggestion, never an action)
+  const approved = videos.find((v) => v.status === "Approved");
+  const maven = me.role !== "editor" && approved ? h("section", { class: "maven-card o-maven", "aria-label": "Maven suggestion" },
+    h("span", { class: "eyebrow" }, icon("spark", 14), "Maven suggests · nothing changes until you approve"),
+    h("b", {}, `Turn “${approved.title}” into more posts`), h("p", { class: "small muted" }, "It's approved, so it can be reused. Maven lists ideas; you decide what gets requested."),
+    h("button", { class: "btn sm", style: "justify-self:start;background:var(--surface)", onclick: () => openMaven(ctx, "Repurposing ideas") }, "See ideas")) : null;
+
+  // 3 · What's happening with my content (media first)
+  const recent = h("section", { class: "stack o-recent", "aria-label": "Recent content", style: "gap:12px" },
+    h("div", { class: "section-head" }, h("h2", {}, "Recent content"), h("span", { class: "small faint" }, `${uploads.length} file(s)`)),
+    uploaderFilter({ key: "cue", who, pick, me, uploaders, ctx }),
+    uploads.length ? h("div", { class: "tiles" }, uploads.slice(0, 8).map((a) => mediaTile(a, vidStatus[a.videoId])))
+      : empty(who === "mine" ? "You haven't uploaded anything" : "No uploads match", who === "mine" ? "Add footage in the Library." : "Try another filter.",
+        h("a", { class: "btn", href: "#library" }, icon("upload", 18), "Open Library")));
+
+  out.append(h("div", { class: "home" },
+    h("header", { class: "home-head" },
+      h("div", { class: "row", style: "justify-content:space-between;align-items:flex-end" },
         h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, ws.name),
-          h("h1", {}, `${hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"}, ${me.name.split(" ")[0]}`)),
-        wsPicker(() => ctx.rerenderShell())),
+          h("h1", {}, greet, h("em", {}, `${first}.`))),
+        svc.workspaces().length > 1 ? wsPicker(() => ctx.rerenderShell()) : null),
+      h("p", { class: "sub" }, waiting ? `${waiting} thing${waiting === 1 ? "" : "s"} need${waiting === 1 ? "s" : ""} you today.` : "You're all caught up."),
       h("button", { class: "btn search-launch", onclick: ctx.search }, icon("search", 18), "Search videos, projects, files and tutorials")),
-    notices.length ? h("section", { class: "stack", "aria-label": "Announcements" }, notices.map((n) => h("div", { class: "announce", "data-id": n.id },
-      h("a", { class: "announce-body", href: `#${n.link}` }, h("span", { class: `chip ${n.kind === "Tutorial" ? "info" : "accent"}`, style: "justify-self:start" }, n.kind),
-        h("b", {}, n.title), h("span", { class: "small muted" }, n.body)),
-      h("button", { class: "iconbtn", "aria-label": `Dismiss: ${n.title}`, onclick: async () => { await svc.dismiss(n.id); ctx.refresh(); } }, icon("x", 18))))) : null,
-    spot ? h("section", { class: "card spotlight" }, h("div", { class: "row" }, h("span", { class: "eyebrow" }, "Thought leadership spotlight"),
-        h("span", { class: "tiny faint" }, `Changes every 14 days · until ${fmtDate(spot.until)}`)),
-      h("h2", {}, spot.title), h("p", { class: "muted" }, spot.body), h("span", { class: "small faint" }, spot.author),
-      h("div", { class: "actions" }, spot.lessonId ? h("a", { class: "btn sm", href: `#lesson-${spot.lessonId}` }, icon("cap", 16), "Read more") : null,
-        me.role === "admin" && spot.next ? h("span", { class: "tiny faint" }, `Next: “${spot.next.title}” on ${fmtDate(spot.next.start)}`) : null)) : null,
-    toReview.length && me.role !== "editor" ? h("a", { class: "card hero", href: `#video-${toReview[0].videoId}`, style: "text-decoration:none;color:inherit" },
-      h("span", { class: "eyebrow" }, "Ready for you"), h("h2", {}, `${toReview[0].title} is ready to review`),
-      h("p", { class: "muted small" }, `Version ${toReview[0].latest.n} · ${toReview[0].open} open comment(s)`), h("span", { class: "btn primary", style: "justify-self:start" }, "Open the Editing Room")) : null,
-    h("section", { class: "stack" }, h("div", { class: "section-head" }, h("h2", {}, "Uploads"), h("span", { class: "small faint" }, `${uploads.length} file(s)`)),
-      h("div", { class: "row" },
-        h("div", { class: "tabs", role: "group", "aria-label": "Whose uploads" }, [["all", "All uploads"], ["mine", "My uploads"], ["others", "Others"]].map(([k, l]) =>
-          h("button", { class: `tab ${who === k ? "on" : ""}`, "aria-pressed": String(who === k), onclick: () => { remember("cue-uploads", k); ctx.refresh(); } }, l))),
-        who !== "mine" ? h("select", { id: "uploader", "aria-label": "Uploaded by", style: "width:auto;flex:1 1 160px", onchange: (e) => { remember("cue-uploader", e.target.value); ctx.refresh(); } },
-          h("option", { value: "" }, "Anyone"), uploaders.filter((u) => who !== "others" || u.id !== me.id).map((u) => h("option", { value: u.id, selected: u.id === pick }, u.name))) : null),
-      uploads.length ? h("div", { class: "tiles" }, uploads.slice(0, 8).map(mediaTile))
-        : empty(who === "mine" ? "You haven't uploaded anything" : "No uploads match", who === "mine" ? "Add footage in the Library." : "Try another filter.",
-          h("a", { class: "btn", href: "#library" }, icon("upload", 18), "Open Library"))),
-    h("div", { class: "split" },
-      h("section", { class: "stack" }, h("div", { class: "section-head" }, h("h2", {}, "Feed"), h("span", { class: "small faint" }, `${feed.length} updates`)),
-        feed.length ? h("div", { class: "feed" }, feed.map((f) => feedPost(f, ctx))) : empty("Quiet so far", "Uploads, deliverables and approvals will appear here.")),
-      h("aside", { class: "stack" },
-        h("section", { class: "card" }, h("h2", {}, "Videos in progress"),
+    h("div", { class: "home-grid" },
+      h("div", { class: "col" }, attention, create, spotlight, recent,
+        h("section", { class: "stack o-feed", "aria-label": "Feed" }, h("div", { class: "section-head" }, h("h2", {}, "Feed"), h("span", { class: "small faint" }, `${feed.length} updates`)),
+          feed.length ? h("div", { class: "feed" }, feed.map((f) => feedPost(f, ctx))) : empty("Quiet so far", "Uploads, deliverables and approvals will appear here."))),
+      h("aside", { class: "col" }, maven, discover,
+        h("section", { class: "card o-progress" }, h("h2", {}, "Videos in progress"),
           videos.length ? h("ul", { class: "list" }, videos.map((v) => h("li", {}, h("a", { class: "item", href: `#video-${v.id}` },
             h("span", { class: "thumb" }, h("img", { src: v.poster, alt: "" })),
-            h("span", { class: "grow" }, h("span", { class: "title small" }, v.title), h("span", { class: "tiny faint" }, `${v.status} · ${v.done}/${v.tasks} tasks`)), icon("chevron", 18)))))
+            h("span", { class: "grow" }, h("span", { class: "title small" }, v.title), h("span", { class: "row", style: "gap:6px" }, statusBadge(v.status, v.status), h("span", { class: "tiny faint" }, `${v.done}/${v.tasks} tasks`))), icon("chevron", 18)))))
             : h("p", { class: "muted small" }, "No videos you can see yet.")),
-        h("section", { class: "card" }, h("div", { class: "section-head" }, h("h2", {}, "Notifications"), h("a", { href: "#inbox", class: "small" }, "Inbox")),
+        h("section", { class: "card o-notes" }, h("div", { class: "section-head" }, h("h2", {}, "Notifications"), h("a", { href: "#inbox", class: "small" }, "Inbox")),
           notes.slice(0, 3).length ? h("ul", { class: "list" }, notes.slice(0, 3).map((n) => h("li", {}, h("a", { class: "item", href: `#${n.link}` },
             h("span", { class: "grow" }, h("span", { class: "title small", style: n.read ? "font-weight:500" : "" }, n.text), h("span", { class: "tiny faint" }, ago(n.at)))))))
-            : h("p", { class: "muted small" }, "You're all caught up.")),
-        h("section", { class: "card" }, h("h2", {}, "Quick actions"), h("div", { class: "actions" },
-          me.role !== "editor" ? h("a", { class: "btn primary sm", href: "#request-new" }, icon("plus", 16), "Request a video") : null,
-          h("a", { class: "btn sm", href: "#library" }, icon("upload", 16), "Add media"),
-          me.role !== "editor" ? h("button", { class: "btn sm", onclick: () => composer(ws, ctx) }, icon("pen", 16), "Draft a post") : null)))));
+            : h("p", { class: "muted small" }, "You're all caught up."))))));
 }
 
-const stat = (n, label) => h("div", { class: "stat" }, h("b", {}, String(n)), h("span", {}, label));
-
-export function mediaTile(a) {
+export function mediaTile(a, status) {
   const poster = a.mediaInfo?.poster;
+  const badge = status ? statusBadge(status, status) : a.channel ? statusBadge("Approved", "Approved") : h("span", { class: "chip" }, a.videoId ? "Footage" : "Working file");
   return h("a", { class: "tile", href: a.videoId ? `#video-${a.videoId}` : `#asset-${a.id}` },
-    h("span", { class: "poster" }, poster ? h("img", { src: poster, alt: "", loading: "lazy" }) : icon(kindIcon(a.kind), 30),
-      h("span", { class: "chip" }, icon(kindIcon(a.kind), 13), a.kind)),
-    h("b", {}, a.name), h("span", {}, `${a.projectName || "Workspace library"} · ${ago(a.at)}`));
+    h("span", { class: "poster" }, poster ? h("img", { src: poster, alt: "", loading: "lazy" }) : icon(kindIcon(a.kind), 34),
+      h("span", { class: "chip" }, icon(kindIcon(a.kind), 13), a.kind[0].toUpperCase() + a.kind.slice(1))),
+    h("span", { class: "tile-body" }, h("b", {}, a.name), badge, h("span", {}, `${a.byName || "Unknown"} · ${a.projectName || "Workspace library"}`), h("span", {}, ago(a.at))));
 }
 
 function feedPost(f, ctx) {

@@ -31,7 +31,7 @@ test.beforeEach(async ({ page }) => { requests.length = 0; page.on("request", (r
 
 test("project workspace → video → Editing Room, and back", async ({ page }) => {
   await open(page, "studio");
-  await page.locator("a.card", { hasText: "Spring Launch Campaign" }).click();
+  await page.locator("a.pcard", { hasText: "Spring Launch Campaign" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Spring Launch Campaign");
   for (const s of ["Videos (1)", "Editing requests", "Collaborators", "Files"]) await expect(page.getByRole("heading", { name: s })).toBeVisible();
   await expect(page.getByRole("list", { name: "Project progress" })).toBeVisible();
@@ -83,7 +83,7 @@ test("player: play, pause, speed, volume, mute, full screen, versions, original 
   await expect.poll(() => v.evaluate((el: HTMLVideoElement) => el.currentSrc)).toMatch(/nw-launch-v1\.(webm|mp4)$/);
   await page.getByLabel("Version", { exact: true }).selectOption({ label: "Version 2 (latest)" });
   await expect.poll(() => v.evaluate((el: HTMLVideoElement) => el.currentSrc)).toMatch(/nw-launch-v2\./);
-  await page.getByRole("button", { name: "Compare with original" }).click();
+  await page.getByRole("button", { name: "Compare versions" }).click();
   await expect(page.getByRole("dialog").locator("video")).toHaveCount(2);
   await expect(page.getByRole("dialog")).toContainText("First assembly (original)");
   await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
@@ -95,7 +95,7 @@ test("comments: frame annotation, reply, assign, resolve and reopen; version-lin
   await asRole(page, "u_admin");
   await open(page, "video-v_launch");
   await tab(page, /Comments/).click();
-  await page.locator(".room-panel .btn.primary", { hasText: "Comment at" }).click();
+  await page.locator(".room-panel .btn.primary", { hasText: "Leave feedback at" }).click();
   await page.getByRole("button", { name: "Box" }).click();
   const c = await page.locator(".vp-draw").boundingBox();
   await page.mouse.move(c!.x + c!.width * 0.2, c!.y + c!.height * 0.25);
@@ -105,7 +105,7 @@ test("comments: frame annotation, reply, assign, resolve and reopen; version-lin
   await expect(page.locator(".composer-card")).toContainText("area marked");
   await page.getByLabel("Comment", { exact: true }).fill("Make the logo larger here");
   await shot(page, "22-annotate");
-  await page.getByRole("button", { name: "Send comment" }).click();
+  await page.getByRole("button", { name: "Send feedback" }).click();
   const note = page.locator(".note", { hasText: "Make the logo larger here" });
   await expect(note).toBeVisible();
   await expect(note.getByText("marked")).toBeVisible();
@@ -322,7 +322,7 @@ test("Home: announcements dismiss, 14-day spotlight, upload filters", async ({ p
   await expect(page.getByText("New tutorial: giving frame-accurate feedback")).toHaveCount(0);
   const spot = page.locator(".spotlight");
   await expect(spot).toContainText("Write for the question, not the keyword"); // the entry whose 14-day window is today
-  await expect(spot).toContainText("Changes every 14 days");
+  await expect(spot).toContainText(/changes every 14 days/i);
   await expect(page.getByText("Draft: video trends for 2027")).toHaveCount(0); // unapproved never shows
   await page.getByRole("button", { name: "My uploads" }).click();
   await expect(page.locator(".tile")).toHaveCount(2);

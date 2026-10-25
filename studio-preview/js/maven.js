@@ -1,4 +1,4 @@
-// Maven, Cue's assistant, available from every screen through a floating launcher. It opens over the current page,
+// Maven, Cue's assistant, available from every screen through the header launcher (lavender gradient). It opens over the current page,
 // so a video keeps its place. In the preview, answers are deterministic and built only from data the current role can
 // see; every state change is a proposal that runs the normal authorized service call only after "Approve".
 import { h, icon, toast, sheet } from "./ui.js";
@@ -75,7 +75,7 @@ export function openMaven(ctx, preset) {
     const box = h("div", { class: "proposal" }, h("div", { class: "row" }, h("span", { class: "eyebrow" }, "Proposed action"), h("span", { class: "chip warn" }, "Waiting for you")), h("b", {}, p.summary));
     const decide = async (yes) => {
       try { const r = await svc.decideProposal(p.id, yes); box.classList.add(yes ? "done" : "declined");
-        box.lastChild.replaceWith(h("span", { class: `chip ${yes ? "ok" : ""}` }, r.status)); if (yes) { toast("Done"); document.dispatchEvent(new CustomEvent("cue:changed")); } }
+        box.lastChild.replaceWith(h("span", { class: `chip ${yes ? "ok" : ""}`, style: "justify-self:start" }, yes ? icon("check", 13) : null, yes ? `Approved · ${r.status}` : r.status)); if (yes) { toast("Done"); document.dispatchEvent(new CustomEvent("cue:changed")); } }
       catch (e) { toast(e.code === 403 ? "You don't have permission to do that." : e.message, "err"); }
     };
     box.append(h("div", { class: "actions" }, h("button", { class: "btn primary sm", onclick: () => decide(true) }, icon("check", 16), "Approve"),
@@ -87,7 +87,9 @@ export function openMaven(ctx, preset) {
     add(h("div", { class: "msg me" }, text)); input.value = "";
     try {
       const res = (vid && (await videoAnswer(text, vid))) || (await assistant.respond(text));
-      add(h("div", { class: "msg cue" }, h("span", { class: "who" }, icon("spark", 16), "Maven"), h("p", {}, res.text),
+      // Each answer says what it is: information, a recommendation, a draft, or a proposed action that waits for approval.
+      const kind = res.proposal ? null : /^draft/i.test(res.text) ? ["draft", "Draft · not saved"] : res.items?.length ? ["recommend", "Recommendation"] : ["info", "Information"];
+      add(h("div", { class: "msg cue" }, h("span", { class: "who" }, icon("spark", 16), "Maven"), kind ? h("span", { class: `kind ${kind[0]}` }, kind[1]) : null, h("p", {}, res.text),
         res.items?.length ? h("ul", { class: "list" }, res.items.map((x) => h("li", { class: "item small" }, h("span", { class: "grow" }, h("b", {}, x.title), h("span", { class: "tiny faint" }, x.sub))))) : null,
         res.note ? h("span", { class: "tiny faint" }, res.note) : null,
         res.proposal ? proposalEl(res.proposal) : null));

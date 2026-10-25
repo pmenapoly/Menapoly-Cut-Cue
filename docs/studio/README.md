@@ -72,7 +72,7 @@ project to them.
 
 | Phone (360–430 px) | Desktop (≥ 1024 px) |
 |---|---|
-| Fixed bottom bar: Home · Studio · Review · Ask Cue · More | Left rail grouped as Workspace / Resources / Menapoly |
+| Fixed bottom bar: Home · Studio · Review · AI Visibility · More (editors: Ask Cue in place of AI Visibility) | Left rail grouped as Workspace / Resources / Menapoly |
 | More: Social Sharing, AI Visibility, Library, Inbox, Clients and Team (admin), Settings | Inline search in the header |
 | Header: Maven, search, inbox, role chip | Header: search, Maven, inbox, role chip |
 
@@ -94,13 +94,23 @@ Each view is a plain link (`#review-rv_launch`), so the back button and deep lin
 | Roles: admin, two clients, two editors | ✅ rules in `policy.js` | enforced in the browser | **the same rules in the Worker** |
 | Downloads | | off (the artifact frame blocks them) | signed links |
 
-## Test results (latest run)
+## Test results (latest run, light design)
 
 | Suite | Result |
 |---|---|
 | `node --test studio-preview/tests/*.test.mjs`: authorization rules, including checklist, feedback assignment, templates, video actions | **15 / 15 passed** |
-| `npx playwright test -c playwright.studio.config.ts`: 24 interactive tests × Android 360, Android 430, desktop 1440 (studio and Editing Room specs) | **72 / 72 passed** |
-| `npx tsc --noEmit` (frontend) | clean |
+| `npx playwright test -c playwright.studio.config.ts`: 27 tests × Android 360, Android 430, desktop 1440 (studio, Editing Room and design specs) | **77 passed, 4 skipped by design** |
+| `npx tsc --noEmit` and `npm run build` (frontend) | clean |
+
+The 4 skips are deliberate: the layout sweep runs once (in the Android 430 project) and covers all seven widths itself,
+and the axe and visual-regression checks run at 430 and 1440 only.
+
+The design spec (`frontend/e2e-studio/design.spec.ts`) adds:
+- **Layout sweep** at 360, 375, 390, 430, 768, 1024 and 1440 px on Home, Studio, both Editing Room states and AI
+  Visibility. It checks for sideways scrolling, overlapping header controls, the Maven launcher (present and at least
+  44 px), elements wider than the screen, and text under 11.5 px.
+- **Accessibility:** axe-core with the WCAG 2.0/2.1 A and AA rules on 7 screens plus the open Maven sheet: no violations.
+- **Visual regression:** `toHaveScreenshot` baselines for 5 screens at 430 and 1440, with the clock fixed and motion reduced.
 
 The Editing Room spec covers:
 - project → room and media card → room navigation, and old-link redirects;
@@ -115,7 +125,7 @@ The Editing Room spec covers:
 - Maven keeping place and requiring approval; Home announcements, the spotlight and upload filters;
 - no outside requests.
 
-Screenshots: `docs/studio/screenshots/{android-360,android-430,desktop-1440}/`.
+Screenshots: `docs/studio/screenshots/{android-360,android-430,desktop-1440}/`; the light-design set is in `screenshots/light/`, and before/after pairs are in `screenshots/before-after/`. The design system is described in [light-design.md](light-design.md).
 
 Not run: a real Android phone (yours) and real video playback. Playwright's Chromium lacks H.264, which Chrome on
 Android has.
