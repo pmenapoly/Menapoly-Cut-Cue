@@ -190,31 +190,13 @@ export async function askView(out, _p, ctx) {
     h("form", { class: "composer", onsubmit: (e) => { e.preventDefault(); send(input.value); } }, input, h("button", { class: "btn primary", type: "submit", "aria-label": "Send" }, icon("send", 18))));
 }
 
-/* ================= Coaching ================= */
-export async function coachingView(out) {
-  const lessons = await svc.lessons();
-  const tracks = [...new Set(lessons.map((l) => l.track))];
-  const done = lessons.filter((l) => l.progress >= 100).length;
-  const next = lessons.find((l) => l.progress > 0 && l.progress < 100) || lessons.find((l) => !l.progress);
-  out.append(h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, "Coaching"), h("h1", {}, "Learn the Cue way")),
-    h("section", { class: "card hero" }, h("span", { class: "eyebrow" }, "Your path"), h("h2", {}, `${done} of ${lessons.length} lessons complete`),
-      h("div", { class: "progress", "aria-label": `${Math.round((done / lessons.length) * 100)}% of lessons complete` }, h("span", { style: `width:${(done / lessons.length) * 100}%` })),
-      next ? h("a", { class: "btn primary", href: `#lesson-${next.id}`, style: "justify-self:start" }, next.progress ? "Continue: " : "Start: ", next.title) : null),
-    ...tracks.map((t) => {
-      const cards = lessons.filter((l) => l.track === t).map((l) => h("a", { class: "card", href: `#lesson-${l.id}`, style: "text-decoration:none;color:inherit" },
-        l.mediaInfo ? h("div", { class: "lesson-media" }, h("img", { src: l.mediaInfo.poster, alt: "", loading: "lazy" })) : null,
-        h("h3", {}, l.title), h("span", { class: "small faint" }, `${l.minutes} min · ${l.kind === "video" ? "Video" : "Guide"}${l.progress >= 100 ? " · Complete" : ""}`),
-        h("div", { class: "progress", "aria-label": `${l.progress}% complete` }, h("span", { style: `width:${l.progress}%` }))));
-      return h("section", { class: "stack" }, h("h2", {}, t), h("div", { class: "grid-3" }, cards));
-    }));
-}
-
+/* ================= Tutorials (reached from Home announcements, the spotlight and search) ================= */
 export async function lessonView(out, [lid], ctx) {
   const l = (await svc.lessons()).find((x) => x.id === lid);
   if (!l) { const e = new Error("That lesson doesn't exist."); e.code = 404; throw e; }
   const media = l.mediaInfo ? h("div", { class: "lesson-media" }, h("video", { src: l.mediaInfo.src, poster: l.mediaInfo.poster, controls: true, playsinline: true, preload: "metadata", "aria-label": l.title })) : null;
   media?.querySelector("video").addEventListener("ended", async () => { await svc.setProgress(l.id, 100); toast("Lesson complete"); });
-  out.append(h("a", { href: "#coaching", class: "small" }, "← Coaching"), h("span", { class: "eyebrow" }, l.track), h("h1", {}, l.title),
+  out.append(h("a", { href: "#home", class: "small" }, "← Home"), h("span", { class: "eyebrow" }, l.track), h("h1", {}, l.title),
     media, h("section", { class: "card" }, h("p", { style: "max-width:65ch" }, l.body), l.kind === "video" ? h("p", { class: "tiny faint" }, "Fictional demo lesson clip.") : null),
     h("div", { class: "actions" }, l.progress >= 100 ? h("span", { class: "chip ok" }, icon("check", 14), "Complete")
       : h("button", { class: "btn primary", onclick: async () => { await svc.setProgress(l.id, 100); toast("Marked complete"); ctx.refresh(); } }, icon("check", 18), "Mark complete")));

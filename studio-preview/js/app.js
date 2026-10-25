@@ -3,9 +3,11 @@
 import { h, icon, markSvg, sheet, toast, avatar, skeleton, errorState, ago } from "./ui.js";
 import { svc } from "./service.js";
 import { homeView, inboxView } from "./views-home.js";
-import { studioView, projectView, assetView, libraryView, requestFormView } from "./views-studio.js";
-import { reviewListView, reviewRoomView } from "./views-review.js";
-import { socialView, visibilityView, askView, coachingView, lessonView, clientsView, teamView, settingsView } from "./views-more.js";
+import { studioView, assetView, libraryView, requestFormView } from "./views-studio.js";
+import { reviewListView } from "./views-review.js";
+import { projectView, roomView } from "./views-room.js";
+import { socialView, visibilityView, askView, lessonView, clientsView, teamView, settingsView } from "./views-more.js";
+import { mavenButton } from "./maven.js";
 
 const NAV = [
   { token: "home", label: "Home", icon: "home", group: "Workspace" },
@@ -15,7 +17,6 @@ const NAV = [
   { token: "visibility", label: "AI Visibility", icon: "chart", group: "Workspace", roles: ["admin", "client"] },
   { token: "ask", label: "Ask Cue", icon: "spark", group: "Workspace" },
   { token: "library", label: "Library", icon: "grid", group: "Resources" },
-  { token: "coaching", label: "Coaching", icon: "cap", group: "Resources" },
   { token: "inbox", label: "Inbox", icon: "inbox", group: "Resources" },
   { token: "clients", label: "Clients", icon: "users", group: "Menapoly", roles: ["admin"] },
   { token: "team", label: "Team", icon: "team", group: "Menapoly", roles: ["admin"] },
@@ -26,8 +27,8 @@ const allowed = (n) => !n.roles || n.roles.includes(svc.me().role);
 
 const ROUTES = [
   [/^home$/, homeView], [/^studio$/, studioView], [/^request-new(?:-(p_[\w]+))?$/, requestFormView], [/^project-(p_[\w]+)$/, projectView],
-  [/^asset-(a_[\w]+)$/, assetView], [/^library$/, libraryView], [/^review$/, reviewListView], [/^review-(rv_[\w]+)$/, reviewRoomView],
-  [/^social$/, socialView], [/^visibility(?:-([a-z]+))?$/, visibilityView], [/^ask$/, askView], [/^coaching$/, coachingView],
+  [/^video-(v_[\w]+)$/, roomView], [/^asset-(a_[\w]+)$/, assetOrRoom], [/^library$/, libraryView], [/^review$/, reviewListView], [/^review-(rv_[\w]+)$/, reviewToRoom],
+  [/^social$/, socialView], [/^visibility(?:-([a-z]+))?$/, visibilityView], [/^ask$/, askView],
   [/^lesson-(l_[\w]+)$/, lessonView], [/^inbox$/, inboxView], [/^clients$/, clientsView], [/^team$/, teamView], [/^settings$/, settingsView],
 ];
 
@@ -37,7 +38,19 @@ export const go = (token) => { if (location.hash.slice(1) === token) render(); e
 export const ctx = { go, refresh: () => render(), rerenderShell: () => { buildShell(); render(); }, search: () => searchSheet() };
 
 function current() { return location.hash.slice(1) || "home"; }
-function section(token) { return token.split("-")[0].replace(/^asset$|^project$|^request$/, "studio").replace(/^lesson$/, "coaching"); }
+function section(token) { return token.split("-")[0].replace(/^asset$|^project$|^request$|^video$/, "studio").replace(/^lesson$/, "home"); }
+
+// Older links (review rooms, video files) open the video's Editing Room; replace() keeps the back button clean.
+async function reviewToRoom(out, [rid]) {
+  const vid = svc.videoForReview(rid);
+  if (!vid) { const e = new Error("That review doesn't exist."); e.code = 404; throw e; }
+  location.replace(`#video-${vid}`);
+}
+async function assetOrRoom(out, [aid], ctx) {
+  const vid = svc.videoForAsset(aid);
+  if (vid) { location.replace(`#video-${vid}`); return; }
+  return assetView(out, [aid], ctx);
+}
 
 function roleSheet() {
   const me = svc.me();
@@ -61,7 +74,7 @@ export function searchSheet() {
     try {
       const hits = await svc.search(q);
       results.replaceChildren(hits.length ? h("ul", { class: "list" }, hits.map((x) => h("li", {}, h("a", { class: "item", href: `#${x.link}`, onclick: () => d.close() },
-        h("span", { class: "thumb" }, icon({ Project: "studio", Media: "film", Review: "review", Coaching: "cap" }[x.type] || "doc", 22)),
+        h("span", { class: "thumb" }, icon({ Project: "studio", Media: "film", Video: "film", Review: "review", Tutorial: "cap" }[x.type] || "doc", 22)),
         h("span", { class: "grow" }, h("span", { class: "title" }, x.title), h("span", { class: "small faint" }, `${x.type} · ${x.sub}`)), icon("chevron", 18)))))
         : h("div", { class: "state" }, icon("search", 26), h("h3", {}, "No matches"), h("p", { class: "muted small" }, `Nothing you can access matches “${q}”.`)));
     } catch (e) { results.replaceChildren(errorState(e)); }
@@ -95,6 +108,7 @@ function buildShell() {
           h("div", { class: "grow" }),
           h("button", { class: "top-search btn ghost", style: "justify-content:flex-start;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--faint)", onclick: searchSheet },
             icon("search", 18), "Search projects, media, reviews…"),
+          mavenButton(ctx),
           h("button", { class: "iconbtn search-btn", "aria-label": "Search", onclick: searchSheet }, icon("search", 22)),
           h("a", { class: "iconbtn", href: "#inbox", "aria-label": unread ? `Inbox, ${unread} unread` : "Inbox" }, icon("bell", 22), unread ? h("span", { class: "dot" }) : null),
           h("button", { class: "role-chip", onclick: roleSheet, "aria-label": `Signed in as ${me.name}, ${me.role}. Switch demo role` }, avatar(me.name),
@@ -108,8 +122,12 @@ function buildShell() {
         h("button", { class: BAR.includes(tok) ? "" : "on", onclick: moreSheet, "aria-label": "More sections" }, icon("more", 22), h("span", {}, "More")))));
 }
 
+let lastToken = null;
 async function render() {
   const token = current(), my = ++nav;
+  // Moving to another page (including the back button) closes open sheets; refreshing the same page keeps them.
+  if (token !== lastToken) document.querySelectorAll("dialog[open]").forEach((d) => d.close());
+  lastToken = token;
   const main = document.getElementById("main") || (buildShell(), document.getElementById("main"));
   buildShellMarkers();
   const navItem = NAV.find((n) => n.token === section(token));

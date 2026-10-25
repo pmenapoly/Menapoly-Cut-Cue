@@ -22,6 +22,9 @@ drawtext=fontfile=${MONO}:text='%{pts\\:hms}':fontsize=${small}:fontcolor=white@
     -map "[v]" -map "[a]" -c:v libx264 -profile:v baseline -pix_fmt yuv420p -crf 30 -preset veryfast \
     -c:a aac -b:a 48k -movflags +faststart "media/${name}.mp4"
   ffmpeg -hide_banner -loglevel error -y -ss 2 -i "media/${name}.mp4" -frames:v 1 -q:v 6 "media/${name}.jpg"
+  # VP9/Opus copy: every Chromium build plays it (the automated tests' Chromium has no H.264 decoder).
+  ffmpeg -hide_banner -loglevel error -y -i "media/${name}.mp4" -c:v libvpx-vp9 -b:v 0 -crf 42 -deadline realtime -cpu-used 8 \
+    -c:a libopus -b:a 32k "media/${name}.webm"
 }
 
 clip nw-launch-v1 640 360 12 0x14183a 0x5b3fd6 'Spring Launch' 'Northwind Roasters (fictional) - cut v1' 220

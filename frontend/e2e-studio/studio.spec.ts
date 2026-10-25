@@ -46,7 +46,7 @@ test("shell, navigation, back button and no sideways scroll", async ({ page }) =
   else { await expect(page.locator(".rail")).toBeVisible(); await expect(page.locator(".bar")).toBeHidden(); }
   await shot(page, "01-home");
   for (const [label, heading] of [["Studio", "Production"], ["Review", "Cuts to review"], ["Ask Cue", "Ask Cue"], ["Social Sharing", "Social Sharing"],
-    ["AI Visibility", "AI Visibility"], ["Coaching", "Learn the Cue way"], ["Library", "Library"], ["Inbox", "Inbox"], ["Settings", "Settings"]] as const) {
+    ["AI Visibility", "AI Visibility"], ["Library", "Library"], ["Inbox", "Inbox"], ["Settings", "Settings"]] as const) {
     await navTo(page, label === "Studio" ? "Media Studio" : label);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(heading);
     await noSideScroll(page);
@@ -55,10 +55,14 @@ test("shell, navigation, back button and no sideways scroll", async ({ page }) =
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Inbox");
   await page.goBack();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Library");
+  // No standalone Coaching destination (tutorials arrive through Home announcements and the spotlight).
+  await expect(page.locator(".rail a, .bar a").filter({ hasText: "Coaching" })).toHaveCount(0);
+  await open(page, "coaching");
+  await expect(page.getByText("doesn't exist in the preview")).toBeVisible();
 });
 
 test("touch targets, labels and alt text", async ({ page }) => {
-  for (const token of ["home", "studio", "review-rv_launch", "library", "social", "visibility", "ask", "request-new"]) {
+  for (const token of ["home", "studio", "project-p_launch", "video-v_launch", "library", "social", "visibility", "ask", "request-new"]) {
     await open(page, token);
     const bad = await page.evaluate((isPhone) => {
       const out: string[] = [];
@@ -83,7 +87,7 @@ test("universal search respects access", async ({ page }) => {
   const box = page.getByRole("dialog", { name: "Search" });
   await box.getByLabel("Search everything").fill("spring");
   await expect(box.locator(".item[href='#project-p_launch']")).toBeVisible();
-  await expect(box.locator(".item[href='#review-rv_launch']")).toBeVisible();
+  await expect(box.locator(".item[href='#video-v_launch']", { hasText: "Editing Room" })).toBeVisible();
   await shot(page, "02-search");
   await box.getByLabel("Search everything").fill("harborline");
   await expect(box.getByText("No matches")).toBeVisible(); // Jordan can't see the other client's workspace
@@ -102,10 +106,10 @@ test("library: folders, filters, moving files, empty state", async ({ page }) =>
   await page.getByRole("button", { name: "All files" }).click();
   await page.getByRole("button", { name: "Video", exact: true }).click();
   await expect(page.locator(".tile")).toHaveCount(3);
-  await page.locator(".tile", { hasText: "brew-tips-reel-01.mp4" }).click();
-  await page.getByLabel("Move to folder").selectOption({ label: "Holiday campaign" });
-  await page.getByRole("button", { name: "Move", exact: true }).click();
-  await expect(page.getByText("Moved")).toBeVisible();
+  await page.getByRole("button", { name: "Move brew-tips-reel-01.mp4" }).click();
+  await page.getByRole("dialog").getByLabel("Move to folder").selectOption({ label: "Holiday campaign" });
+  await page.getByRole("dialog").getByRole("button", { name: "Move", exact: true }).click();
+  await expect(page.locator(".toast", { hasText: "Moved" })).toBeVisible();
   await open(page, "library");
   await page.getByRole("button", { name: "Holiday campaign" }).click();
   await expect(page.locator(".tile")).toHaveCount(1);
@@ -142,60 +146,6 @@ test("editing request: draft survives reload, validation, submit, persists", asy
   await open(page, "studio");
   await page.getByRole("tab", { name: "Requests" }).click();
   await expect(page.locator(".item", { hasText: "Three reels from the roastery shoot" })).toContainText("Submitted");
-});
-
-test("review: frame annotation with a drawn box persists; replies and resolve", async ({ page }) => {
-  await open(page, "review-rv_launch");
-  await page.getByRole("button", { name: "Pause & comment" }).click();
-  await page.getByRole("button", { name: "Box" }).click();
-  const c = await page.locator(".player canvas").boundingBox();
-  await page.mouse.move(c!.x + c!.width * 0.2, c!.y + c!.height * 0.2);
-  await page.mouse.down();
-  await page.mouse.move(c!.x + c!.width * 0.6, c!.y + c!.height * 0.55, { steps: 6 });
-  await page.mouse.up();
-  await expect(page.getByText("with a marked area")).toBeVisible();
-  await page.getByLabel("Comment", { exact: true }).fill("Make the logo larger here");
-  await shot(page, "05-annotate");
-  await page.getByRole("button", { name: "Send comment" }).click();
-  const note = page.locator(".note", { hasText: "Make the logo larger here" });
-  await expect(note).toBeVisible();
-  await expect(note.getByText("marked")).toBeVisible();
-  await expect(page.locator(".timeline .pin")).toHaveCount(2);
-  await note.getByLabel(/Reply to/).fill("Will do in v3");
-  await note.getByRole("button", { name: "Reply" }).click();
-  await expect(page.locator(".note", { hasText: "Make the logo larger here" })).toContainText("Will do in v3");
-  await page.locator(".note", { hasText: "Make the logo larger here" }).getByRole("button", { name: "Resolve" }).click();
-  await expect(page.locator(".note", { hasText: "Make the logo larger here" }).getByText("Resolved")).toBeVisible();
-  await page.reload();
-  await expect(page.locator(".note", { hasText: "Make the logo larger here" })).toContainText("Will do in v3");
-  await page.locator("details", { hasText: "Audit trail" }).locator("summary").click();
-  await expect(page.getByText(/Commented at 0:/)).toBeVisible();
-  await page.getByRole("button", { name: "Compare" }).click();
-  await expect(page.getByRole("dialog").locator("video")).toHaveCount(2);
-  await shot(page, "06-compare");
-});
-
-test("review: request changes needs a note; editor uploads; client approves; it reaches Channel Media", async ({ page }) => {
-  await open(page, "review-rv_launch");
-  await page.getByRole("button", { name: "Request changes" }).click();
-  await expect(page.getByText("Say what should change")).toBeVisible();
-  await page.getByLabel("Or request changes").fill("Hold the bag shot longer");
-  await page.getByRole("button", { name: "Request changes" }).click();
-  await expect(page.locator(".section-head .chip")).toHaveText("Changes requested");
-  await asRole(page, "u_sam");
-  await open(page, "review-rv_launch");
-  await expect(page.getByRole("button", { name: /^Approve/ })).toHaveCount(0); // editors never approve
-  await page.getByLabel("Submit a new version").fill("Longer bag shot");
-  await page.getByRole("button", { name: "Upload new version" }).click();
-  await expect(page.getByRole("tab", { name: "Version 3" })).toBeVisible();
-  await asRole(page, "u_jordan");
-  await open(page, "review-rv_launch");
-  await page.getByRole("button", { name: "Approve version 3" }).click();
-  await expect(page.locator(".section-head .chip")).toHaveText("Approved");
-  await open(page, "home");
-  await page.getByRole("tab", { name: "Channel Media" }).click();
-  await expect(page.locator(".tile", { hasText: "spring-launch-cut-v2.mp4" })).toBeVisible();
-  await shot(page, "07-channel-media");
 });
 
 test("roles: editors and other clients can't reach what isn't theirs", async ({ page }) => {
@@ -285,13 +235,13 @@ test("Social Sharing: draft, approve, prepare (simulated), calendar", async ({ p
   await shot(page, "11-social");
 });
 
-test("coaching progress and error states", async ({ page }) => {
+test("tutorial progress and error states", async ({ page }) => {
   await open(page, "lesson-l_review");
   await page.getByRole("button", { name: "Mark complete" }).click();
   await expect(page.getByText("Complete", { exact: true })).toBeVisible();
-  await open(page, "coaching");
-  await expect(page.getByRole("heading", { name: /3 of 8 lessons complete/ })).toBeVisible();
-  await shot(page, "12-coaching");
+  await page.reload();
+  await expect(page.getByText("Complete", { exact: true })).toBeVisible();
+  await shot(page, "12-tutorial");
   await open(page, "settings");
   await page.getByLabel("Simulate a service outage").check();
   await page.goto("/#studio");
@@ -306,7 +256,7 @@ test("coaching progress and error states", async ({ page }) => {
 });
 
 test("isolation: no request leaves the preview; production is never contacted", async ({ page }) => {
-  for (const t of ["home", "studio", "library", "review-rv_launch", "social", "visibility", "ask", "coaching", "settings"]) await open(page, t);
+  for (const t of ["home", "studio", "library", "project-p_launch", "video-v_launch", "social", "visibility", "ask", "settings"]) await open(page, t);
   const outside = requests.filter((u) => { const h = new URL(u).hostname; return !["127.0.0.1", "fonts.googleapis.com", "fonts.gstatic.com"].includes(h) && !u.startsWith("data:") && !u.startsWith("blob:"); });
   expect(outside).toEqual([]);
   expect(requests.some((u) => /workers\.dev|menapoly-digital|cloudflare/.test(u))).toBe(false);

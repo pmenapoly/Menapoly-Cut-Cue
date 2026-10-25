@@ -14,7 +14,7 @@ export async function studioView(out, _p, ctx) {
   out.append(
     h("div", { class: "section-head" }, h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, "Media Studio"), h("h1", {}, "Production")),
       me.role !== "editor" ? h("a", { class: "btn primary", href: "#request-new" }, icon("plus", 18), "New editing request") : null),
-    h("div", { class: "tabs", role: "tablist", "aria-label": "Studio" }, [["projects", "Projects"], ["requests", "Requests"], ["presets", "Export presets"]].map(([k, l]) =>
+    h("div", { class: "tabs", role: "tablist", "aria-label": "Studio" }, [["projects", "Projects"], ["requests", "Requests"], ["templates", "Templates"], ["presets", "Export presets"]].map(([k, l]) =>
       h("button", { class: "tab", role: "tab", "aria-selected": String(tab === k), onclick: () => { mem("cue-studio-tab", k); ctx.refresh(); } }, l))));
   if (tab === "projects") {
     out.append(projects.length ? h("div", { class: "grid-2" }, projects.map((p) => h("a", { class: "card", href: `#project-${p.id}`, style: "text-decoration:none;color:inherit" },
@@ -28,51 +28,23 @@ export async function studioView(out, _p, ctx) {
       h("span", { class: "grow" }, h("span", { class: "title" }, r.title), h("span", { class: "small faint" }, `${typeLabel(r.type)} · ${r.projectName} · ${r.assignee ? r.assignee : "unassigned"}`)),
       h("span", { class: `chip ${statusTone(r.status)}` }, r.status))))))
       : empty("No requests yet", "Editing requests you can see appear here.", me.role !== "editor" ? h("a", { class: "btn primary", href: "#request-new" }, "New editing request") : null));
+  } else if (tab === "templates") {
+    const ws = svc.currentWs();
+    const list = ws ? await svc.templates(ws.id).catch((e) => (e.code === 403 ? [] : Promise.reject(e))) : [];
+    out.append(h("p", { class: "muted" }, "Reusable editing instructions, formats, brand settings and checklists. Make one from any video's More actions. Templates never include footage or client details."),
+      list.length ? h("div", { class: "grid-2" }, list.map((t) => h("article", { class: "card" },
+        h("div", { class: "section-head" }, h("h2", {}, t.name), h("span", { class: "tiny faint" }, `${t.byName} · ${ago(t.at)}`)),
+        h("ul", { class: "bullets small" },
+          t.instructions.visual ? h("li", {}, `Look: ${t.instructions.visual}`) : null, t.instructions.audio ? h("li", {}, `Sound: ${t.instructions.audio}`) : null,
+          t.instructions.captions ? h("li", {}, `Captions: ${t.instructions.captions}`) : null,
+          t.outputs.length ? h("li", {}, `Outputs: ${t.outputs.map((o) => EXPORT_PRESETS.find((x) => x.id === o)?.label).join(", ")}`) : null,
+          t.brand.length ? h("li", {}, `Brand: ${t.brand.join("; ")}`) : null, t.checklist.length ? h("li", {}, `Checklist: ${t.checklist.length} tasks`) : null),
+        me.role !== "editor" ? h("button", { class: "btn sm", onclick: () => { mem("cue-request-draft", JSON.stringify(templateDraft(t))); ctx.go("request-new"); } }, "Use for a new request") : null)))
+        : empty("No templates yet", "Open a video and choose More actions → Make a template."));
   } else {
     out.append(h("p", { class: "muted" }, "Presets the editing engine will export to. In the preview, choosing a preset records the delivery request; no file is rendered."),
       h("div", { class: "grid-2" }, EXPORT_PRESETS.map((p) => h("div", { class: "card" }, h("h3", {}, p.label), h("p", { class: "mono small muted" }, p.spec)))));
   }
-}
-
-export async function projectView(out, [pid], ctx) {
-  const me = svc.me(), p = await svc.project(pid);
-  const editors = svc.users().filter((u) => u.role === "editor");
-  const head = h("div", { class: "stack", style: "gap:6px" }, h("a", { href: "#studio", class: "small" }, "← Media Studio"),
-    h("span", { class: "eyebrow" }, p.workspace), h("h1", {}, p.name),
-    h("div", { class: "row" }, h("span", { class: `chip ${statusTone(p.status)}` }, p.status), h("span", { class: "chip" }, icon("clock", 14), `Due ${fmtDate(p.due)}`),
-      h("span", { class: "chip" }, `${p.revisionLimit} revisions included`)));
-  const reqCards = p.requests.map((r) => {
-    const stage = Math.max(0, STAGES.indexOf(r.status === "Revision" ? "In progress" : r.status));
-    const assign = h("select", { id: `assign-${r.id}`, "aria-label": "Assign editor", style: "width:auto;flex:1 1 180px" },
-      h("option", { value: "" }, "Choose editor"), editors.map((e) => h("option", { value: e.id, selected: e.id === r.assigneeId }, e.name)));
-    return h("section", { class: "card" },
-      h("div", { class: "section-head" }, h("h2", {}, r.title), h("span", { class: `chip ${statusTone(r.status)}` }, r.status)),
-      h("p", { class: "small faint" }, `${typeLabel(r.type)} · ${r.aspect || "—"} · ${r.length || "—"} · requested by ${svc.userName(r.by)} ${ago(r.at)}`),
-      h("div", { class: "stack" }, h("span", { class: "eyebrow" }, "Production brief"), h("p", {}, r.brief)),
-      h("ol", { class: "steps", "aria-label": "Progress" }, STAGES.map((s, i) => h("li", { class: i < stage ? "done" : i === stage ? "now" : "" }, h("span", { class: "small" }, s)))),
-      h("p", { class: "small muted" }, `Revisions used: ${r.revisionsUsed} of ${p.revisionLimit}`),
-      h("div", { class: "actions" },
-        me.role === "admin" ? [assign, h("button", { class: "btn", onclick: async () => { try { await svc.assignRequest(r.id, assign.value); toast("Editor assigned"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, "Assign")] : null,
-        me.role === "editor" && /assigned|submitted|revision/i.test(r.status) && r.assigneeId === me.id ? h("button", { class: "btn primary", onclick: async () => {
-          try { await svc.startRequest(r.id); toast("Marked in progress"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, "Start editing") : null));
-  });
-  const delivery = h("section", { class: "card" }, h("h2", {}, "Delivery"), h("p", { class: "small muted" }, "Choose where the approved cut should go."),
-    h("div", { class: "stack" }, EXPORT_PRESETS.map((x) => h("button", { class: "btn", style: "justify-content:space-between",
-      onclick: () => toast(`${x.label}: delivery request recorded (simulated, nothing rendered)`) }, h("span", {}, x.label), demoBadge()))));
-  const reviewsCard = h("section", { class: "card" }, h("h2", {}, "Reviews"),
-    p.reviews.length ? h("ul", { class: "list" }, p.reviews.map((r) => h("li", {}, h("a", { class: "item", href: `#review-${r.id}` },
-      h("span", { class: "grow" }, h("span", { class: "title" }, r.title), h("span", { class: "small faint" }, `${r.versions.length} version(s)`)),
-      h("span", { class: `chip ${statusTone(r.status)}` }, r.status))))) : h("p", { class: "muted small" }, "No cuts yet."));
-  const mediaCard = h("section", { class: "card" }, h("h2", {}, "Project media"),
-    p.assets.length ? h("ul", { class: "list" }, p.assets.map((a) => h("li", {}, h("a", { class: "item", href: `#asset-${a.id}` },
-      h("span", { class: "thumb" }, a.mediaInfo?.poster ? h("img", { src: a.mediaInfo.poster, alt: "" }) : icon(kindIcon(a.kind), 22)),
-      h("span", { class: "grow" }, h("span", { class: "title" }, a.name), h("span", { class: "small faint" }, `${bytes(a.size)} · ${ago(a.at)}`)))))) : h("p", { class: "muted small" }, "No media yet."));
-  const briefCard = h("section", { class: "card" }, h("h2", {}, "Project brief"), h("p", {}, p.brief),
-    h("div", { class: "row small faint" }, "Team:", p.editors.length ? p.editors.map((n) => h("span", { class: "chip" }, avatar(n, true), n)) : "No editor assigned"));
-  out.append(head, h("div", { class: "split" },
-    h("div", { class: "stack", style: "gap:14px" }, briefCard, ...reqCards,
-      me.role !== "editor" ? h("a", { class: "btn", href: `#request-new-${p.id}` }, icon("plus", 18), "Add a request to this project") : null),
-    h("aside", { class: "stack", style: "gap:14px" }, reviewsCard, mediaCard, delivery)));
 }
 
 export async function assetView(out, [aid], ctx) {
@@ -135,10 +107,17 @@ export async function libraryView(out, _p, ctx) {
       h("button", { class: `tab ${kind === k ? "on" : ""}`, "aria-pressed": String(kind === k), onclick: () => { mem("cue-lib-kind", k); ctx.refresh(); } }, l))),
     queue,
     h("p", { class: "small faint" }, `${assets.length} file(s)${q ? ` matching “${q}”` : ""}`),
-    assets.length ? h("div", { class: "tiles" }, assets.map(mediaTile))
+    assets.length ? h("div", { class: "tiles" }, assets.map((a) => h("div", { class: "stack", style: "gap:6px" }, mediaTile(a),
+        folders.length ? h("button", { class: "btn sm", "aria-label": `Move ${a.name}`, onclick: () => moveSheet(a, folders, ctx) }, icon("folder", 16), "Move") : null)))
       : folder && !q && kind === "all" ? empty("This folder is empty", "Open a file and use Move to put it here.")
       : empty(q || kind !== "all" || folder ? "Nothing matches" : "No files yet", q || kind !== "all" || folder ? "Try another search, type or folder." : "Add footage to get started.",
         q || kind !== "all" || folder ? h("button", { class: "btn", onclick: () => { mem("cue-lib-q", null); mem("cue-lib-kind", null); mem("cue-lib-folder", null); ctx.refresh(); } }, "Clear filters") : null));
+}
+
+function moveSheet(a, folders, ctx) {
+  const sel = h("select", { id: "move-to", "aria-label": "Move to folder" }, folders.map((f) => h("option", { value: f.id, selected: f.id === a.folderId }, f.name)));
+  const d = sheet(`Move ${a.name}`, h("div", { class: "field" }, h("label", { for: "move-to" }, "Folder"), sel),
+    h("button", { class: "btn primary", onclick: async () => { try { await svc.moveAsset(a.id, sel.value); d.close(); toast("Moved"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, "Move"));
 }
 
 function newFolder(ws, ctx) {
@@ -146,6 +125,14 @@ function newFolder(ws, ctx) {
   const d = sheet("New folder", h("div", { class: "field" }, h("label", { for: "folder-name" }, "Folder name"), name),
     h("button", { class: "btn primary", onclick: async () => { try { const f = await svc.createFolder(ws.id, name.value); d.close(); mem("cue-lib-folder", f.id); toast("Folder created"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, "Create folder"));
   setTimeout(() => name.focus(), 50);
+}
+
+export function templateDraft(t) {
+  const lines = [t.instructions.visual && `Look: ${t.instructions.visual}`, t.instructions.audio && `Sound: ${t.instructions.audio}`,
+    t.instructions.captions && `Captions: ${t.instructions.captions}`, t.brand.length && `Brand: ${t.brand.join("; ")}`,
+    t.checklist.length && `Checklist: ${t.checklist.map((c) => c.text).join("; ")}`].filter(Boolean);
+  return { type: t.outputs.includes("reels") ? "short" : "promo", templateId: t.id, title: "", brief: lines.join("\n"),
+    aspect: t.outputs.includes("reels") ? "9:16" : "16:9" };
 }
 
 export async function requestFormView(out, [preProject], ctx) {
@@ -171,8 +158,15 @@ export async function requestFormView(out, [preProject], ctx) {
   Object.values(f).forEach((el) => el.addEventListener("input", persist));
   drawTypes();
   if (!projects.length) { out.append(h("h1", {}, "New editing request"), empty("No project to attach this to", "Ask your Menapoly producer to open a project first.")); return; }
+  const ws = svc.currentWs();
+  const templates = ws ? await svc.templates(ws.id).catch(() => []) : [];
+  const tplSel = templates.length ? h("select", { id: "rq-template", onchange: (e) => {
+    const t = templates.find((x) => x.id === e.target.value); if (!t) return;
+    mem("cue-request-draft", JSON.stringify({ ...templateDraft(t), projectId: f.project.value, title: f.title.value })); ctx.refresh(); toast(`Started from “${t.name}”`); } },
+    h("option", { value: "" }, "No template"), templates.map((t) => h("option", { value: t.id, selected: t.id === draft.templateId }, t.name))) : null;
   out.append(h("a", { href: "#studio", class: "small" }, "← Media Studio"), h("h1", {}, "New editing request"),
     h("p", { class: "muted" }, "Tell the editor what to make. Your draft is kept on this device until you submit."),
+    tplSel ? h("div", { class: "field" }, h("label", { for: "rq-template" }, "Start from a template"), tplSel) : null,
     h("form", { class: "stack", style: "gap:16px", novalidate: true, onsubmit: async (e) => {
       e.preventDefault();
       try {

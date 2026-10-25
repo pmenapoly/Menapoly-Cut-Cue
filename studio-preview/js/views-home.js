@@ -16,9 +16,12 @@ export function wsPicker(onChange) {
 export async function homeView(out, _p, ctx) {
   const me = svc.me(), ws = svc.currentWs();
   if (!ws) { out.append(h("h1", {}, `Hi, ${me.name.split(" ")[0]}`), empty("No workspace yet", "You'll see work here once you're assigned to a project.")); return; }
-  const tab = remember("cue-home-tab") || "home";
-  const [projects, reviews, requests, notes, feed] = await Promise.all([svc.projects(), svc.reviews(), svc.requests(), svc.notifications(), svc.feed(ws.id)]);
-  const wsProjects = projects.filter((p) => p.ws === ws.id);
+  const who = remember("cue-uploads") || "all", pick = remember("cue-uploader") || "";
+  const [reviews, notes, feed, notices, spot, uploaders, videos] = await Promise.all([svc.reviews(), svc.notifications(), svc.feed(ws.id), svc.announcements(),
+    svc.spotlight(), svc.uploaders(ws.id), svc.videos({ ws: ws.id })]);
+  let uploads = await svc.assets({ ws: ws.id, mine: who === "mine" });
+  if (who === "others") uploads = uploads.filter((a) => a.by !== me.id);
+  if (pick && who !== "mine") uploads = uploads.filter((a) => a.by === pick);
   const toReview = reviews.filter((r) => r.ws === ws.id && r.status === "In review");
   const hour = new Date().getHours();
 
@@ -28,71 +31,52 @@ export async function homeView(out, _p, ctx) {
         h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, ws.name),
           h("h1", {}, `${hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"}, ${me.name.split(" ")[0]}`)),
         wsPicker(() => ctx.rerenderShell())),
-      h("button", { class: "btn search-launch", onclick: ctx.search },
-        icon("search", 18), "Search projects, media, reviews and lessons")),
-    h("div", { class: "tabs", role: "tablist", "aria-label": "Home content" },
-      [["home", "Home"], ["channel", "Channel Media"], ["mine", "My Media"], ["coaching", "Coaching"]].map(([k, l]) =>
-        h("button", { class: "tab", role: "tab", "aria-selected": String(tab === k), onclick: () => { remember("cue-home-tab", k); ctx.refresh(); } }, l))));
-
-  if (tab === "channel" || tab === "mine") {
-    const assets = await svc.assets({ ws: ws.id, channel: tab === "channel", mine: tab === "mine" });
-    out.append(h("p", { class: "muted small" }, tab === "channel" ? "Approved media, ready to share." : "Files you added."),
-      assets.length ? h("div", { class: "tiles" }, assets.map(mediaTile))
-        : empty(tab === "channel" ? "No approved media yet" : "You haven't added files", tab === "channel" ? "Approved deliverables appear here." : "Add footage in the Library.",
-          h("a", { class: "btn", href: "#library" }, icon("upload", 18), "Open Library")));
-    return;
-  }
-  if (tab === "coaching") {
-    const lessons = await svc.lessons();
-    out.append(h("div", { class: "grid-3" }, lessons.slice(0, 6).map((l) => h("a", { class: "card", href: `#lesson-${l.id}`, style: "text-decoration:none;color:inherit" },
-      h("span", { class: "eyebrow" }, l.track), h("h3", {}, l.title), h("span", { class: "small faint" }, `${l.minutes} min · ${l.kind === "video" ? "Video" : "Guide"}`),
-      h("div", { class: "progress", "aria-label": `${l.progress}% complete` }, h("span", { style: `width:${l.progress}%` }))))),
-      h("a", { class: "btn", href: "#coaching" }, "All coaching"));
-    return;
-  }
-
-  // ---- Home tab ----
-  const nextStep = toReview.length && me.role !== "editor"
-    ? { title: `${toReview[0].title} is ready for your review`, text: `Version ${toReview[0].latest.n} · ${toReview[0].open} open comment(s)`, link: `review-${toReview[0].id}`, cta: "Review now" }
-    : me.role === "editor" ? (() => { const r = requests.find((x) => x.assigneeId === me.id && /assigned|submitted|revision/i.test(x.status));
-        return r ? { title: `Start: ${r.title}`, text: r.brief, link: `project-${r.projectId}`, cta: "Open brief" } : null; })()
-    : { title: "Send your next editing request", text: "Pick footage, describe the result, and we'll take it from there.", link: "request-new", cta: "New request" };
-  out.append(
-    nextStep ? h("section", { class: "card hero" }, h("span", { class: "eyebrow" }, "Suggested next step"), h("h2", {}, nextStep.title),
-      h("p", { class: "muted" }, nextStep.text), h("div", { class: "actions" }, h("a", { class: "btn primary", href: `#${nextStep.link}` }, nextStep.cta))) : null,
-    h("section", { class: "stats", "aria-label": "Production status" },
-      stat(toReview.length, "awaiting review"), stat(requests.filter((r) => r.ws === ws.id && /progress|assigned/i.test(r.status)).length, "in production"),
-      stat(requests.filter((r) => r.ws === ws.id && r.status === "Submitted").length, "new requests"), stat(wsProjects.length, "projects")),
-    h("section", { class: "stack" }, h("h2", {}, "Quick actions"), h("div", { class: "actions" },
-      me.role !== "editor" ? h("a", { class: "btn primary", href: "#request-new" }, icon("plus", 18), "Editing request") : null,
-      h("a", { class: "btn", href: "#library" }, icon("upload", 18), "Add media"),
-      me.role !== "editor" ? h("button", { class: "btn", onclick: () => composer(ws, ctx) }, icon("pen", 18), "Draft a post") : null,
-      h("a", { class: "btn", href: "#ask" }, icon("spark", 18), "Ask Cue"))),
+      h("button", { class: "btn search-launch", onclick: ctx.search }, icon("search", 18), "Search videos, projects, files and tutorials")),
+    notices.length ? h("section", { class: "stack", "aria-label": "Announcements" }, notices.map((n) => h("div", { class: "announce", "data-id": n.id },
+      h("a", { class: "announce-body", href: `#${n.link}` }, h("span", { class: `chip ${n.kind === "Tutorial" ? "info" : "accent"}`, style: "justify-self:start" }, n.kind),
+        h("b", {}, n.title), h("span", { class: "small muted" }, n.body)),
+      h("button", { class: "iconbtn", "aria-label": `Dismiss: ${n.title}`, onclick: async () => { await svc.dismiss(n.id); ctx.refresh(); } }, icon("x", 18))))) : null,
+    spot ? h("section", { class: "card spotlight" }, h("div", { class: "row" }, h("span", { class: "eyebrow" }, "Thought leadership spotlight"),
+        h("span", { class: "tiny faint" }, `Changes every 14 days · until ${fmtDate(spot.until)}`)),
+      h("h2", {}, spot.title), h("p", { class: "muted" }, spot.body), h("span", { class: "small faint" }, spot.author),
+      h("div", { class: "actions" }, spot.lessonId ? h("a", { class: "btn sm", href: `#lesson-${spot.lessonId}` }, icon("cap", 16), "Read more") : null,
+        me.role === "admin" && spot.next ? h("span", { class: "tiny faint" }, `Next: “${spot.next.title}” on ${fmtDate(spot.next.start)}`) : null)) : null,
+    toReview.length && me.role !== "editor" ? h("a", { class: "card hero", href: `#video-${toReview[0].videoId}`, style: "text-decoration:none;color:inherit" },
+      h("span", { class: "eyebrow" }, "Ready for you"), h("h2", {}, `${toReview[0].title} is ready to review`),
+      h("p", { class: "muted small" }, `Version ${toReview[0].latest.n} · ${toReview[0].open} open comment(s)`), h("span", { class: "btn primary", style: "justify-self:start" }, "Open the Editing Room")) : null,
+    h("section", { class: "stack" }, h("div", { class: "section-head" }, h("h2", {}, "Uploads"), h("span", { class: "small faint" }, `${uploads.length} file(s)`)),
+      h("div", { class: "row" },
+        h("div", { class: "tabs", role: "group", "aria-label": "Whose uploads" }, [["all", "All uploads"], ["mine", "My uploads"], ["others", "Others"]].map(([k, l]) =>
+          h("button", { class: `tab ${who === k ? "on" : ""}`, "aria-pressed": String(who === k), onclick: () => { remember("cue-uploads", k); ctx.refresh(); } }, l))),
+        who !== "mine" ? h("select", { id: "uploader", "aria-label": "Uploaded by", style: "width:auto;flex:1 1 160px", onchange: (e) => { remember("cue-uploader", e.target.value); ctx.refresh(); } },
+          h("option", { value: "" }, "Anyone"), uploaders.filter((u) => who !== "others" || u.id !== me.id).map((u) => h("option", { value: u.id, selected: u.id === pick }, u.name))) : null),
+      uploads.length ? h("div", { class: "tiles" }, uploads.slice(0, 8).map(mediaTile))
+        : empty(who === "mine" ? "You haven't uploaded anything" : "No uploads match", who === "mine" ? "Add footage in the Library." : "Try another filter.",
+          h("a", { class: "btn", href: "#library" }, icon("upload", 18), "Open Library"))),
     h("div", { class: "split" },
-      h("section", { class: "stack" }, h("div", { class: "section-head" }, h("h2", {}, "Activity"), h("span", { class: "small faint" }, `${feed.length} updates`)),
+      h("section", { class: "stack" }, h("div", { class: "section-head" }, h("h2", {}, "Feed"), h("span", { class: "small faint" }, `${feed.length} updates`)),
         feed.length ? h("div", { class: "feed" }, feed.map((f) => feedPost(f, ctx))) : empty("Quiet so far", "Uploads, deliverables and approvals will appear here.")),
       h("aside", { class: "stack" },
-        h("section", { class: "card" }, h("h2", {}, "Pending approvals"),
-          toReview.length ? h("ul", { class: "list" }, toReview.map((r) => h("li", {}, h("a", { class: "item", href: `#review-${r.id}` },
-            h("span", { class: "thumb" }, r.poster ? h("img", { src: r.poster, alt: "" }) : icon("film")),
-            h("span", { class: "grow" }, h("span", { class: "title" }, r.title), h("span", { class: "small faint" }, `v${r.latest.n} · ${r.open} open`)), icon("chevron", 18)))))
-            : h("p", { class: "muted small" }, "Nothing waiting.")),
-        h("section", { class: "card" }, h("h2", {}, "Recent projects"),
-          wsProjects.length ? h("ul", { class: "list" }, wsProjects.map((p) => h("li", {}, h("a", { class: "item", href: `#project-${p.id}` },
-            h("span", { class: "grow" }, h("span", { class: "title" }, p.name), h("span", { class: "small faint" }, `Due ${fmtDate(p.due)}`)),
-            h("span", { class: `chip ${statusTone(p.status)}` }, p.status)))))
-            : h("p", { class: "muted small" }, "No projects you can see in this workspace.")),
+        h("section", { class: "card" }, h("h2", {}, "Videos in progress"),
+          videos.length ? h("ul", { class: "list" }, videos.map((v) => h("li", {}, h("a", { class: "item", href: `#video-${v.id}` },
+            h("span", { class: "thumb" }, h("img", { src: v.poster, alt: "" })),
+            h("span", { class: "grow" }, h("span", { class: "title small" }, v.title), h("span", { class: "tiny faint" }, `${v.status} · ${v.done}/${v.tasks} tasks`)), icon("chevron", 18)))))
+            : h("p", { class: "muted small" }, "No videos you can see yet.")),
         h("section", { class: "card" }, h("div", { class: "section-head" }, h("h2", {}, "Notifications"), h("a", { href: "#inbox", class: "small" }, "Inbox")),
           notes.slice(0, 3).length ? h("ul", { class: "list" }, notes.slice(0, 3).map((n) => h("li", {}, h("a", { class: "item", href: `#${n.link}` },
-            h("span", { class: "grow" }, h("span", { class: "title", style: n.read ? "font-weight:500" : "" }, n.text), h("span", { class: "small faint" }, ago(n.at)))))))
-            : h("p", { class: "muted small" }, "You're all caught up.")))));
+            h("span", { class: "grow" }, h("span", { class: "title small", style: n.read ? "font-weight:500" : "" }, n.text), h("span", { class: "tiny faint" }, ago(n.at)))))))
+            : h("p", { class: "muted small" }, "You're all caught up.")),
+        h("section", { class: "card" }, h("h2", {}, "Quick actions"), h("div", { class: "actions" },
+          me.role !== "editor" ? h("a", { class: "btn primary sm", href: "#request-new" }, icon("plus", 16), "Request a video") : null,
+          h("a", { class: "btn sm", href: "#library" }, icon("upload", 16), "Add media"),
+          me.role !== "editor" ? h("button", { class: "btn sm", onclick: () => composer(ws, ctx) }, icon("pen", 16), "Draft a post") : null)))));
 }
 
 const stat = (n, label) => h("div", { class: "stat" }, h("b", {}, String(n)), h("span", {}, label));
 
 export function mediaTile(a) {
   const poster = a.mediaInfo?.poster;
-  return h("a", { class: "tile", href: `#asset-${a.id}` },
+  return h("a", { class: "tile", href: a.videoId ? `#video-${a.videoId}` : `#asset-${a.id}` },
     h("span", { class: "poster" }, poster ? h("img", { src: poster, alt: "", loading: "lazy" }) : icon(kindIcon(a.kind), 30),
       h("span", { class: "chip" }, icon(kindIcon(a.kind), 13), a.kind)),
     h("b", {}, a.name), h("span", {}, `${a.projectName || "Workspace library"} · ${ago(a.at)}`));
@@ -110,7 +94,7 @@ function feedPost(f, ctx) {
     h("div", { class: "post-head" }, avatar(f.byName), h("div", { class: "grow" }, h("b", {}, f.byName), h("div", { class: "small faint" }, ago(f.at))),
       h("span", { class: `chip ${tone}` }, label)),
     h("p", {}, f.text),
-    f.asset?.mediaInfo?.poster ? h("a", { class: "post-media", href: f.reviewId ? `#review-${f.reviewId}` : `#asset-${f.asset.id}`, "aria-label": `Open ${f.asset.name}` },
+    f.asset?.mediaInfo?.poster ? h("a", { class: "post-media", href: f.asset.videoId ? `#video-${f.asset.videoId}` : `#asset-${f.asset.id}`, "aria-label": `Open ${f.asset.name}` },
       h("img", { src: f.asset.mediaInfo.poster, alt: `Preview of ${f.asset.name}`, loading: "lazy" })) : null,
     f.comments.length ? h("div", { class: "stack" }, f.comments.map((c) => h("div", { class: "comment" }, avatar(c.byName, true),
       h("div", { class: "bubble" }, h("b", { class: "small" }, c.byName), h("div", { class: "small" }, c.body))))) : null,
@@ -118,8 +102,8 @@ function feedPost(f, ctx) {
       h("button", { class: "btn ghost sm", onclick: () => { commentBox.hidden = !commentBox.hidden; if (!commentBox.hidden) input.focus(); } }, icon("message", 18), "Comment"),
       h("button", { class: "btn ghost sm", "aria-pressed": String(f.saved), onclick: async () => { try { await svc.toggleSave(f.id); toast(f.saved ? "Removed from saved" : "Saved"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } },
         icon("bookmark", 18), f.saved ? "Saved" : "Save"),
-      f.asset ? h("a", { class: "btn ghost sm", href: `#asset-${f.asset.id}` }, icon("studio", 18), "Open in Studio") : null,
-      f.lessonId ? h("a", { class: "btn ghost sm", href: `#lesson-${f.lessonId}` }, icon("cap", 18), "Open lesson") : null),
+      f.asset ? h("a", { class: "btn ghost sm", href: f.asset.videoId ? `#video-${f.asset.videoId}` : `#asset-${f.asset.id}` }, icon("studio", 18), f.asset.videoId ? "Open Editing Room" : "Open file") : null,
+      f.lessonId ? h("a", { class: "btn ghost sm", href: `#lesson-${f.lessonId}` }, icon("cap", 18), "Open tutorial") : null),
     commentBox);
 }
 

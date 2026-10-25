@@ -155,7 +155,8 @@ export const svc = {
   // ---- reviews ----
   reviews: () => call(() => state.reviews.filter((r) => canViewProject(user(), project(r.projectId))).map((r) => ({
     ...r, projectName: project(r.projectId)?.name, open: r.comments.filter((c) => !c.resolved).length,
-    latest: r.versions[r.versions.length - 1], poster: MEDIA[r.versions[r.versions.length - 1].media]?.poster }))),
+    latest: r.versions[r.versions.length - 1] || { n: 0 }, videoId: state.videos.find((v) => v.reviewId === r.id)?.id,
+    poster: MEDIA[r.versions[r.versions.length - 1]?.media || state.videos.find((v) => v.reviewId === r.id)?.original.media]?.poster }))),
   review: (rid) => call(() => {
     const r = state.reviews.find((x) => x.id === rid);
     if (!r) { const e = new Error("That review doesn't exist."); e.code = 404; throw e; }
@@ -198,6 +199,7 @@ export const svc = {
       r.audit.push({ at: now(), by: user().id, action: "Requested changes", detail: text.slice(0, 120) });
       p.editorIds.forEach((e) => notify(e, `Changes requested on ${r.title}`, `review-${r.id}`));
     } else if (decision === "approve") {
+      if (!r.versions.length) { const e = new Error("There's no edited version to approve yet."); e.code = 409; throw e; }
       r.status = "Approved"; if (req) req.status = "Approved";
       r.audit.push({ at: now(), by: user().id, action: `Approved version ${r.versions.length}` });
       const latest = r.versions[r.versions.length - 1];
@@ -212,7 +214,7 @@ export const svc = {
   uploadVersion: (rid, note) => call(() => {
     const r = state.reviews.find((x) => x.id === rid); const p = project(r?.projectId);
     enforce(user(), "review.upload_version", { project: p });
-    const prev = r.versions[r.versions.length - 1];
+    const prev = r.versions[r.versions.length - 1] || { media: state.videos.find((v) => v.reviewId === r.id)?.original.media || "v1" };
     r.versions.push({ n: r.versions.length + 1, media: prev.media === "v1" ? "v2" : prev.media, by: user().id, at: now(), note: String(note || "Revised cut").slice(0, 200), simulated: true });
     r.status = "In review"; const req = state.requests.find((x) => x.id === r.requestId); if (req) req.status = "In review";
     r.audit.push({ at: now(), by: user().id, action: `Uploaded version ${r.versions.length} (simulated)` });
@@ -306,11 +308,13 @@ export const svc = {
     const needle = String(q || "").trim().toLowerCase(); if (!needle) return [];
     const u = user(), hit = (s) => String(s).toLowerCase().includes(needle), out = [];
     visibleProjects(u).forEach((p) => { if (hit(p.name) || hit(p.brief)) out.push({ type: "Project", title: p.name, sub: p.status, link: `project-${p.id}` }); });
+    state.videos.filter((v) => canViewProject(u, project(v.projectId)) && (hit(v.title) || hit(v.instructions.brief)))
+      .forEach((v) => out.push({ type: "Video", title: v.title, sub: `Editing Room · ${project(v.projectId)?.name}`, link: `video-${v.id}` }));
     state.assets.filter((a) => canViewAsset(u, a, project(a.projectId)) && (hit(a.name) || a.tags.some(hit)))
-      .forEach((a) => out.push({ type: "Media", title: a.name, sub: project(a.projectId)?.name || "Workspace library", link: `asset-${a.id}` }));
-    state.reviews.filter((r) => canViewProject(u, project(r.projectId)) && (hit(r.title) || r.comments.some((c) => hit(c.body))))
-      .forEach((r) => out.push({ type: "Review", title: r.title, sub: r.status, link: `review-${r.id}` }));
-    state.lessons.filter((l) => hit(l.title) || hit(l.track)).forEach((l) => out.push({ type: "Coaching", title: l.title, sub: l.track, link: `lesson-${l.id}` }));
+      .forEach((a) => out.push({ type: "Media", title: a.name, sub: project(a.projectId)?.name || "Workspace library", link: a.videoId ? `video-${a.videoId}` : `asset-${a.id}` }));
+    state.reviews.filter((r) => canViewProject(u, project(r.projectId)) && r.comments.some((c) => hit(c.body)))
+      .forEach((r) => out.push({ type: "Review", title: `Comment in ${r.title}`, sub: r.status, link: `review-${r.id}` }));
+    state.lessons.filter((l) => hit(l.title) || hit(l.track)).forEach((l) => out.push({ type: "Tutorial", title: l.title, sub: l.track, link: `lesson-${l.id}` }));
     return out.slice(0, 30);
   }),
 
@@ -328,11 +332,143 @@ export const svc = {
     if (p.kind === "request") await svc.createRequest(p.payload);
     else if (p.kind === "comment") await svc.addComment(p.payload.reviewId, p.payload);
     else if (p.kind === "folder") await svc.createFolder(p.payload.ws, p.payload.name);
+    else if (p.kind === "changes") await svc.decide(p.payload.reviewId, "changes", p.payload.note);
+    else if (p.kind === "post") await svc.savePost(p.payload);
+    else if (p.kind === "feed") await svc.videoAction(p.payload.videoId, "feed", p.payload);
     p.status = "Done"; save(); return clone(p);
   },
   chat: () => clone(state.chat[user().id] || []),
   saveChat: (msgs) => { state.chat[user().id] = msgs.slice(-40); save(); },
 };
+
+/* ---------------- Editing Room (videos, checklist, templates, contextual actions) ---------------- */
+const video = (vid) => state.videos.find((v) => v.id === vid);
+function videoCtx(v) { return { project: project(v.projectId), ws: v.ws, projects: state.projects }; }
+const templateSafe = (text, v) => {
+  // Templates must not carry client details: strip the workspace and project names, and any timecodes tied to footage.
+  const w = state.workspaces.find((x) => x.id === v.ws), p = project(v.projectId);
+  return String(text || "").split(w?.name || "\u0000").join("the client").split(p?.name || "\u0000").join("this project");
+};
+function roomStatus(v, r) {
+  if (r.status === "Approved") return "Approved";
+  if (r.status === "Changes requested") return "Changes requested";
+  if (r.versions.length && r.status === "In review") return "Ready for review";
+  const req = state.requests.find((x) => x.id === v.requestId);
+  return req && /progress|revision/i.test(req.status) ? "Being edited" : r.versions.length ? "Ready for review" : "Waiting to start";
+}
+function capabilities(v) {
+  const u = user(), c = videoCtx(v), all = ["review.comment", "review.decide", "review.assign", "review.upload_version", "checklist.update", "checklist.comment",
+    "template.create", "video.share", "video.feed", "video.library", "video.another", "video.translate", "video.download"];
+  return Object.fromEntries(all.map((a) => [a, can(u, a, c)]));
+}
+
+Object.assign(svc, {
+  videos: ({ ws } = {}) => call(() => state.videos.filter((v) => (!ws || v.ws === ws) && canViewProject(user(), project(v.projectId))).map((v) => {
+    const r = state.reviews.find((x) => x.id === v.reviewId), last = r.versions[r.versions.length - 1];
+    return { id: v.id, title: v.title, ws: v.ws, projectId: v.projectId, projectName: project(v.projectId)?.name, status: roomStatus(v, r),
+      editor: userName(v.editorId), poster: MEDIA[last?.media || v.original.media].poster, versions: r.versions.length,
+      done: v.checklist.filter((t) => t.done).length, tasks: v.checklist.length, open: r.comments.filter((c) => !c.resolved).length };
+  })),
+  videoForAsset: (aid) => state.assets.find((a) => a.id === aid)?.videoId || null,
+  videoForReview: (rid) => state.videos.find((v) => v.reviewId === rid)?.id || null,
+  video: (vid) => call(() => {
+    const v = video(vid);
+    if (!v) { const e = new Error("That video doesn't exist."); e.code = 404; throw e; }
+    enforce(user(), "project.view", videoCtx(v));
+    const r = state.reviews.find((x) => x.id === v.reviewId), p = project(v.projectId);
+    const versions = [{ n: 0, label: v.original.label, ...MEDIA[v.original.media], by: null, at: null, note: "The footage as it was uploaded" },
+      ...r.versions.map((x) => ({ ...x, label: `Version ${x.n}`, ...MEDIA[x.media], byName: userName(x.by) }))];
+    const files = state.assets.filter((a) => a.ws === v.ws && (a.projectId === v.projectId || (!a.projectId && canViewAsset(user(), a, null)))).map(withMedia);
+    const decisions = r.audit.filter((a) => /approved|requested changes/i.test(a.action)).map((a) => ({ ...a, byName: userName(a.by) }));
+    return { ...v, status: roomStatus(v, r), reviewStatus: r.status, projectName: p.name, workspace: state.workspaces.find((w) => w.id === v.ws)?.name,
+      editorName: userName(v.editorId), versions, files, decisions,
+      comments: r.comments.map((c) => ({ ...c, byName: userName(c.by), assigneeName: c.assigneeId ? userName(c.assigneeId) : null,
+        replies: c.replies.map((x) => ({ ...x, byName: userName(x.by) })) })),
+      checklist: v.checklist.map((t) => ({ ...t, ownerName: userName(t.owner), doneByName: t.doneBy ? userName(t.doneBy) : null,
+        notes: t.notes.map((n) => ({ ...n, byName: userName(n.by) })) })),
+      activity: [...r.audit, ...v.history].map((a) => ({ ...a, byName: userName(a.by) })).sort((a, b) => b.at.localeCompare(a.at)),
+      revisionLimit: p.revisionLimit, revisionsUsed: state.requests.find((x) => x.id === v.requestId)?.revisionsUsed ?? 0,
+      team: [...new Set([...p.editorIds, ...state.users.filter((u) => u.role === "admin").map((u) => u.id)])].map((id) => ({ id, name: userName(id) })),
+      can: capabilities(v) };
+  }),
+  toggleTask: (vid, tid, done) => call(() => {
+    const v = video(vid); enforce(user(), "checklist.update", videoCtx(v));
+    const t = v.checklist.find((x) => x.id === tid); if (!t) { const e = new Error("That task doesn't exist."); e.code = 404; throw e; }
+    t.done = Boolean(done); t.doneBy = done ? user().id : null; t.doneAt = done ? now() : null;
+    v.history.push({ at: now(), by: user().id, action: `${done ? "Completed" : "Reopened"} task: ${t.text}` }); save(); return t;
+  }),
+  noteTask: (vid, tid, body) => call(() => {
+    const v = video(vid); enforce(user(), "checklist.comment", videoCtx(v));
+    const t = v.checklist.find((x) => x.id === tid), text = String(body || "").trim().slice(0, 1000);
+    if (!t || !text) { const e = new Error("Write a note first."); e.code = 400; throw e; }
+    t.notes.push({ by: user().id, body: text, at: now() }); v.history.push({ at: now(), by: user().id, action: `Commented on task: ${t.text}` }); save(); return t;
+  }),
+  assignComment: (rid, cid, uid) => call(() => {
+    const r = state.reviews.find((x) => x.id === rid), p = project(r?.projectId);
+    enforce(user(), "review.assign", { project: p, ws: p?.ws });
+    const c = r.comments.find((x) => x.id === cid); if (!c) { const e = new Error("That comment doesn't exist."); e.code = 404; throw e; }
+    c.assigneeId = uid || null; r.audit.push({ at: now(), by: user().id, action: uid ? `Assigned feedback to ${userName(uid)}` : "Unassigned feedback" });
+    if (uid) notify(uid, `Feedback assigned to you on ${r.title}`, `video-${state.videos.find((v) => v.reviewId === rid)?.id}`);
+    save(); return c;
+  }),
+  templates: (ws) => call(() => { enforce(user(), "template.view", { ws, projects: state.projects }); return state.templates.filter((t) => t.ws === ws).map((t) => ({ ...t, byName: userName(t.by) })); }),
+  saveTemplate: (vid, { name, include }) => call(() => {
+    const v = video(vid); enforce(user(), "template.create", videoCtx(v));
+    const clean = String(name || "").trim().slice(0, 80);
+    if (!clean) { const e = new Error("Name the template."); e.code = 400; throw e; }
+    const inc = include || {};
+    const t = { id: id("tpl"), ws: v.ws, name: clean, by: user().id, at: now(),
+      instructions: inc.instructions ? { visual: templateSafe(v.instructions.visual, v), audio: templateSafe(v.instructions.audio, v), captions: templateSafe(v.instructions.captions, v) } : {},
+      outputs: inc.outputs ? v.instructions.deliverables.map((d) => d.preset) : [],
+      brand: inc.brand ? v.instructions.brand.map((b) => templateSafe(b, v)) : [],
+      checklist: inc.checklist ? v.checklist.map((x) => ({ section: x.section, text: templateSafe(x.text, v) })) : [] };
+    state.templates.unshift(t); v.history.push({ at: now(), by: user().id, action: `Made template “${clean}”` }); save(); return t;
+  }),
+  /** Contextual actions on a video. Everything here stays inside the preview; nothing is published or rendered. */
+  videoAction: (vid, kind, opts = {}) => call(() => {
+    const v = video(vid), c = videoCtx(v), r = state.reviews.find((x) => x.id === v.reviewId);
+    const latest = r.versions[r.versions.length - 1];
+    const latestAsset = state.assets.find((a) => a.videoId === v.id && a.media === latest?.media) || state.assets.find((a) => a.videoId === v.id);
+    if (kind === "library") {
+      enforce(user(), "video.library", c);
+      if (r.status !== "Approved") { const e = new Error("Approve the video before adding it to the sharing library."); e.code = 409; throw e; }
+      latestAsset.channel = true; v.history.push({ at: now(), by: user().id, action: "Added to the sharing library" }); save(); return { ok: true };
+    }
+    if (kind === "feed") {
+      enforce(user(), "video.feed", c);
+      state.feed.unshift({ id: id("fd"), ws: v.ws, kind: r.status === "Approved" ? "approved" : "deliverable", by: user().id, at: now(),
+        text: String(opts.text || `${v.title} is in the workspace feed.`).slice(0, 500), assetId: latestAsset?.id, comments: [], saves: [] });
+      v.history.push({ at: now(), by: user().id, action: "Added to the feed" }); save(); return { ok: true };
+    }
+    if (kind === "another" || kind === "translate") {
+      enforce(user(), kind === "another" ? "video.another" : "video.translate", c);
+      const lang = String(opts.language || "Spanish").slice(0, 40);
+      const req = { id: id("r"), ws: v.ws, projectId: v.projectId, type: kind === "another" ? "short" : "captions",
+        title: kind === "another" ? `New version of ${v.title}` : `${lang} captions for ${v.title}`,
+        brief: kind === "another" ? String(opts.brief || `A new version of ${v.title}. Keep what worked; change: ${opts.change || "see notes"}.`).slice(0, 4000)
+          : `Translated ${lang} captions for ${v.title}. The preview can't translate; an editor or translator does this.`,
+        aspect: opts.aspect || "9:16", length: opts.length || "", due: "", assigneeId: null, by: user().id, at: now(), status: "Submitted", revisionsUsed: 0 };
+      state.requests.unshift(req); v.history.push({ at: now(), by: user().id, action: `Requested: ${req.title}` });
+      state.users.filter((u) => u.role === "admin").forEach((a) => notify(a.id, `New editing request: ${req.title}`, `project-${v.projectId}`));
+      save(); return req;
+    }
+    const e = new Error("Unknown action"); e.code = 400; throw e;
+  }),
+  announcements: () => call(() => state.announcements.filter((a) => !(state.dismissed[user().id] || []).includes(a.id))),
+  dismiss: (aid) => call(() => { const me = user().id; state.dismissed[me] = [...new Set([...(state.dismissed[me] || []), aid])]; save(); return true; }),
+  /** The approved spotlight whose 14-day window contains today (entries are scheduled 14 days apart). */
+  spotlight: (today = new Date()) => call(() => {
+    const day = 24 * 3600e3, t = today.getTime();
+    const live = state.spotlights.filter((x) => x.approved && new Date(x.start).getTime() <= t && t < new Date(x.start).getTime() + 14 * day)
+      .sort((a, b) => b.start.localeCompare(a.start))[0];
+    if (!live) return null;
+    const until = new Date(new Date(live.start).getTime() + 14 * day).toISOString().slice(0, 10);
+    const next = state.spotlights.filter((x) => x.approved && x.start > live.start).sort((a, b) => a.start.localeCompare(b.start))[0];
+    return { ...live, until, next: next ? { title: next.title, start: next.start } : null };
+  }),
+  uploaders: (ws) => call(() => [...new Set(state.assets.filter((a) => a.ws === ws && canViewAsset(user(), a, project(a.projectId))).map((a) => a.by))]
+    .map((uid) => ({ id: uid, name: userName(uid) }))),
+});
 
 export function fmtT(t) { const s = Math.max(0, t || 0); return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`; }
 export { Denied };

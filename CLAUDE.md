@@ -47,3 +47,6 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
   (fictional data, no network calls; service.js mocks the API, policy.js holds the role/tenant rules the Worker must
   adopt). Tests: `node --test studio-preview/tests/*.test.mjs`, `npx playwright test -c playwright.studio.config.ts`
   (android-360/430, desktop-1440). Docs: docs/studio/ (audit, design, integration-plan.md). Never point it at production.
+- Studio Editing Room: js/views-room.js (Project Workspace #project-*, Editing Room #video-*), js/player.js (custom
+  controls + annotation canvas), js/maven.js (header launcher, contextual proposals). No Coaching tab; Home = feed +
+  announcements + 14-day spotlight + upload filters. Contract and real/simulated list: docs/studio/editing-room.md.

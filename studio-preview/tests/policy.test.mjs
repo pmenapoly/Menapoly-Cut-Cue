@@ -83,3 +83,43 @@ test("clients resolve only their own comments; assigned editors resolve any on t
   assert.equal(can(U.u_sam, "review.resolve", { project: P.p_launch, resource: theirs }), true);
   assert.equal(can(U.u_mika, "review.resolve", { project: P.p_launch, resource: theirs }), false);
 });
+
+test("checklist: only the assigned editor (and admins) tick tasks; clients may only comment", () => {
+  assert.equal(can(U.u_sam, "checklist.update", { project: P.p_launch }), true);
+  assert.equal(can(U.u_mika, "checklist.update", { project: P.p_launch }), false);
+  assert.equal(can(U.u_jordan, "checklist.update", { project: P.p_launch }), false);
+  assert.equal(can(U.u_admin, "checklist.update", { project: P.p_launch }), true);
+  assert.equal(can(U.u_jordan, "checklist.comment", { project: P.p_launch }), true);
+  assert.equal(can(U.u_priya, "checklist.comment", { project: P.p_launch }), false);
+});
+
+test("feedback assignment: admins and the assigned editor only", () => {
+  assert.equal(can(U.u_sam, "review.assign", { project: P.p_launch }), true);
+  assert.equal(can(U.u_jordan, "review.assign", { project: P.p_launch }), false);
+  assert.equal(can(U.u_mika, "review.assign", { project: P.p_launch }), false);
+});
+
+test("templates stay inside their workspace", () => {
+  assert.equal(can(U.u_jordan, "template.view", { ws: "ws_nw", projects: S.projects }), true);
+  assert.equal(can(U.u_priya, "template.view", { ws: "ws_nw", projects: S.projects }), false);
+  assert.equal(can(U.u_sam, "template.view", { ws: "ws_nw", projects: S.projects }), true); // assigned in ws_nw
+  assert.equal(can(U.u_mika, "template.view", { ws: "ws_hb", projects: S.projects }), false);
+  assert.equal(can(U.u_sam, "template.create", { project: P.p_launch }), true);
+  assert.equal(can(U.u_mika, "template.create", { project: P.p_launch }), false);
+});
+
+test("finished-video actions: share, feed, library, new versions are client/admin decisions", () => {
+  for (const a of ["video.share", "video.feed", "video.library", "video.another", "video.translate"]) {
+    assert.equal(can(U.u_jordan, a, { project: P.p_launch }), true, a);
+    assert.equal(can(U.u_admin, a, { project: P.p_launch }), true, a);
+    assert.equal(can(U.u_sam, a, { project: P.p_launch }), false, a);
+    assert.equal(can(U.u_priya, a, { project: P.p_launch }), false, a);
+  }
+  assert.equal(can(U.u_sam, "video.download", { project: P.p_launch }), true);
+  assert.equal(can(U.u_mika, "video.download", { project: P.p_launch }), false);
+});
+
+test("every fixture video belongs to a project in the same workspace", () => {
+  for (const v of S.videos) assert.equal(P[v.projectId].ws, v.ws, v.id);
+  for (const a of S.assets.filter((x) => x.videoId)) assert.equal(S.videos.find((v) => v.id === a.videoId).projectId, a.projectId, a.id);
+});

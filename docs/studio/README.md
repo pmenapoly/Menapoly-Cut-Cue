@@ -2,7 +2,7 @@
 
 Branch: `menapoly-cue-studio-preview` (created from `menapoly-cue-2.0` at `8e17b9e`).
 Preview code: `studio-preview/`. Tests: `studio-preview/tests/` (Node) and `frontend/e2e-studio/` (Playwright).
-Integration proposal: [integration-plan.md](integration-plan.md).
+Integration proposal: [integration-plan.md](integration-plan.md). Editing Room: [editing-room.md](editing-room.md).
 
 ## Phase A: audit of what exists (read-only, 2026-10-25)
 
@@ -73,8 +73,8 @@ project to them.
 | Phone (360–430 px) | Desktop (≥ 1024 px) |
 |---|---|
 | Fixed bottom bar: Home · Studio · Review · Ask Cue · More | Left rail grouped as Workspace / Resources / Menapoly |
-| More: Social Sharing, AI Visibility, Library, Coaching, Inbox, Clients and Team (admin), Settings | Inline search in the header |
-| Header: search, inbox, role chip | |
+| More: Social Sharing, AI Visibility, Library, Inbox, Clients and Team (admin), Settings | Inline search in the header |
+| Header: Maven, search, inbox, role chip | Header: search, Maven, inbox, role chip |
 
 Each view is a plain link (`#review-rv_launch`), so the back button and deep links work.
 
@@ -82,38 +82,38 @@ Each view is a plain link (`#review-rv_launch`), so the back button and deep lin
 
 | Area | In the preview | Simulated | Future (needs the server) |
 |---|---|---|---|
-| Home feed, search, tabs, comments, saves | ✅ | | live activity stream |
+| Home feed, search, announcements, 14-day spotlight, upload filters, comments, saves | ✅ | | live activity stream |
 | Library: folders, tags, filters, move | ✅ | upload (name and size only) | R2 multipart (exists in the pilot) |
 | Editing requests: 10 types, briefs, assignment, progress, revision limits | ✅ | | job creation to the engine |
 | Review: frame annotations (box and draw), threads, resolve, versions, compare, approve, request changes, audit | ✅ | new version upload | real uploads and renders |
 | Export presets and delivery | | ✅ labelled | Mac or cloud render |
 | Social Sharing: drafts, per-channel captions, approval, calendar, reuse ideas | ✅ | prepare-to-schedule | network connections (not built) |
-| Coaching: tracks, lessons, progress | ✅ | | content management |
+| Tutorials (reached from announcements, spotlight and search; no Coaching tab) | ✅ | | content management |
 | AI Visibility: 8 modules, date filter, plan gating, methodology notes | ✅ **fictional data** | | data sources (see the plan) |
 | Ask Cue: deterministic answers, approval-gated proposals | ✅ | | Claude provider through the server |
 | Roles: admin, two clients, two editors | ✅ rules in `policy.js` | enforced in the browser | **the same rules in the Worker** |
 | Downloads | | off (the artifact frame blocks them) | signed links |
 
-## Test results (2026-10-25)
+## Test results (latest run)
 
 | Suite | Result |
 |---|---|
-| `node --test studio-preview/tests/*.test.mjs`: authorization rules (tenant isolation, assignments, approvals, entitlements, deny-by-default) | **10 / 10 passed** |
-| `npx playwright test -c playwright.studio.config.ts`: 13 interactive tests × Android 360, Android 430, desktop 1440 | **39 / 39 passed** |
-| `npx tsc --noEmit` (frontend, includes the new spec) | clean |
+| `node --test studio-preview/tests/*.test.mjs`: authorization rules, including checklist, feedback assignment, templates, video actions | **15 / 15 passed** |
+| `npx playwright test -c playwright.studio.config.ts`: 24 interactive tests × Android 360, Android 430, desktop 1440 (studio and Editing Room specs) | **72 / 72 passed** |
+| `npx tsc --noEmit` (frontend) | clean |
 
-What the Playwright tests cover:
-- navigation and the back button, and no sideways scroll on any view;
-- touch targets of at least 44 px on phones, accessible names on every control, alt text on images;
-- search respecting access; folders and filters; empty states; simulated upload, including rejecting a file type;
-- request drafts that survive a reload, validation, and submission;
-- annotation with a drawn box that persists across reloads, replies, resolve, audit trail, and compare;
-- the request-changes → new version → approve → Channel Media flow;
-- denial for the wrong role or client;
-- visibility filters, modules and plan gating;
-- Ask Cue proposals acting only after approval;
-- social draft, approve and prepare; coaching progress; the error state and the 404 view;
-- network isolation.
+The Editing Room spec covers:
+- project → room and media card → room navigation, and old-link redirects;
+- real playback (VP9 in Chromium), speed, volume and mute, full screen, version switching, comparison, and the
+  honest transcript state;
+- frame marks, replies, assignment, resolve and reopen, and version-linked comments that persist;
+- checklist permissions (client read-only with notes; the editor ticks);
+- request changes → new version → approve, with history;
+- templates (no client details, workspace-scoped, reusable);
+- contextual actions by status and role, with unavailable actions explained;
+- role and workspace isolation; the Android layout (fit, tabs reachable, nothing clipped);
+- Maven keeping place and requiring approval; Home announcements, the spotlight and upload filters;
+- no outside requests.
 
 Screenshots: `docs/studio/screenshots/{android-360,android-430,desktop-1440}/`.
 

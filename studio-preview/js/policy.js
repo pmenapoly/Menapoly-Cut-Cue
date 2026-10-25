@@ -64,6 +64,17 @@ export function can(user, action, ctx = {}) {
     case "review.resolve": return admin || assigned(user, ctx.project) || (client(ws) && ctx.resource?.by === user.id);
     case "review.upload_version": case "review.submit": return admin || assigned(user, ctx.project);
     case "review.decide": return admin || client(ws); // editors never approve their own work
+    case "review.assign": return admin || assigned(user, ctx.project); // route feedback to a teammate
+    // Editing checklist: production tasks belong to the editing team; clients follow progress and comment.
+    case "checklist.update": return admin || assigned(user, ctx.project);
+    case "checklist.comment": return canViewProject(user, ctx.project);
+    // Templates hold reusable instructions only (never footage or client details), scoped to one workspace.
+    case "template.view": return admin || client(ws) || (ctx.projects || []).some((p) => p.ws === ws && assigned(user, p));
+    case "template.create": return admin || client(ws) || assigned(user, ctx.project);
+    // What happens to a finished video: sharing, feed and new versions are client/admin decisions.
+    case "video.share": case "video.feed": case "video.library": return admin || client(ws);
+    case "video.another": case "video.translate": return admin || client(ws);
+    case "video.download": return canViewProject(user, ctx.project);
     case "feed.view": return canViewWorkspace(user, ws, ctx.projects);
     case "feed.comment": return canViewWorkspace(user, ws, ctx.projects);
     case "post.create": case "post.edit": return admin || client(ws);
