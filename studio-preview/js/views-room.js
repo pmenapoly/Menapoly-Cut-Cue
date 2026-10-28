@@ -7,6 +7,7 @@ import { createPlayer, fmtTime, setSources } from "./player.js";
 import { openMaven } from "./maven.js";
 import { composer } from "./views-home.js";
 import { dueSheet } from "./views-studio.js";
+import { uploadSheet, draftItem } from "./views-draft.js";
 
 const typeLabel = (id) => REQUEST_TYPES.find((t) => t.id === id)?.label || id;
 const presetLabel = (id) => EXPORT_PRESETS.find((p) => p.id === id);
@@ -27,7 +28,7 @@ const plain = { "Ready for review": "Ready for you to review", "Changes requeste
 /* ============================== Project Workspace ============================== */
 export async function projectView(out, [pid], ctx) {
   const me = svc.me();
-  const [p, videos, activity] = await Promise.all([svc.project(pid), svc.videos(), svc.projectActivity(pid)]);
+  const [p, videos, activity, drafts] = await Promise.all([svc.project(pid), svc.videos(), svc.projectActivity(pid), me.role === "editor" ? [] : svc.drafts({ projectId: pid })]);
   const vids = videos.filter((v) => v.projectId === pid);
   const editors = svc.users().filter((u) => u.role === "editor");
   const people = svc.users().filter((u) => u.role === "admin" || p.editorIds.includes(u.id) || (u.role === "client" && u.workspaceIds.includes(p.ws)));
@@ -38,8 +39,11 @@ export async function projectView(out, [pid], ctx) {
       h("div", { class: "row" }, h("span", { class: `chip ${statusTone(p.status)}` }, p.status), h("span", { class: "chip" }, icon("clock", 14), `Target ${fmtDate(p.due)} (estimate)`),
         h("span", { class: "chip", title: `Set by ${p.revisionSource}` }, `${p.revisionsIncluded} revision rounds included per video`))),
     h("ol", { class: "stepper", "aria-label": "Project progress" }, STAGES.map((s, i) => h("li", { class: i < stage ? "done" : i === stage ? "now" : "" }, h("span", {}, s)))),
+    drafts.length ? h("section", { class: "card", "aria-label": "Drafts, not submitted" }, h("div", { class: "section-head" }, h("h2", {}, `Drafts · not submitted (${drafts.length})`)),
+      h("ul", { class: "list" }, drafts.map((d) => draftItem(d, { showProject: false })))) : null,
     h("section", { class: "stack" }, h("div", { class: "section-head" }, h("h2", {}, `Videos (${vids.length})`),
-      me.role !== "editor" ? h("a", { class: "btn sm", href: `#request-new-${p.id}` }, icon("plus", 16), "Request a video") : null),
+      me.role !== "editor" ? h("div", { class: "actions" }, h("button", { class: "btn sm sky", onclick: () => uploadSheet(ctx, { projectId: p.id }) }, icon("upload", 16), "Upload & brief"),
+        h("a", { class: "btn sm", href: `#request-new-${p.id}` }, icon("plus", 16), "Request a video")) : null),
       vids.length ? h("div", { class: "tiles" }, vids.map((v) => h("a", { class: "tile", href: `#video-${v.id}` },
         h("span", { class: "poster" }, h("img", { src: v.poster, alt: "", loading: "lazy" }), h("span", { class: "chip" }, v.versions ? `v${v.versions}` : "Original")),
         h("b", {}, v.title), h("span", {}, `${v.status} · ${v.done}/${v.tasks} tasks`))))

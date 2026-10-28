@@ -10,7 +10,8 @@ export function setSources(video, media) {
   video.closest?.(".vp-stage")?.querySelector(".vp-empty")?.toggleAttribute("hidden", Boolean(media.src));
   if (!media.src) { video.replaceChildren(); video.removeAttribute("poster"); return; }
   video.replaceChildren(
-    h("source", { src: media.src, type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"' }),
+    // A file picked on this device: let the browser sniff its format (a guessed type could hide a playable file).
+    media.local ? h("source", { src: media.src }) : h("source", { src: media.src, type: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"' }),
     media.webm ? h("source", { src: media.webm, type: 'video/webm; codecs="vp9, opus"' }) : null);
   video.poster = media.poster || "";
   video.load();

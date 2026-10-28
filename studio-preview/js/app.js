@@ -6,6 +6,7 @@ import { homeView, inboxView } from "./views-home.js";
 import { studioView, assetView, libraryView, requestFormView } from "./views-studio.js";
 import { reviewListView } from "./views-review.js";
 import { projectView, roomView } from "./views-room.js";
+import { draftRoomView } from "./views-draft.js";
 import { socialView, visibilityView, askView, lessonView, clientsView, teamView, settingsView } from "./views-more.js";
 import { mavenButton } from "./maven.js";
 
@@ -28,7 +29,7 @@ const barTokens = () => ["home", "studio", "review", allowed(NAV.find((n) => n.t
 
 const ROUTES = [
   [/^home$/, homeView], [/^studio(?:-(board))?$/, studioView], [/^request-new(?:-(p_[\w]+))?$/, requestFormView], [/^project-(p_[\w]+)$/, projectView],
-  [/^video-(v_[\w]+)$/, roomView], [/^asset-(a_[\w]+)$/, assetOrRoom], [/^library$/, libraryView], [/^review$/, reviewListView], [/^review-(rv_[\w]+)$/, reviewToRoom],
+  [/^video-(v_[\w]+)$/, roomOrDraft], [/^asset-(a_[\w]+)$/, assetOrRoom], [/^library$/, libraryView], [/^review$/, reviewListView], [/^review-(rv_[\w]+)$/, reviewToRoom],
   [/^social$/, socialView], [/^visibility(?:-([a-z]+))?$/, visibilityView], [/^ask$/, askView],
   [/^lesson-(l_[\w]+)$/, lessonView], [/^inbox$/, inboxView], [/^clients$/, clientsView], [/^team$/, teamView], [/^settings$/, settingsView],
 ];
@@ -47,8 +48,12 @@ async function reviewToRoom(out, [rid]) {
   if (!vid) { const e = new Error("That review doesn't exist."); e.code = 404; throw e; }
   location.replace(`#video-${vid}`);
 }
+// A room keeps one link from upload to approval: before its editing request exists it opens as a draft room.
+async function roomOrDraft(out, [vid], ctx) {
+  return svc.hasVideo(vid) ? roomView(out, [vid], ctx) : draftRoomView(out, [vid], ctx);
+}
 async function assetOrRoom(out, [aid], ctx) {
-  const vid = svc.videoForAsset(aid);
+  const vid = svc.videoForAsset(aid) || svc.roomForAsset(aid);
   if (vid) { location.replace(`#video-${vid}`); return; }
   return assetView(out, [aid], ctx);
 }

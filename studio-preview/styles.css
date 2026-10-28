@@ -669,3 +669,21 @@ a.pipe-step:hover { box-shadow: var(--shadow-1); }
 
 /* revision rounds inside the status card */
 .revisions { display: grid; gap: 6px; padding: 12px; border-radius: 14px; background: rgb(255 255 255 / .72); }
+
+/* ---------- Upload-first draft rooms (js/views-draft.js) ---------- */
+.status[data-tone="draft"] { background: var(--lilac); color: var(--accent-strong); }
+.notice { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 10px 12px; border-radius: var(--r-md); font-size: 14px; font-weight: 600; }
+.notice.warn { background: var(--warn-soft); color: var(--amber-ink); }
+.warn-text { color: var(--amber-ink); }
+.draft-note { aspect-ratio: 16 / 9; display: grid; place-items: center; }
+.draft-note-body { display: grid; justify-items: center; gap: 8px; text-align: center; padding: 20px; max-width: 46ch; color: var(--muted); }
+.draft-note-body b { color: var(--text); font-size: 17px; overflow-wrap: anywhere; }
+.draft-note-body audio { width: min(100%, 360px); }
+.draft-img { display: block; width: 100%; max-height: 62vh; object-fit: contain; }
+.file-strip { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; }
+.file-chip { display: inline-flex; align-items: center; gap: 6px; flex: none; max-width: 240px; min-height: 44px; padding: 8px 12px; border-radius: 999px;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: 650 14px var(--body); cursor: pointer; }
+.file-chip span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-chip[aria-pressed="true"] { background: var(--lilac); border-color: var(--accent); color: var(--accent-strong); }
+.next-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.draft-room .status-card .status-head { font-size: clamp(22px, 5vw, 28px); }

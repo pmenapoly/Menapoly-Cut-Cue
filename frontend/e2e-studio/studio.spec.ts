@@ -120,7 +120,10 @@ test("library: folders, filters, moving files, empty state", async ({ page }) =>
   await page.getByRole("button", { name: "Clear filters" }).click();
   await expect(page.locator(".tile").first()).toBeVisible();
   // simulated upload: only name/size kept, nothing sent anywhere
+  // footage asks which project it's for; "Library only" keeps the earlier behaviour (no Editing Room)
   await page.locator("#lib-file").setInputFiles({ name: "fictional-broll.mp4", mimeType: "video/mp4", buffer: Buffer.alloc(2048) });
+  await page.locator("#up-project").selectOption({ label: "Library only (no Editing Room)" });
+  await page.locator("#up-go").click();
   await expect(page.getByText("fictional-broll.mp4 added")).toBeVisible();
   await page.locator("#lib-file").setInputFiles({ name: "script.exe", mimeType: "application/x-msdownload", buffer: Buffer.alloc(10) });
   await expect(page.getByText("that file type isn't accepted")).toBeVisible();

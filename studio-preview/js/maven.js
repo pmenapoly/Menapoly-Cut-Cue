@@ -81,7 +81,7 @@ const PROMPTS = {
 };
 const ROLE = { admin: "Menapoly administrator", client: "client", editor: "editor" };
 const NAV_HELP = [
-  [/upload|footage|add files?/, "Upload footage in the Library: Add files. In the preview only the name and size are kept.", "library", "Open the Library"],
+  [/upload|footage|add files?/, "Use Upload & brief in Media Studio (or Add files in the Library): your footage opens its own Editing Room as a draft. Nothing goes to production until you submit an editing request. In the preview files stay in this browser.", "studio", "Open Media Studio"],
   [/request|brief|order/, "Start a new editing request from Media Studio → New editing request. You can attach footage and start from a template.", "request-new", "New editing request"],
   [/template/, "Templates live in Media Studio → Templates. Make one from any video's More actions → Make a template.", "studio", "Open Media Studio"],
   [/review|approve|feedback/, "Videos waiting for you are under Review. Open one to comment on a frame, request changes or approve.", "review", "Open Review"],

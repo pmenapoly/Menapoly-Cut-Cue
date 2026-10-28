@@ -3,6 +3,7 @@ import { h, icon, toast, sheet, empty, ago, bytes, kindIcon, statusTone, statusI
 import { svc } from "./service.js";
 import { REQUEST_TYPES, EXPORT_PRESETS } from "./data.js";
 import { mediaTile, composer, wsPicker, uploaderFilter, filterUploads } from "./views-home.js";
+import { uploadSheet, draftItem } from "./views-draft.js";
 
 const mem = (k, v) => { try { if (v === undefined) return sessionStorage.getItem(k); if (v === null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v); } catch { return null; } return v; };
 const typeLabel = (id) => REQUEST_TYPES.find((t) => t.id === id)?.label || id;
@@ -13,12 +14,14 @@ export async function studioView(out, [forced], ctx) {
   if (forced) mem("cue-studio-tab", forced);
   const boardLabel = me.role === "admin" ? "Production board" : me.role === "editor" ? "My queue" : null;
   let tab = mem("cue-studio-tab") || "projects"; if (tab === "board" && !boardLabel) tab = "projects";
-  const [projects, requests, videos] = await Promise.all([svc.projects(), svc.requests(), svc.videos()]);
+  // Drafts (rooms with no editing request yet) belong to the client side: never shown to editors or on the board.
+  const [projects, requests, videos, drafts] = await Promise.all([svc.projects(), svc.requests(), svc.videos(), me.role === "editor" ? [] : svc.drafts()]);
   out.append(
     h("div", { class: "section-head" }, h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, "Media Studio"), h("h1", {}, "Production"))),
     h("div", { class: "studio-actions" },
       me.role !== "editor" ? h("a", { class: "btn primary", href: "#request-new" }, icon("plus", 18), "New editing request") : null,
-      h("a", { class: "btn sky", href: "#library", "aria-label": "Upload footage" }, icon("upload", 18), "Upload", h("span", { class: "wide-only" }, " footage"))),
+      me.role !== "editor" ? h("button", { class: "btn sky", id: "upload-brief", onclick: () => uploadSheet(ctx) }, icon("upload", 18), "Upload & brief")
+        : h("a", { class: "btn sky", href: "#library", "aria-label": "Upload footage" }, icon("upload", 18), "Upload", h("span", { class: "wide-only" }, " footage"))),
     h("div", { class: "tabs wrap", role: "tablist", "aria-label": "Studio" }, [["projects", "Projects"], ...(boardLabel ? [["board", boardLabel]] : []), ["requests", "Requests"], ["templates", "Templates"], ["presets", "Export presets"]].map(([k, l]) =>
       h("button", { class: "tab", role: "tab", "aria-selected": String(tab === k), onclick: () => { mem("cue-studio-tab", k); ctx.refresh(); } }, l))));
   if (tab === "projects") {
@@ -35,6 +38,10 @@ export async function studioView(out, [forced], ctx) {
       onchange: (e) => { mem("cue-studio-q", e.target.value.trim()); ctx.refresh(); } });
     const toneLabel = { review: "to review", editing: "being edited", changes: "with changes", waiting: "not started", done: "completed" };
     out.append(
+      drafts.length ? h("section", { class: "card", "aria-label": "Drafts, not submitted" },
+        h("div", { class: "section-head" }, h("h2", {}, `Drafts · not submitted (${drafts.length})`)),
+        h("p", { class: "tiny faint" }, "Editing Rooms opened by an upload. Nothing is in production until an editing request is submitted."),
+        h("ul", { class: "list" }, drafts.map((d) => draftItem(d)))) : null,
       h("div", { class: "search" }, icon("search", 18), search),
       h("div", { class: "status-filters", role: "group", "aria-label": "Filter by status" },
         h("button", { "data-tone": "all", "aria-pressed": String(only === "all"), onclick: () => { mem("cue-studio-status", null); ctx.refresh(); } }, `All ${projects.length}`),
@@ -168,7 +175,11 @@ export async function libraryView(out, _p, ctx) {
     onchange: (e) => { mem("cue-lib-q", e.target.value.trim()); ctx.refresh(); } });
   const picker = h("input", { id: "lib-file", type: "file", multiple: true, class: "sr", "aria-label": "Choose files to add",
     onchange: async (e) => {
-      const files = [...e.target.files]; e.target.value = "";
+      let files = [...e.target.files]; e.target.value = "";
+      // Upload-first: video and audio open an Editing Room in a project (or stay in the library if the person chooses).
+      const footage = me.role === "editor" ? [] : files.filter((f) => /^(video|audio)\//.test(f.type));
+      if (footage.length) { uploadSheet(ctx, { files: footage, libraryOption: true, folderId: folder || null }); files = files.filter((f) => !footage.includes(f)); }
+      if (!files.length) return;
       const errors = [];
       for (const f of files) {
         const row = h("div", { class: "card", role: "status" }, h("b", { class: "small" }, f.name), h("div", { class: "progress" }, h("span", { style: "width:0%" })), h("span", { class: "tiny faint" }, "Simulated resumable upload: nothing leaves this device"));
@@ -188,6 +199,7 @@ export async function libraryView(out, _p, ctx) {
   out.append(
     h("div", { class: "section-head" }, h("div", { class: "stack", style: "gap:4px" }, h("span", { class: "eyebrow" }, ws.name), h("h1", {}, "Library")),
       h("div", { class: "row" }, wsPicker(() => { mem("cue-lib-folder", null); ctx.rerenderShell(); }),
+        me.role !== "editor" ? h("button", { class: "btn sky", onclick: () => uploadSheet(ctx, { libraryOption: true, folderId: folder || null }) }, icon("film", 18), "Upload & brief") : null,
         h("label", { for: "lib-file", class: "btn primary", role: "button", tabindex: "0", onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); } } }, icon("upload", 18), "Add files"), picker)),
     h("div", { class: "search" }, icon("search", 18), search),
     folders.length || me.role !== "editor" ? h("div", { class: "folders", role: "group", "aria-label": "Folders" },
@@ -199,8 +211,10 @@ export async function libraryView(out, _p, ctx) {
     uploaderFilter({ key: "lib", who, pick, me, uploaders, ctx }),
     queue,
     h("p", { class: "small faint" }, `${assets.length} file(s)${q ? ` matching “${q}”` : ""}`),
-    assets.length ? h("div", { class: "tiles" }, assets.map((a) => h("div", { class: "stack", style: "gap:6px" }, mediaTile(a),
-        folders.length ? h("button", { class: "btn sm", "aria-label": `Move ${a.name}`, onclick: () => moveSheet(a, folders, ctx) }, icon("folder", 16), "Move") : null)))
+    assets.length ? h("div", { class: "tiles" }, assets.map((a) => { const draft = a.roomId && !svc.hasVideo(a.roomId);
+      return h("div", { class: "stack", style: "gap:6px", "data-asset": a.id }, mediaTile(a, draft ? "Draft · not submitted" : undefined),
+        draft ? h("a", { class: "btn sm", href: `#video-${a.roomId}` }, icon("pen", 16), "Continue preparing") : null,
+        folders.length ? h("button", { class: "btn sm", "aria-label": `Move ${a.name}`, onclick: () => moveSheet(a, folders, ctx) }, icon("folder", 16), "Move") : null); }))
       : folder && !q && kind === "all" ? empty("This folder is empty", "Open a file and use Move to put it here.")
       : empty(q || kind !== "all" || folder ? "Nothing matches" : "No files yet", q || kind !== "all" || folder ? "Try another search, type or folder." : "Add footage to get started.",
         q || kind !== "all" || folder || who !== "all" || pick ? h("button", { class: "btn", onclick: () => { mem("cue-lib-q", null); mem("cue-lib-kind", null); mem("cue-lib-folder", null); mem("lib-uploads", null); mem("lib-uploader", null); ctx.refresh(); } }, "Clear filters") : null));

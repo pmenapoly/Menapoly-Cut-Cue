@@ -4,7 +4,7 @@
 import { seed, visibilityFixtures, MEDIA } from "./data.js";
 import { can, enforce, canViewProject, canViewAsset, canViewWorkspace, Denied, PLANS } from "./policy.js";
 import { migrate6, emptyFields, sanitizeBriefPatch, briefMissing, validateShapes, validateVoice, roomStage, notePhase, fieldsFromRequest,
-  fingerprint, snapshotBody, snapshotIntact, NOTE_KINDS, UPLOAD_OP } from "./rooms.js";
+  fingerprint, snapshotBody, snapshotIntact, NOTE_KINDS, UPLOAD_OP, acceptedFile } from "./rooms.js";
 import { mediaAvailability } from "./local-media.js";
 
 const KEY = "menapoly-cue-studio-demo";
@@ -120,11 +120,11 @@ function allowanceOf(r) {
 function visibleProjects(u = user()) { return state.projects.filter((p) => canViewProject(u, p)); }
 function assetCtx(a) { return { resource: a, project: a.projectId ? project(a.projectId) : null, ws: a.ws }; }
 function mediaFor(a) {
-  if (a.localUrl && localMedia.has(a.id)) return { src: localMedia.get(a.id), poster: null, local: true };
+  if (localMedia.has(a.id)) return { src: localMedia.get(a.id), poster: null, local: true, mime: a.mime || null };
   return a.media ? MEDIA[a.media] : null;
 }
 const withMedia = (a) => ({ ...a, mediaInfo: mediaFor(a), projectName: project(a.projectId)?.name, byName: userName(a.by),
-  storageInfo: mediaAvailability(a, { sessionUrl: localMedia.has(a.id) }) });
+  storageInfo: mediaAvailability(a, { sessionUrl: localMedia.has(a.id), deviceBlob: localMedia.has(a.id) ? true : null }) });
 
 // Another tab saved: reload so this tab never decides on stale data (a real server returns 409 for the same case).
 if (typeof window !== "undefined") window.addEventListener("storage", (e) => {
@@ -196,7 +196,7 @@ export const svc = {
   addLocalFile: (file, ws, projectId, folderId) => call(() => {
     const p = projectId ? project(projectId) : null;
     enforce(user(), "asset.upload", { ws, project: p });
-    const okTypes = /^(video|audio|image)\//.test(file.type) || /\.(pdf|docx?|txt|srt|vtt|zip)$/i.test(file.name);
+    const okTypes = acceptedFile(file.name, file.type);
     if (!okTypes) { const e = new Error(`${file.name}: that file type isn't accepted. Use video, audio, image or document files.`); e.code = 415; throw e; }
     if (file.size > 20 * 1024 ** 3) { const e = new Error(`${file.name} is over the 20 GB limit.`); e.code = 413; throw e; }
     const kind = file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : file.type.startsWith("image/") ? "image" : "document";
@@ -682,7 +682,7 @@ function roomOut(rm) {
   // Comments made in the existing Editing Room are part of the same instruction record, with their phase.
   const legacy = (review?.comments || []).map((c) => ({ id: c.id, roomId: rm.id, phase: c.phase || "revision", kind: c.shape ? "drawing" : "text", version: c.version,
     t: c.t, shapes: c.shape ? [c.shape] : [], body: c.body, voice: null, by: c.by, at: c.at, status: c.resolved ? "resolved" : "open", source: "comment" }));
-  return { ...rm, stage: stageOf(rm), projectName: project(rm.projectId)?.name, byName: userName(rm.createdBy),
+  return { ...rm, stage: stageOf(rm), projectName: project(rm.projectId)?.name, workspace: state.workspaces.find((w) => w.id === rm.ws)?.name, byName: userName(rm.createdBy),
     brief: b ? { ...b, missing: briefMissing(b.fields) } : null,
     snapshots: state.briefSnapshots.filter((x) => x.roomId === rm.id).map((x) => ({ ...x, intact: snapshotIntact(x) })),
     instructions: [...notes.map((n) => ({ ...n, source: "note" })), ...legacy].map((n) => ({ ...n, byName: userName(n.by) }))
@@ -727,7 +727,7 @@ Object.assign(svc, {
       return { replayed: true, asset: withMedia(state.assets.find((a) => a.id === prior.assetId)), room: roomOut(room(prior.roomId)) };
     }
     if (!f.name) throw badRequest("The file needs a name.");
-    const okTypes = /^(video|audio|image)\//.test(f.type) || /\.(pdf|docx?|txt|srt|vtt|zip)$/i.test(f.name);
+    const okTypes = acceptedFile(f.name, f.type);
     if (!okTypes) { const e = new Error(`${f.name}: that file type isn't accepted. Use video, audio, image or document files.`); e.code = 415; throw e; }
     if (f.size > 20 * 1024 ** 3) { const e = new Error(`${f.name} is over the 20 GB limit.`); e.code = 413; throw e; }
     const target = roomId ? room(roomId) : null;
@@ -738,7 +738,7 @@ Object.assign(svc, {
     }
     if (folderId && !state.folders.some((x) => x.id === folderId && x.ws === p.ws)) throw badRequest("Pick a folder in the same workspace.");
     const kind = f.type.startsWith("video/") ? "video" : f.type.startsWith("audio/") ? "audio" : f.type.startsWith("image/") ? "image" : "document";
-    const a = { id: id("a"), ws: p.ws, projectId: p.id, folderId: folderId || null, name: f.name, kind, size: f.size, tags: ["new"], by: user().id, at: now(),
+    const a = { id: id("a"), ws: p.ws, projectId: p.id, folderId: folderId || null, name: f.name, kind, size: f.size, mime: f.type.slice(0, 80), tags: ["new"], by: user().id, at: now(),
       channel: false, localUrl: Boolean(file?.url), storage: file?.url ? "session" : "none", uploadOpId: opId, roomId: null };
     if (file?.url) localMedia.set(a.id, file.url);
     state.assets.push(a);
@@ -749,6 +749,45 @@ Object.assign(svc, {
     log(target ? "Added a file to an Editing Room (simulated upload)" : "Uploaded a file and opened its Editing Room (simulated upload)", f.name, p.ws, p.id);
     state.feed.unshift({ id: id("fd"), ws: p.ws, kind: "upload", by: user().id, at: now(), text: `Added ${f.name}.`, assetId: a.id, comments: [], saves: [] });
     save(); return { replayed: false, asset: withMedia(a), room: roomOut(rm) };
+  }),
+  /** Is there a production record (submitted request) for this room id? Draft rooms have none yet. */
+  hasVideo: (vid) => state.videos.some((v) => v.id === vid),
+  roomForAsset: (aid) => state.assets.find((a) => a.id === aid)?.roomId || null,
+  /** Draft rooms (no request yet) the current person may see: clients of the workspace and administrators. */
+  drafts: ({ ws, projectId } = {}) => call(() => state.rooms.filter((rm) => !rm.requestId && (!ws || rm.ws === ws) && (!projectId || rm.projectId === projectId)
+    && can(user(), "room.view", roomCtx(rm)) && can(user(), "brief.edit", roomCtx(rm))).map(roomOut)
+    .sort((a, b) => (b.history[b.history.length - 1]?.at || b.createdAt).localeCompare(a.history[a.history.length - 1]?.at || a.createdAt))),
+  /**
+   * Where a picked file's bytes are kept: "device" (IndexedDB, survives a refresh on this device) or "session"
+   * (memory only), with the reason when it couldn't be kept on the device. Nothing is ever uploaded.
+   */
+  setRetention: (aid, storage, reason) => call(() => {
+    const a = state.assets.find((x) => x.id === aid), rm = a?.roomId && room(a.roomId);
+    if (!a || !rm) throw notFound("file");
+    enforce(user(), "brief.edit", roomCtx(rm));
+    if (!["device", "session"].includes(storage)) throw badRequest("Files stay on this device or in this session; the preview can't upload them.");
+    if (a.storage === storage && !reason) return withMedia(a);
+    a.storage = storage; a.retention = { storage, reason: reason ? String(reason).slice(0, 200) : null, at: now() };
+    if (reason) roomEvent(rm, `Kept ${a.name} for this session only`, String(reason).slice(0, 200));
+    save(); return withMedia(a);
+  }),
+  /**
+   * Makes a file playable in this tab: restored from this device, or added again by the person after a refresh.
+   * Adding again only accepts the same file (same name and size), so a room never silently changes its footage.
+   */
+  attachLocalFile: (aid, file, { restored = false } = {}) => call(() => {
+    const a = state.assets.find((x) => x.id === aid), rm = a?.roomId && room(a.roomId);
+    if (!a || !rm) throw notFound("file");
+    enforce(user(), "room.view", roomCtx(rm));
+    if (!file?.url) throw badRequest("Choose the file to add.");
+    if (!restored) {
+      enforce(user(), "brief.edit", roomCtx(rm));
+      if (file.name !== a.name || Number(file.size) !== a.size) throw conflict(`That's a different file. Choose ${a.name} (${a.size} bytes), or add it to the room as a new file.`, "different-file");
+      roomEvent(rm, `Added ${a.name} again on this device`);
+      save();
+    }
+    localMedia.set(a.id, file.url);
+    return withMedia(a);
   }),
   /** Updates draft brief fields. expectedRev is required: a save from an older screen gets 409 instead of overwriting. */
   saveBrief: (rid, patch, expectedRev) => call(() => {

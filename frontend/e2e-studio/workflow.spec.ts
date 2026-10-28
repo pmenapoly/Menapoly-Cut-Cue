@@ -43,9 +43,11 @@ test("23-step workflow: upload → request → edit → review → approve → r
   };
   try {
     await open(page, "home");
-    await step("Client uploads footage", "Library → Add files (simulated: name, size and type only)", async () => {
+    await step("Client uploads footage", "Library → Add files → Library only (request-first path; simulated: name, size and type only)", async () => {
       await open(page, "library");
       await page.locator("#lib-file").setInputFiles({ name: "roastery-broll.mp4", mimeType: "video/mp4", buffer: Buffer.alloc(2048) });
+      await page.locator("#up-project").selectOption({ label: "Library only (no Editing Room)" });
+      await page.locator("#up-go").click();
       await expect(page.getByText("roastery-broll.mp4 added")).toBeVisible();
     });
     await step("Client creates an editing request", "Request form with the uploaded footage and a demo clip attached", async () => {

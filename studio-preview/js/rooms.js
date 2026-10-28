@@ -18,6 +18,8 @@ export const STORAGE = {
   none: "No file data: name and size only",
 };
 export const UPLOAD_OP = /^[A-Za-z0-9_-]{8,80}$/;
+/** File types the preview accepts: video, audio, images and common documents. */
+export const acceptedFile = (name, type) => /^(video|audio|image)\//.test(String(type || "")) || /\.(pdf|docx?|txt|srt|vtt|zip)$/i.test(String(name || ""));
 
 const bad = (message) => { const e = new Error(message); e.code = 400; return e; };
 const str = (v, max) => String(v ?? "").trim().slice(0, max);

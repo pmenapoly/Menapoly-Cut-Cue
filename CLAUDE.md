@@ -64,4 +64,7 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
   migrate6), js/local-media.js (mic/IndexedDB/media-availability helpers), service registerUpload (idempotent per opId,
   never dedupes by name/content), saveBrief/markBriefReady (expectedRev, 409 stale), submitBrief (key briefId:rev,
   frozen snapshot), addNote (notes never use revision rounds), integrity(). State version 7; rooms keep video ids.
-  Tests: studio-preview/tests/rooms.test.mjs, e2e-studio/rooms-model.spec.ts. Phases 2+ need the owner's approval.
+  Tests: studio-preview/tests/rooms.test.mjs, e2e-studio/rooms-model.spec.ts.
+  Phase 2: js/views-draft.js (Upload & brief sheet, draft room at #video-<id> until a request exists, IndexedDB retention,
+  Add file again); drafts listed in Studio/project/Library for clients+admins only. e2e-studio/upload-first.spec.ts.
+  Phases 3+ need the owner's approval.

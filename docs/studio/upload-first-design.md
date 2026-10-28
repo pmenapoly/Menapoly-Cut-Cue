@@ -1,7 +1,8 @@
 # Upload-first Editing Room: audit, data model and plan
 
 Branch `menapoly-cue-studio-preview`. The design (commit `d42e1f1`) was approved with three refinements, listed below.
-**Phase 1 (data model and migration) is implemented**: see "Phase 1: implemented". Phases 2–8 wait for approval. The
+**Phase 1 (data model and migration) and Phase 2 (upload → draft room) are implemented**: see the sections at the end.
+Phases 3–8 wait for approval. The
 designs are on the private canvas **Cue Upload-first Room**. Home stays exactly as it is.
 
 ## Approved refinements (they override anything below that disagrees)
@@ -288,3 +289,91 @@ transcription is opt-in per workspace and labelled as machine-generated.
 | Visual baselines (Home, Studio, Editing Room, Visibility) | Unchanged and passing; no snapshot was updated |
 | 23-step workflow, operations, reliability specs | Passed |
 | `npx tsc --noEmit` | Clean |
+
+---
+
+## Phase 2: implemented (upload → draft Editing Room)
+
+### The journey
+
+1. **Upload:**
+   - **Media Studio → Upload & brief** (clients and admins), the project page's **Upload & brief**, or **Library → Add
+     files**.
+   - In the Library, video and audio ask which project they are for. **Library only (no Editing Room)** keeps the
+     earlier behaviour. Images and documents go to the library as before. Unsupported types are refused.
+2. **The room opens:** the upload creates the file and its Editing Room through `registerUpload` (one operation id
+   per file) and goes straight to `#video-<room id>`.
+   - The room is at **Uploaded**, marked **Draft — not submitted**.
+   - No request is made, no editor is assigned, no rounds are used, and no notifications go out.
+   - A double tap or a retry reuses the same operation ids, so it never duplicates the file or the room.
+3. **The draft room** (`js/views-draft.js`, the room's same link before a request exists) shows:
+   - the title, project and workspace, and the stage and draft labels;
+   - the footage in the dark player, and a file strip when the room has several files;
+   - each source file with its size, who added it, where it is kept and whether it is available;
+   - what happens next, and what is still needed;
+   - other drafts in the same project.
+   There are no editing buttons yet. The brief tools are described as coming in the next update.
+4. **Leave and come back:** drafts are listed under **Media Studio → Drafts · not submitted**, on the **project
+   page**, and in the **Library**, where the file's tile is marked *Draft · not submitted* with a **Continue
+   preparing** link. A room keeps one link (`#video-…`) from upload to approval.
+
+### Several files
+
+When several files are chosen, the person picks one of two options:
+- **One Editing Room with all of them** (the default): the first file is the main footage and the rest are related
+  files in the same room.
+- **An Editing Room for each file.**
+
+**Add a file** in a draft room adds another source file to that room. Rooms are never merged automatically, and
+uploads never create requests.
+
+### Media persistence (preview)
+
+| Situation | What happens |
+|---|---|
+| A video, audio file or image up to 500 MB, with device storage available | Kept on this device (IndexedDB) and labelled *Saved on this device only: not uploaded*. After a refresh it is restored and plays |
+| Over 500 MB, no device storage (private browsing, blocked), or storage full | Kept for **this session only**. A warning appears when it's added, and the reason is shown next to the file |
+| After a refresh, a session-only file (or a device file whose data was cleared) | Marked **Missing**, with **Add file again**. Only the same file (same name and size) is accepted; another file is refused |
+| A format this browser can't decode | *This browser can't play this format*: the file stays in the room |
+| Demo data can't be saved (storage blocked or full) | The room shows a warning that changes last only until the tab is closed |
+| Documents | Name and size only, no preview |
+
+Nothing is uploaded anywhere. Production R2, D1 and media processing are not used.
+
+### Visibility
+
+- **Who sees drafts:** drafts are listed only for the workspace's clients and Menapoly administrators.
+- **Editors:**
+  - Editors never see drafts in Studio or on project pages, and they can't open them (403). This holds even on a
+    project they are assigned to.
+  - Editors keep the old upload link to the Library. They can't create rooms.
+- **Other workspaces** get 403.
+- **Production:** drafts never appear on the production board, in editor workload or in request counts.
+
+### Changed for this phase
+
+| File | Change |
+|---|---|
+| `studio-preview/js/views-draft.js` | New: the upload sheet, the draft room, draft list items, device retention and *Add file again* |
+| `studio-preview/js/app.js` | `#video-…` opens the draft room until a request exists; `#asset-…` opens the file's room |
+| `studio-preview/js/views-studio.js` | Studio: **Upload & brief** (clients and admins) and the Drafts list. Library: the upload asks for a project, plus draft badges and *Continue preparing* |
+| `studio-preview/js/views-room.js` | Project page: a Drafts section and **Upload & brief** (the Editing Room itself is unchanged) |
+| `studio-preview/js/service.js` | `hasVideo`, `roomForAsset`, `drafts`, `setRetention`, `attachLocalFile`; assets record their type (`mime`) |
+| `studio-preview/js/rooms.js` | Shared `acceptedFile` |
+| `studio-preview/js/player.js` | Files picked on the device play without a forced type |
+| `studio-preview/js/maven.js` | The upload answer points to Upload & brief |
+| `studio-preview/styles.css` | Draft room styles (light design; the stage stays the only dark surface) |
+| `frontend/e2e-studio/upload-first.spec.ts` | New: 10 tests |
+| `studio.spec.ts`, `workflow.spec.ts` | The Library upload now asks for a project; the request-first steps choose *Library only* |
+
+### Limitations
+
+- **Files never leave this browser.** Device retention depends on the browser: Safari private mode, blocked site
+  data and storage limits all fall back to *this session only*, with a warning. Clearing site data removes kept files
+  (the room shows them as *Missing*).
+- **No brief, drawing or voice tools yet** (Phase 3 and later). A draft can't be submitted from the screen yet; the
+  service supports it (Phase 1).
+- **No way to delete or rename a draft room yet.**
+- **Document previews:** documents show their name and size only.
+- **Browser-only checks:** every rule is enforced in the browser against a mock, so it isn't security. Production
+  needs the server checks in §7.

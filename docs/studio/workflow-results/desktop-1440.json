@@ -1,12 +1,12 @@
 {
   "project": "desktop-1440",
-  "at": "2026-10-28T03:44:47.079Z",
+  "at": "2026-10-28T16:42:14.180Z",
   "steps": [
     {
       "n": 1,
       "step": "Client uploads footage",
       "result": "passed",
-      "detail": "Library → Add files (simulated: name, size and type only)"
+      "detail": "Library → Add files → Library only (request-first path; simulated: name, size and type only)"
     },
     {
       "n": 2,
