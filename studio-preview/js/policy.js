@@ -91,6 +91,12 @@ export function can(user, action, ctx = {}) {
     case "revision.grant": return admin;
     // Target delivery dates are estimates set by Menapoly administrators; everyone on the project can see them.
     case "request.schedule": return admin;
+    // Upload-first rooms. A room is owned by its project's workspace. Before submission it is the client's draft:
+    // editors only see a room once it has an editing request on a project they're assigned to.
+    case "room.view": return canViewProject(user, ctx.project) && (user.role !== "editor" || Boolean(ctx.room?.requestId));
+    case "room.create": case "brief.edit": case "room.submit": return admin || client(ws);
+    case "room.note": return admin || client(ws) || (assigned(user, ctx.project) && Boolean(ctx.room?.requestId));
+    case "room.complete": return admin;
     case "visibility.view": {
       if (!(admin || client(ws))) return false;
       const plan = PLANS[ctx.plan];

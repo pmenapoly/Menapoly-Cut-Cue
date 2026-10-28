@@ -1,5 +1,6 @@
 // FICTIONAL DEMO DATA. Every company, person, number and clip here is invented for the preview.
 // Nothing is imported from the production pilot, its database, its storage or any client.
+import { migrate6 } from "./rooms.js";
 
 const H = 3600e3, D = 24 * H;
 const at = (msAgo) => new Date(Date.now() - msAgo).toISOString();
@@ -44,7 +45,13 @@ export const PLATFORMS = [
   { id: "x", label: "X", limit: 280 },
 ];
 
+// Version 7 adds upload-first rooms, briefs, snapshots and notes (rooms.js); the seed is built as version 6 and
+// upgraded with the same migration a saved demo goes through, so both paths produce the same shape.
 export function seed() {
+  return migrate6(seed6(), new Date().toISOString(), { seeded: true });
+}
+
+function seed6() {
   return {
     version: 6,
     workspaces: [

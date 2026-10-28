@@ -1,7 +1,22 @@
-# Upload-first Editing Room: audit, data model and plan (design only, awaiting approval)
+# Upload-first Editing Room: audit, data model and plan
 
-This is a proposal for branch `menapoly-cue-studio-preview` (after `5fa790b`). No application code changes until you
-approve. The designs are on the private canvas **Cue Upload-first Room**. Home stays exactly as it is.
+Branch `menapoly-cue-studio-preview`. The design (commit `d42e1f1`) was approved with three refinements, listed below.
+**Phase 1 (data model and migration) is implemented**: see "Phase 1: implemented". Phases 2–8 wait for approval. The
+designs are on the private canvas **Cue Upload-first Room**. Home stays exactly as it is.
+
+## Approved refinements (they override anything below that disagrees)
+
+1. **Room identity:** one room per upload operation (or per explicit room creation), inside its authorized
+   workspace and project. Retries carry a stable operation id (`opId`) and return the same file and room. Rooms are
+   **never** merged because files share a name, size, content or hash, and never across projects or workspaces. (This
+   replaces the earlier "uploadKey = name+size+lastModified" and "unique main asset" ideas.)
+2. **Revision accounting:** briefing instructions, drawings, voice notes and clarifying questions before the first
+   formal review never use a revision round. Only a formal change request on a submitted version does, through the
+   existing ledger and its duplicate-charge protection (unchanged).
+3. **Safe local persistence:** the preview distinguishes saved draft metadata (localStorage), session-only media
+   (object URLs, gone after a refresh) and recordings kept on this device (IndexedDB). Storage failures, denied or
+   blocked microphones, missing recording APIs and media missing after a refresh each get a plain message. Nothing
+   claims a file or recording was uploaded.
 
 ## 1. Audit: how media, requests and rooms are linked today
 
@@ -20,15 +35,15 @@ approve. The designs are on the private canvas **Cue Upload-first Room**. Home s
 
 ```
 MediaAsset   (exists)  id, ws, projectId?, roomId?, name, kind, size, by, at,
-                       storage: "demo" | "session" | "device"   ← honest about where the bytes live
-                       uploadKey  (name+size+lastModified+person → the same file picked twice = one asset)
+                       storage: "demo" | "session" | "device" | "none"   ← honest about where the bytes live
+                       uploadOpId (the upload operation that created it; a retry with the same id = the same asset)
 
 EditingRoom  (new; today's videos[] become rooms, same ids)
                        id, ws, projectId, title, createdBy, createdAt,
                        sourceAssetIds[]   (several files per room; the first is the "main" footage)
                        briefId, requestId | null, reviewId | null, editorId | null,
                        stage   (derived, see §3), completedAt?, history[]
-                       UNIQUE (ws, main source asset)  → one upload never makes two rooms
+                       uploadOpId → one upload operation never makes two rooms (no content/name deduplication)
 
 Brief        (new)     id, roomId, status: draft | ready | submitted, rev,
                        fields { title, outcome, instructions, platforms[], aspects[], references[{label,url|assetId}],
@@ -51,8 +66,8 @@ Review/versions (exist) unchanged; they now hang off the room
 ```
 
 **Rules:**
-- **Uploads:** an upload creates or opens its room (idempotent by `uploadKey`). Several files can be added to one
-  room. A project can have many rooms.
+- **Uploads:** an upload creates its room, idempotent by the upload operation id (refinement 1). Several files can be
+  added to one room. A project can have many rooms.
 - **No early assignment:** nothing is assigned on upload. A request is created **only** by *Submit editing request*,
   from a brief marked *Ready*, with the key `briefId:rev`. A double tap or a second tab can't create two.
 - **Submission freezes the brief.** The submitted snapshot is the original brief. Later changes are `phase: "revision"`
@@ -164,3 +179,112 @@ POST /v1/rooms/:id/complete                                                 admi
 
 Voice objects are private, reached by short-lived signed URLs, and readable only by people who can see the room. Any
 transcription is opt-in per workspace and labelled as machine-generated.
+
+---
+
+## Phase 1: implemented (data model and migration, no new screens)
+
+### What exists now
+
+| Piece | Where | Notes |
+|---|---|---|
+| Model rules (pure) | `studio-preview/js/rooms.js` | Stages, brief field validation, readiness, shapes, voice metadata, note phase, snapshot fingerprint, `migrate6` |
+| Local persistence helpers | `studio-preview/js/local-media.js` | `micSupport`, `micError`, `requestMicrophone`, `mediaAvailability`, `deviceStore` (IndexedDB). Not wired to screens yet |
+| Service API | `studio-preview/js/service.js` | `registerUpload`, `rooms`, `room`, `roomStage`, `saveBrief`, `markBriefReady`, `submitBrief`, `addNote`, `deleteNote`, `completeRoom`, `integrity`, `persistence`, `migrateState` |
+| Permissions | `studio-preview/js/policy.js` | `room.view` (editors only once a request exists on their project), `room.create`, `brief.edit`, `room.submit`, `room.note`, `room.complete` (admin) |
+| Seed | `studio-preview/js/data.js` | Built as version 6 and upgraded by the same `migrate6`, so fresh and saved demos have one shape (version 7) |
+
+**New collections** (state version 7): `rooms`, `briefs`, `briefSnapshots`, `notes`, `uploadOps`, `migrations`.
+
+**Changed records:**
+- Requests gain `roomId`, `briefId`, `briefRev`, `snapshotId` and `requestedDate`.
+- Assets gain `storage`, `roomId` and `uploadOpId`.
+- Comments gain `phase`.
+- `request.due` stays the estimate field the screens already show.
+
+### Rules
+
+- **Workspace ownership:**
+  - A room belongs to its project's workspace.
+  - Files are added only from that project.
+  - Notes inherit the room's workspace.
+  - Clients of other workspaces get 403. Editors can't see a draft room until it is submitted and they are assigned.
+  - `integrity()` flags any mismatch.
+- **Concurrent edits:**
+  - Every brief write must send `expectedRev`. A missing one gets 400, an older one gets 409 (`stale`).
+  - Each changed field is written to `editLog` with the old and new values.
+  - Removing a required detail returns a *ready* brief to *draft*.
+- **Idempotent upload:**
+  - `registerUpload({ opId, … })` scopes the operation id to the person.
+  - A retry returns the same asset and room (`replayed: true`).
+  - Reusing the id for a different file, project or room gets 409 (`op-reused`).
+- **Idempotent submission:**
+  - The key is `briefId:rev`.
+  - Parallel taps, retries and second tabs return the first request.
+  - A submission from an older revision gets 409.
+- **Immutable original:**
+  - Submission freezes a snapshot of the fields and the IDs of the briefing notes it included, with an FNV-1a
+    fingerprint.
+  - The service has no call that edits a snapshot. `integrity()` reports any snapshot that no longer matches its
+    fingerprint.
+  - Later notes are marked `afterSubmission`.
+- **Notes:**
+  - **Kinds:** `text`, `drawing` (normalised 0–1 overlay shapes: arrow, circle, box, highlight, pen, text,
+    graphic-zone) and `voice`.
+  - **Voice metadata:** `storage` must be `device` or `session`. `uploaded` is always `false` and `transcript` always
+    `null`. Drawings need a written description.
+  - **Phase:** `brief` (a client, before the first version), `question` (the editing team before the first version, or
+    asked for explicitly) or `revision` (from the first version on). **No phase uses a revision round.**
+  - Only the author can delete a draft note. Submitted instructions stay on record.
+- **Lifecycle:** derived on read by `roomStage()`, never stored, so it can't drift:
+  Uploaded → Preparing instructions → Ready to submit → Submitted for editing → Assigned → Being edited → Ready for
+  review → Changes requested → Approved → Completed. `completeRoom` is admin only and requires approval.
+- **Request-first:** `createRequest`, "Make more" and translations create a room with the Editing Room's id, plus a
+  brief submitted in the same step (snapshot source `request-form`). The form's date is copied into `requestedDate`
+  and still shown as today's target date.
+- **Audit:** every room action writes to `room.history` and the project activity. Brief changes are in `editLog`.
+  Migrations are recorded in `state.migrations` with their warnings.
+
+### Migration (version 6 → 7, and version 5 → 6 → 7)
+
+- **Rooms:** every existing Editing Room (`videos[]`) gets a room record **with the same id**. `#video-*` links,
+  notifications, tests and comments keep working.
+- **Briefs:**
+  - Its instructions and request become a **submitted** brief (revision 1) with a snapshot marked `migrated`.
+  - `requestedDate` is left empty (`null`): it was never recorded, so it isn't invented.
+- **Comments:** they stay in their review and only gain a `phase`. Before the first version, they become `brief` (a
+  client) or `question` (the editing team); afterwards they become `revision`.
+- **Untouched:**
+  - Reviews, versions, approvals, revision rounds, extra-round grants, posts and videos.
+  - Tests compare them field by field with the version 6 data.
+- **Safety:**
+  - The migration runs only once (running it again changes nothing) and never throws.
+  - A request without an Editing Room keeps working, with `roomId: null` and a warning.
+  - A saved state from an unknown or future version falls back to the fictional seed, as before.
+
+### Limitations
+
+- **No new screens yet:**
+  - Uploads from the existing Library still create a file without a room (`addLocalFile`, unchanged).
+  - Rooms without a request don't appear in Studio lists yet.
+  - Phase 2 wires the upload screen to `registerUpload`.
+- **Legacy comments stay in reviews.** The room's instruction list combines them with the new notes when it is read;
+  they aren't copied, so there is one source of truth.
+- **Migrated rooms have no requested date and no upload operation.** Their source files are taken from the request's
+  footage, or from the original clip linked to the room.
+- **Snapshot fingerprints detect accidental changes.** They aren't cryptographic: the browser mock isn't security. A
+  production server stores snapshots append-only (§7).
+- **No device storage in use yet:** `deviceStore` exists, but no screen saves to IndexedDB yet. Uploaded files in the
+  preview are `none` (metadata only) or `session` (playable until refresh).
+- **Storage failures are tracked:** a failed save now records `svc.persistence()` (quota or blocked) instead of
+  failing silently. Showing it on screen is part of Phase 2.
+
+### Results
+
+| Check | Result |
+|---|---|
+| `node --test studio-preview/tests/*.test.mjs` | **33/33 passed** (18 existing + 15 new in `rooms.test.mjs`) |
+| Browser tests (`npx playwright test -c playwright.studio.config.ts`) | **103 passed, 0 failed, 17 skipped by design** (99 before + the new `rooms-model.spec.ts` at 430 and 1440) |
+| Visual baselines (Home, Studio, Editing Room, Visibility) | Unchanged and passing; no snapshot was updated |
+| 23-step workflow, operations, reliability specs | Passed |
+| `npx tsc --noEmit` | Clean |

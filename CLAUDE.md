@@ -60,3 +60,8 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
   (no self-review; Published stays 0); revision ledger review.rounds/extraRounds (PLANS.revisionsIncluded, project/workspace
   override; one round per version; admin grants need a reason); setDue with dueRev (409 when stale); migrate5 keeps old demo
   state. Service calls act as the person who started them. e2e-studio/operations.spec.ts.
+- Studio upload-first rooms (docs/studio/upload-first-design.md, Phase 1 = data model only): js/rooms.js (pure rules,
+  migrate6), js/local-media.js (mic/IndexedDB/media-availability helpers), service registerUpload (idempotent per opId,
+  never dedupes by name/content), saveBrief/markBriefReady (expectedRev, 409 stale), submitBrief (key briefId:rev,
+  frozen snapshot), addNote (notes never use revision rounds), integrity(). State version 7; rooms keep video ids.
+  Tests: studio-preview/tests/rooms.test.mjs, e2e-studio/rooms-model.spec.ts. Phases 2+ need the owner's approval.
