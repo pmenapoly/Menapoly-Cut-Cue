@@ -712,7 +712,9 @@ a.pipe-step:hover { box-shadow: var(--shadow-1); }
 .player-toolbar .btn { min-height: 40px; border-color: transparent; background: transparent; padding-inline: 9px; font-size: 12.5px; }
 .room-viewer .vp { border: 0; border-radius: 0; box-shadow: none; }
 .room-viewer .vp-stage { min-height: 200px; aspect-ratio: 16 / 9; background: #100D19; }
-.room-viewer .vp-stage video { width: 100%; height: 100%; max-height: 58vh; object-fit: contain; }
+/* The stage keeps its 16:9 box; the video fills it (portrait clips letterbox) instead of spilling over the controls. */
+.room-viewer .vp-stage video { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; object-fit: contain; }
+.room-viewer .vp:fullscreen .vp-stage { aspect-ratio: auto; }
 .room-viewer .vp-bar { padding: 8px 14px 10px; }
 .room-viewer .vp-row { gap: 4px; }
 .room-viewer .vp-row > .vp-btn:first-child { background: transparent; color: #FFFFFF; }
@@ -722,7 +724,7 @@ a.pipe-step:hover { box-shadow: var(--shadow-1); }
 .reference-room .status-card .status-head { font-family: var(--display); font-size: 23px; font-weight: 700; }
 .reference-room .status-card .decide .btn { min-height: 46px; font-size: 13.5px; border-radius: 12px; }
 .room-revision-details { border-top: 1px solid rgb(51 36 80 / .12); padding-top: 8px; font-size: 13px; }
-.room-revision-details summary { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; font-weight: 700; }
+.room-revision-details summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; font-weight: 700; }
 .room-revision-details summary::after { content: "+"; font-size: 18px; margin-left: 4px; }
 .room-revision-details[open] summary::after { content: "−"; }
 .room-revision-details summary > span { margin-left: auto; color: var(--muted); }
@@ -735,7 +737,7 @@ a.pipe-step:hover { box-shadow: var(--shadow-1); }
 .room-side-head h2 { font-size: 21px; margin-top: 4px; }
 .feedback-count { display: inline-flex; gap: 6px; align-items: center; min-height: 34px; padding: 0 10px; background: var(--lilac); border-radius: 11px; color: var(--accent-strong); font-size: 13px; font-weight: 700; }
 .reference-room .room-tabs { border-radius: 12px; background: var(--surface-2); gap: 3px; padding: 4px; }
-.reference-room .room-tabs .tab { flex: 1 1 auto; padding: 7px 9px; font-size: 12.5px; min-height: 38px; }
+.reference-room .room-tabs .tab { flex: 1 1 auto; padding: 7px 9px; font-size: 12.5px; min-height: 44px; }
 .reference-room .room-panel { gap: 14px; }
 .reference-room .room-panel > .btn { min-height: 44px; font-size: 13px; }
 .reference-room .room-panel .tabs { gap: 3px; }

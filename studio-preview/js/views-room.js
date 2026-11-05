@@ -206,7 +206,8 @@ export async function roomView(out, [vid], ctx) {
         h("button", { class: `btn ${v.status === "Ready for review" ? "" : "primary"}`, style: "justify-self:start", onclick: busy(async () => { try { await svc.uploadVersion(v.reviewId, vn.value); remember(vid, { version: undefined }); toast("New version submitted (simulated)"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } }) },
           icon("upload", 18), "Upload new version"), h("p", { class: "tiny" }, demoBadge(), " The preview reuses a demo clip; nothing is uploaded or rendered."));
     }
-    statusCard.append(h("details", { class: "room-revision-details" },
+    // Folded away while rounds remain; open when they're used up so "Ask for an extra round" is in reach.
+    statusCard.append(h("details", { class: "room-revision-details", open: !v.revisions.remaining || Boolean(v.revisions.openAsk) },
       h("summary", {}, icon("layers", 15), "Revision rounds", h("span", { class: "small" }, `${v.revisions.remaining} left`)), revisionBlock()));
     statusCard.append(h("div", { class: `progress ${tone === "done" ? "ok" : tone === "editing" ? "info" : ""}`, role: "img", "aria-label": `${done} of ${v.checklist.length} checklist tasks done` },
       h("span", { style: `width:${(done / Math.max(1, v.checklist.length)) * 100}%` })));
@@ -382,12 +383,13 @@ export async function roomView(out, [vid], ctx) {
     ["Audio", "wave", "Improve the audio", "Describe the audio cleanup, levels, or music changes you want."],
     ["Format", "aspect", "Change the video format", "Describe where this version will be used and the framing it needs."],
   ];
-  const toolbelt = h("section", { class: "edit-toolbelt", "aria-label": "Editing tools" },
+  // Editing requests are a client/admin decision: editors don't get a "send instructions to your editor" panel.
+  const toolbelt = v.can["video.another"] ? h("section", { class: "edit-toolbelt", "aria-label": "Editing tools" },
     h("div", { class: "edit-toolbelt-head" }, h("div", {}, h("span", { class: "eyebrow" }, "Editing requests"), h("h2", {}, "Plan your next cut")),
       h("span", { class: "tiny faint" }, "Send instructions to your editor")),
     h("div", { class: "edit-tool-grid" }, (v.can["video.another"] ? editTools : []).map(([label, ic, title, placeholder]) =>
       h("button", { class: "edit-tool", onclick: () => anotherSheet(v, ctx, { title, placeholder }) }, icon(ic, 22), h("span", {}, label))),
-      h("button", { class: "edit-tool cue-tool", onclick: () => openMaven(ctx, "Suggest a new version") }, icon("spark", 22), h("span", {}, "Ask Cue"))));
+      h("button", { class: "edit-tool cue-tool", onclick: () => openMaven(ctx, "Suggest a new version") }, icon("spark", 22), h("span", {}, "Ask Cue")))) : null;
   drawStatus(); drawTab(); drawVersionDock();
   out.append(header, h("div", { class: "room reference-room" },
     h("div", { class: "room-main stack" }, h("section", { class: "room-viewer", "aria-label": "Video workspace" }, tools, player.el), composerBox, statusCard, toolbelt, versionDock),

@@ -116,6 +116,41 @@ test("several files: one room with navigable related files, or one room per file
   expect(((await svcCall(page, "requests")).value as any[]).length).toBe(requests); // uploads never create requests
 });
 
+test("batch upload: every clip shows a thumbnail; removing clips updates the selection; the room gets what's left", async ({ page }) => {
+  await open(page, "studio");
+  await page.getByRole("button", { name: "Upload & brief" }).click();
+  await page.locator("#up-file").setInputFiles([CLIP, CLIP2, path.join(MEDIA, "hb-podcast.webm")]);
+  const cards = page.locator(".upload-cut-card");
+  await expect(cards).toHaveCount(3);
+  for (let i = 0; i < 3; i++) {
+    const thumb = cards.nth(i).locator(".upload-cut-poster video");
+    await expect(thumb).toBeVisible();
+    await expect.poll(() => thumb.evaluate((v: HTMLVideoElement) => v.readyState >= 1 && v.videoWidth > 0)).toBe(true); // a real frame, not a placeholder
+    await expect(cards.nth(i).locator(".upload-cut-number")).toHaveText(String(i + 1));
+  }
+  await expect(page.locator("fieldset", { hasText: "These files are" })).toBeVisible();
+  await page.getByRole("button", { name: "Remove nw-reel.webm" }).click();
+  await expect(cards).toHaveCount(2);
+  await expect(cards.locator(".upload-cut-number")).toHaveText(["1", "2"]); // renumbered
+  await expect(cards.locator("b")).toHaveText(["nw-launch-v1.webm", "hb-podcast.webm"]);
+  await page.getByRole("button", { name: "Remove nw-launch-v1.webm" }).click();
+  await expect(cards).toHaveCount(1);
+  await expect(page.locator("fieldset", { hasText: "These files are" })).toBeHidden(); // one clip: no grouping choice
+  await page.getByRole("button", { name: "Remove hb-podcast.webm" }).click();
+  await expect(cards).toHaveCount(0);
+  await expect(page.locator("#up-go")).toBeDisabled();
+  // pick again, drop one, upload: the room holds only the clip that stayed, and it's the room that opens
+  await page.locator("#up-file").setInputFiles([CLIP, CLIP2]);
+  await page.getByRole("button", { name: "Remove nw-launch-v1.webm" }).click();
+  await page.locator("#up-title").fill("Reel only");
+  await page.locator("#up-go").click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Reel only");
+  await expect(stage(page)).toHaveText("Uploaded");
+  const room = (await svcCall(page, "room", roomId(page))).value as any;
+  expect(room.assets.map((a: any) => a.name)).toEqual(["nw-reel.webm"]);
+  expect(((await svcCall(page, "assets", { ws: "ws_nw", q: "nw-launch-v1.webm" })).value as any[]).length).toBe(0); // the removed clip was never added
+});
+
 test("Library upload: footage asks for its project and opens the room; library-only and unsupported files behave as before", async ({ page }) => {
   await open(page, "library");
   await page.locator("#lib-file").setInputFiles(CLIP);

@@ -38,7 +38,9 @@ test("project workspace → video → Editing Room, and back", async ({ page }) 
   await shot(page, "20-project-workspace");
   await page.locator(".tile", { hasText: "Spring Launch hero spot" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Spring Launch hero spot");
-  await expect(page.locator(".room-head")).toContainText("Northwind Roasters · Spring Launch Campaign");
+  // the project sits in the breadcrumb; the workspace sits under the title
+  await expect(page.getByRole("navigation", { name: "Video location" })).toContainText("Spring Launch Campaign");
+  await expect(page.locator(".room-head")).toContainText("Northwind Roasters");
   await expect(status(page)).toHaveText("Ready for review");
   await expect(page.locator(".room-head")).toContainText("Editor: Sam Rivera");
   await noSideScroll(page);
