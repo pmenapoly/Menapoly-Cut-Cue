@@ -58,8 +58,15 @@ export async function uploadSheet(ctx, { files: preset = [], projectId, roomId, 
   const projects = roomId ? [] : (await svc.projects()).filter((p) => p.ws === ws?.id);
   let files = preset.filter((f) => acceptedFile(f.name, f.type));
   const ops = new Map(); // file → operation id, kept for retries while this sheet is open
+  const previews = new Map(), fileNodes = new Map();
+  const thumbnail = (file) => {
+    if (!playable(file) || file.type.startsWith("audio/")) return icon(kindIcon(file.type.split("/")[0]), 28);
+    if (!previews.has(file)) previews.set(file, URL.createObjectURL(file));
+    return file.type.startsWith("image/") ? h("img", { src: previews.get(file), alt: "" })
+      : h("video", { src: previews.get(file), muted: true, playsinline: true, preload: "metadata", "aria-hidden": "true", tabindex: "-1" });
+  };
   const picker = h("input", { id: "up-file", type: "file", multiple: true, class: "sr", accept: "video/*,audio/*,image/*,.pdf,.doc,.docx,.txt,.srt,.vtt,.zip", "aria-label": "Choose files" });
-  const list = h("ul", { class: "list", "aria-label": "Chosen files" });
+  const list = h("ul", { class: "upload-grid", "aria-label": "Chosen files" });
   const project = roomId ? null : h("select", { id: "up-project" },
     projects.map((p) => h("option", { value: p.id, selected: p.id === projectId }, p.name)),
     libraryOption ? h("option", { value: "" }, "Library only (no Editing Room)") : null);
@@ -72,8 +79,19 @@ export async function uploadSheet(ctx, { files: preset = [], projectId, roomId, 
   const titleField = h("div", { class: "field" }, h("label", { for: "up-title" }, "Video title (optional)"), title);
   const go = h("button", { class: "btn primary", id: "up-go" }, icon("upload", 18), roomId ? "Add to this room" : "Upload & open Editing Room");
   const draw = () => {
-    list.replaceChildren(...files.map((f) => h("li", { class: "item small", "data-file": f.name }, h("span", { class: "thumb" }, icon(kindIcon(f.type.split("/")[0]), 20)),
-      h("span", { class: "grow" }, h("b", {}, f.name), h("span", { class: "tiny faint" }, ` ${bytes(f.size)}`)), h("span", { class: "tiny faint", "data-progress": "" }, "Ready"))));
+    fileNodes.clear();
+    list.replaceChildren(...files.map((f, i) => {
+      const card = h("li", { class: "upload-cut-card", "data-file": f.name },
+        h("span", { class: "upload-cut-poster" }, thumbnail(f), h("span", { class: "upload-cut-number" }, `${i + 1}`)),
+        h("button", { class: "upload-cut-remove", "aria-label": `Remove ${f.name}`, onclick: () => {
+          files = files.filter((x) => x !== f);
+          if (previews.has(f)) { URL.revokeObjectURL(previews.get(f)); previews.delete(f); }
+          draw();
+        } }, icon("x", 15)),
+        h("b", { title: f.name }, f.name),
+        h("span", { class: "tiny faint" }, `${bytes(f.size)} · `, h("span", { "data-progress": "" }, "Ready")));
+      fileNodes.set(f, card); return card;
+    }), files.length ? h("li", { class: "upload-add-slot" }, h("button", { onclick: () => picker.click() }, icon("plus", 25), "Add another file")) : null);
     const roomish = !roomId && (!project || project.value);
     mode.hidden = !(roomish && files.length > 1);
     titleField.hidden = !roomish || (files.length > 1 && mode.querySelector("input:checked")?.value === "separate");
@@ -89,15 +107,19 @@ export async function uploadSheet(ctx, { files: preset = [], projectId, roomId, 
   mode.addEventListener("change", draw);
   const d = sheet(roomId ? "Add a file to this room" : "Upload & brief",
     h("p", { class: "small muted" }, roomId ? "The file joins this draft Editing Room." : "Your footage opens its own Editing Room straight away. Nothing goes to the editing team until you submit an editing request."),
-    h("label", { for: "up-file", class: "btn", role: "button", tabindex: "0", onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); } } }, icon("plus", 18), files.length ? "Choose more files" : "Choose files"),
+    h("label", { for: "up-file", class: "btn upload-dropzone", role: "button", tabindex: "0", onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); picker.click(); } } }, icon("upload", 24), files.length ? "Choose more files" : "Choose files"),
     picker, list,
     project ? h("div", { class: "field" }, h("label", { for: "up-project" }, "Project"), project) : null,
     mode, roomId ? null : titleField,
     h("p", { class: "tiny faint" }, "Simulated upload: files stay in this browser. Where the browser allows, they're kept on this device so they still play after a refresh."),
     go);
+  d.classList.add("batch-upload-sheet");
+  d.addEventListener("close", () => { previews.forEach((url) => URL.revokeObjectURL(url)); previews.clear(); });
   go.addEventListener("click", busy(async () => {
     const pid = roomId ? projectId : project.value;
-    const mark = (f, s) => { const el = [...list.children].find((li) => li.dataset.file === f.name)?.querySelector("[data-progress]"); if (el) el.textContent = s === "done" ? "Done" : "Adding…"; };
+    const mark = (f, s) => { const el = fileNodes.get(f)?.querySelector("[data-progress]"); if (el) el.textContent = s === "done" ? "Done" : "Adding…"; };
+    const selectionControls = [picker, ...list.querySelectorAll("button")];
+    for (const control of selectionControls) control.disabled = true;
     try {
       if (!pid) { // Library only: the previous behaviour, no room
         for (const f of files) { await svc.addLocalFile({ name: f.name, size: f.size, type: f.type, url: playable(f) ? URL.createObjectURL(f) : null }, ws.id, null, folderId); toast(`${f.name} added`); }
@@ -111,6 +133,7 @@ export async function uploadSheet(ctx, { files: preset = [], projectId, roomId, 
       toast(roomId ? "Added to this room" : rooms.length > 1 ? `${rooms.length} Editing Rooms opened. Find them under Drafts.` : "Editing Room opened. It's a draft until you submit a request.");
       ctx.go(`video-${rooms[0]}`);
     } catch (e) { toast(e.message, "err"); } // the same operation ids are reused if they try again
+    finally { for (const control of selectionControls) control.disabled = false; }
   }));
   draw();
   return d;

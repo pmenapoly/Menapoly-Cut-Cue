@@ -98,22 +98,51 @@ export async function roomView(out, [vid], ctx) {
   if (m.time) player.video.addEventListener("loadedmetadata", () => { player.video.currentTime = m.time; }, { once: true });
 
   // ---- header ----
-  const header = h("header", { class: "room-head" },
-    h("a", { href: `#project-${v.projectId}`, class: "small back-link" }, icon("back", 16), v.projectName),
+  const header = h("header", { class: "room-head reference-room-head" },
+    h("nav", { class: "room-breadcrumb", "aria-label": "Video location" },
+      h("a", { href: "#studio" }, "Media Studio"), icon("chevron", 13),
+      h("a", { href: `#project-${v.projectId}`, class: "small back-link" }, v.projectName), icon("chevron", 13),
+      h("span", { "aria-current": "page" }, "Editing Room")),
     h("div", { class: "row nowrap", style: "align-items:flex-start" },
       h("div", { class: "stack", style: "gap:4px;flex:1;min-width:0" }, h("h1", { class: "room-title" }, v.title),
-        h("p", { class: "small faint" }, `${v.workspace} · ${v.projectName}`)),
-      h("button", { class: "iconbtn", "aria-label": "More actions", onclick: () => actionsSheet(v, ctx) }, icon("more", 24))),
+        h("p", { class: "small faint" }, v.workspace)),
+      h("div", { class: "actions room-head-actions" },
+        h("button", { class: "btn sm room-focus", "aria-label": "Focus on the video", "aria-pressed": "false", onclick: (e) => {
+          const room = document.querySelector(".room");
+          const on = room.classList.toggle("room-focused");
+          e.currentTarget.setAttribute("aria-pressed", String(on));
+          e.currentTarget.replaceChildren(icon(on ? "grid" : "expand", 16), h("span", { class: "room-focus-label" }, on ? "Show feedback" : "Focus view"));
+          e.currentTarget.setAttribute("aria-label", on ? "Show feedback panel" : "Focus on the video");
+        } }, icon("expand", 16), h("span", { class: "room-focus-label" }, "Focus view")),
+        h("button", { class: "iconbtn", "aria-label": "More actions", onclick: () => actionsSheet(v, ctx) }, icon("more", 24)))),
     h("div", { class: "row" }, h("span", { class: "status", "data-tone": statusInfo(v.status).tone, "data-status": v.status }, icon(statusInfo(v.status).icon, 13), v.status),
       v.editorName ? h("span", { class: "chip" }, avatar(v.editorName, true), `Editor: ${v.editorName}`) : h("span", { class: "chip" }, "No editor yet"),
       v.request?.due ? h("span", { class: "chip", title: "Target dates are estimates, not guaranteed delivery dates" }, icon("clock", 13), `Target ${fmtDate(v.request.due)} (estimate)`) : null,
       me.role === "admin" && v.request && v.status !== "Approved" ? h("button", { class: "btn sm ghost", onclick: () => dueSheet({ ...v.request, title: v.title }, ctx) }, icon("calendar", 16), v.request.due ? "Change target date" : "Set target date") : null));
 
   // ---- under the player ----
-  const versionSel = h("select", { id: "version-select", "aria-label": "Version", style: "width:auto;flex:1 1 180px" },
+  const versionSel = h("select", { id: "version-select", "aria-label": "Version" },
     v.versions.map((x, i) => h("option", { value: String(i), selected: i === version }, x.n === 0 ? x.label : `${x.label}${i === v.versions.length - 1 ? " (latest)" : ""}`)));
-  versionSel.addEventListener("change", () => { version = Number(versionSel.value); remember(vid, { version }); player.setMedia(cur(), `${v.title}, ${cur().label}`); drawTab(); player.refresh(); });
-  const tools = h("div", { class: "room-tools" }, versionSel,
+  const versionDock = h("section", { class: "cut-library", "aria-label": "Video versions" });
+  function selectVersion(i) {
+    version = i; versionSel.value = String(i); remember(vid, { version });
+    player.setMedia(cur(), `${v.title}, ${cur().label}`); drawStatus(); drawTab(); drawVersionDock(); player.refresh();
+  }
+  function drawVersionDock() {
+    versionDock.replaceChildren(
+      h("div", { class: "cut-library-head" }, h("div", { class: "row" }, icon("layers", 16), h("h2", {}, "Your cuts"),
+        h("span", { class: "tiny faint" }, `${v.versions.length} version${v.versions.length === 1 ? "" : "s"}`)),
+        h("span", { class: "tiny faint" }, "Choose a version to watch")),
+      h("div", { class: "cut-library-grid" }, v.versions.map((x, i) =>
+        h("button", { class: `cut-card ${i === version ? "selected" : ""}`, "aria-label": `Watch ${x.label}`, "aria-pressed": String(i === version), onclick: () => selectVersion(i) },
+          h("span", { class: "cut-cover" }, h("img", { src: x.poster, alt: "", loading: "lazy" }),
+            h("span", { class: "cut-label" }, x.n === 0 ? "Original" : `v${x.n}`),
+            h("span", { class: "cut-play" }, icon(i === version ? "check" : "play", 15)),
+            x.duration ? h("span", { class: "cut-duration mono" }, fmtTime(x.duration)) : null),
+          h("span", { class: "cut-meta" }, h("b", {}, x.label), h("span", {}, i === v.versions.length - 1 ? "Latest version" : x.n === 0 ? "Source reference" : "Earlier version"))))));
+  }
+  versionSel.addEventListener("change", () => selectVersion(Number(versionSel.value)));
+  const tools = h("div", { class: "room-tools player-toolbar" }, h("span", { class: "player-toolbar-label" }, icon("review", 16), "Watching"), versionSel,
     v.versions.length > 1 ? h("button", { class: "btn sm", onclick: () => compareSheet(v, version) }, icon("compare", 16), "Compare versions") : null,
     h("button", { class: "btn sm", onclick: () => sheet("Transcript", h("div", { class: "state" }, icon("doc", 28), h("h3", {}, "No transcript for this video"),
       h("p", { class: "muted small" }, "This demo clip has no speech. When a real video is processed, the transcript appears here with timecodes you can tap.")),
@@ -132,6 +161,10 @@ export async function roomView(out, [vid], ctx) {
       h("h2", { class: "status-head" }, HEAD[tone]),
       h("p", { class: "small muted" }, `${open} open comment(s) · checklist ${done} of ${v.checklist.length} done`));
     if (v.status === "Ready for review" && v.can["review.decide"]) {
+      const watchingLatest = version === v.versions.length - 1;
+      if (!watchingLatest) statusCard.append(h("p", { class: "small room-old-version", role: "note" },
+        "You're watching an earlier cut. Review the latest version before making a decision.",
+        h("button", { class: "btn sm", onclick: () => selectVersion(v.versions.length - 1) }, "Watch latest version")));
       const note = keepDraft(h("textarea", { id: "changes-note", placeholder: "What should be different in the next version?", maxlength: "2000" }), vid, "changes");
       const form = h("div", { class: "stack", hidden: !note.value }, h("label", { for: "changes-note" }, "What should change?"), note,
         h("div", { class: "actions" }, h("button", { class: "btn primary", onclick: busy(async () => {
@@ -139,9 +172,9 @@ export async function roomView(out, [vid], ctx) {
           h("button", { class: "btn ghost", onclick: () => openMaven(ctx, "Help me request changes") }, icon("spark", 16), "Help me write it")));
       statusCard.append(...[
         h("div", { class: "decide" },
-          h("button", { class: "btn primary", onclick: busy(async () => { try { await svc.decide(v.reviewId, "approve", "", latestN); toast("Approved. It's ready to share."); ctx.refresh(); } catch (e) { toast(e.message, "err"); if (e.code === 409) ctx.refresh(); } }) },
+          h("button", { class: "btn primary", disabled: !watchingLatest, onclick: busy(async () => { try { await svc.decide(v.reviewId, "approve", "", latestN); toast("Approved. It's ready to share."); ctx.refresh(); } catch (e) { toast(e.message, "err"); if (e.code === 409) ctx.refresh(); } }) },
             icon("check", 18), "Approve video"),
-          v.revisions.remaining ? h("button", { class: "btn", onclick: () => { form.hidden = !form.hidden; if (!form.hidden) note.focus(); } }, icon("message", 18), "Request changes")
+          v.revisions.remaining ? h("button", { class: "btn", disabled: !watchingLatest, onclick: () => { form.hidden = !form.hidden; if (!form.hidden) note.focus(); } }, icon("message", 18), "Request changes")
             : h("button", { class: "btn", disabled: true, title: "No revision rounds left" }, icon("message", 18), "Request changes")), v.revisions.remaining ? form : null,
         ].filter(Boolean));
     } else if (v.status === "Approved") {
@@ -173,7 +206,8 @@ export async function roomView(out, [vid], ctx) {
         h("button", { class: `btn ${v.status === "Ready for review" ? "" : "primary"}`, style: "justify-self:start", onclick: busy(async () => { try { await svc.uploadVersion(v.reviewId, vn.value); remember(vid, { version: undefined }); toast("New version submitted (simulated)"); ctx.refresh(); } catch (e) { toast(e.message, "err"); } }) },
           icon("upload", 18), "Upload new version"), h("p", { class: "tiny" }, demoBadge(), " The preview reuses a demo clip; nothing is uploaded or rendered."));
     }
-    statusCard.append(revisionBlock());
+    statusCard.append(h("details", { class: "room-revision-details" },
+      h("summary", {}, icon("layers", 15), "Revision rounds", h("span", { class: "small" }, `${v.revisions.remaining} left`)), revisionBlock()));
     statusCard.append(h("div", { class: `progress ${tone === "done" ? "ok" : tone === "editing" ? "info" : ""}`, role: "img", "aria-label": `${done} of ${v.checklist.length} checklist tasks done` },
       h("span", { style: `width:${(done / Math.max(1, v.checklist.length)) * 100}%` })));
   }
@@ -309,7 +343,7 @@ export async function roomView(out, [vid], ctx) {
   function focusComment(cid) {
     const c = v.comments.find((x) => x.id === cid); if (!c) return;
     const vi = v.versions.findIndex((x) => x.n === c.version);
-    if (vi >= 0 && vi !== version) { version = vi; versionSel.value = String(vi); player.setMedia(cur(), `${v.title}, ${cur().label}`); player.video.addEventListener("loadedmetadata", () => player.seek(c.t), { once: true }); }
+    if (vi >= 0 && vi !== version) { selectVersion(vi); player.video.addEventListener("loadedmetadata", () => player.seek(c.t), { once: true }); }
     active = cid; player.seek(c.t); tab = "comments"; drawTab();
     panel.querySelector(`[data-id="${cid}"]`)?.scrollIntoView({ block: "nearest" });
   }
@@ -321,7 +355,7 @@ export async function roomView(out, [vid], ctx) {
         return h("li", { class: "item" }, h("span", { class: "thumb" }, h("img", { src: x.poster, alt: "" })),
           h("span", { class: "grow" }, h("span", { class: "title small" }, x.label, i === v.versions.length - 1 ? " · latest" : ""),
             h("span", { class: "tiny faint" }, x.n === 0 ? x.note : `${x.note || ""} · ${x.byName} · ${ago(x.at)}${x.simulated ? " · simulated" : ""}`)),
-          i === version ? h("span", { class: "chip accent" }, "Watching") : h("button", { class: "btn sm", onclick: () => { version = i; versionSel.value = String(i); remember(vid, { version }); player.setMedia(cur(), `${v.title}, ${cur().label}`); drawTab(); } }, "Watch"));
+          i === version ? h("span", { class: "chip accent" }, "Watching") : h("button", { class: "btn sm", onclick: () => selectVersion(i) }, "Watch"));
       }))),
       h("section", { class: "card" }, h("h2", {}, "Approval"), h("p", {}, h("span", { class: `chip ${statusTone(v.status)}` }, v.status)),
         v.decisions.length ? h("ul", { class: "list" }, [...v.decisions].reverse().map((d) => h("li", { class: "item small" }, h("span", { class: "grow" },
@@ -341,12 +375,26 @@ export async function roomView(out, [vid], ctx) {
       h("span", { class: "grow" }, h("span", {}, h("b", {}, a.byName), ` ${a.action}`, a.detail ? `: ${a.detail}` : ""), h("span", { class: "tiny faint" }, new Date(a.at).toLocaleString()))))))];
   }
 
-  drawStatus(); drawTab();
-  out.append(header, h("div", { class: "room" },
-    // The comment composer sits right under the player so the drawing tools and the frame stay together on a phone.
-    // Phones: player → feedback → version tools → status → tabs. Desktop: the status and next action head the side panel.
-    h("div", { class: "room-main stack" }, player.el, composerBox, tools),
-    h("div", { class: "room-side stack" }, statusCard, tabBar, panel)));
+  // These tools create editing requests; they never pretend to render a cut inside the static preview.
+  const editTools = [
+    ["Trim & cut", "cut", "Trim this video", "Describe what to keep, shorten, or remove."],
+    ["Captions", "captions", "Change the captions", "Describe the caption wording, style, size, or placement you want."],
+    ["Audio", "wave", "Improve the audio", "Describe the audio cleanup, levels, or music changes you want."],
+    ["Format", "aspect", "Change the video format", "Describe where this version will be used and the framing it needs."],
+  ];
+  const toolbelt = h("section", { class: "edit-toolbelt", "aria-label": "Editing tools" },
+    h("div", { class: "edit-toolbelt-head" }, h("div", {}, h("span", { class: "eyebrow" }, "Editing requests"), h("h2", {}, "Plan your next cut")),
+      h("span", { class: "tiny faint" }, "Send instructions to your editor")),
+    h("div", { class: "edit-tool-grid" }, (v.can["video.another"] ? editTools : []).map(([label, ic, title, placeholder]) =>
+      h("button", { class: "edit-tool", onclick: () => anotherSheet(v, ctx, { title, placeholder }) }, icon(ic, 22), h("span", {}, label))),
+      h("button", { class: "edit-tool cue-tool", onclick: () => openMaven(ctx, "Suggest a new version") }, icon("spark", 22), h("span", {}, "Ask Cue"))));
+  drawStatus(); drawTab(); drawVersionDock();
+  out.append(header, h("div", { class: "room reference-room" },
+    h("div", { class: "room-main stack" }, h("section", { class: "room-viewer", "aria-label": "Video workspace" }, tools, player.el), composerBox, statusCard, toolbelt, versionDock),
+    h("aside", { class: "room-side stack", "aria-label": "Feedback and project details" },
+      h("div", { class: "room-side-head" }, h("div", {}, h("span", { class: "eyebrow" }, "Video review"), h("h2", {}, "Feedback & details")),
+        h("span", { class: "feedback-count", "aria-label": `${v.comments.filter((c) => !c.resolved).length} open comments` }, icon("message", 16), String(v.comments.filter((c) => !c.resolved).length))),
+      tabBar, panel)));
   const onChanged = () => { if (location.hash === `#video-${vid}`) ctx.refresh(); };
   document.addEventListener("cue:changed", onChanged, { once: true });
 }
@@ -381,10 +429,11 @@ function actionsSheet(v, ctx) {
   const d = sheet("What you can do with this video", h("div", { class: "action-grid" }, actionList(v, ctx).map((a) => actionTile(a, () => d.close()))));
 }
 
-function anotherSheet(v, ctx) {
-  const change = h("textarea", { id: "another-change", placeholder: "e.g. A 30-second vertical cut for Reels", maxlength: "2000" });
+function anotherSheet(v, ctx, { title = "Make more from this video", placeholder = "e.g. A 30-second vertical cut for Reels" } = {}) {
+  const change = h("textarea", { id: "another-change", placeholder, maxlength: "2000" });
   const fmt = h("select", { id: "another-format" }, ["9:16", "16:9", "1:1", "4:5"].map((a) => h("option", {}, a)));
-  const d = sheet("Make more from this video", h("div", { class: "field" }, h("label", { for: "another-change" }, "What should be different?"), change),
+  const d = sheet(title, h("p", { class: "small muted" }, "This creates an editing request. Your current video stays as it is."),
+    h("div", { class: "field" }, h("label", { for: "another-change" }, "What should be different?"), change),
     h("div", { class: "field" }, h("label", { for: "another-format" }, "Shape"), fmt),
     h("button", { class: "btn primary", onclick: async () => {
       try { const r = await svc.videoAction(v.id, "another", { change: change.value.trim() || "see notes", aspect: fmt.value }); d.close(); toast(`Requested: ${r.title}`); ctx.refresh(); } catch (e) { toast(e.message, "err"); } } }, "Send request"));

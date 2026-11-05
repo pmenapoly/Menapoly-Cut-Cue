@@ -55,6 +55,7 @@
   color-scheme: light;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--ink); color: var(--text); font: 16px/1.5 var(--body); -webkit-tap-highlight-color: transparent; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--night); }
@@ -687,3 +688,160 @@ a.pipe-step:hover { box-shadow: var(--shadow-1); }
 .file-chip[aria-pressed="true"] { background: var(--lilac); border-color: var(--accent); color: var(--accent-strong); }
 .next-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
 .draft-room .status-card .status-head { font-size: clamp(22px, 5vw, 28px); }
+
+/* ---------- Reference layouts: a review canvas + a simple cut library ----------
+   The review room borrows the large viewer / feedback split and the compact rail.
+   The cut cards and touch toolbelt keep the mobile editing flow approachable.
+   Colours, type and all components remain Cue's; no third-party UI code is used. */
+.reference-room-head { gap: 12px; padding: 0 2px; }
+.room-breadcrumb { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-height: 36px; font-size: 12.5px; color: var(--faint); }
+.room-breadcrumb a { color: var(--faint); text-decoration: none; min-height: 36px; display: inline-flex; align-items: center; }
+.room-breadcrumb a:hover { color: var(--accent); }
+.room-breadcrumb [aria-current] { color: var(--accent-strong); font-weight: 700; }
+.room-breadcrumb .back-link { font-weight: 500; }
+.reference-room-head .room-title { font-size: clamp(24px, 3vw, 31px); line-height: 1.16; }
+.reference-room-head .room-head-actions { flex: none; gap: 4px; }
+.reference-room-head .room-focus { background: var(--surface); white-space: nowrap; }
+.reference-room { gap: 18px; }
+.reference-room [hidden] { display: none !important; }
+.reference-room > .room-main, .reference-room > .room-side { display: grid; gap: 18px; }
+.room-viewer { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow-1); }
+.player-toolbar { gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.player-toolbar-label { display: inline-flex; align-items: center; gap: 6px; color: var(--faint); font-size: 12.5px; padding-right: 4px; }
+.player-toolbar select { flex: 1 1 160px; min-height: 40px; border-color: transparent; background: var(--surface-2); max-width: 240px; font-size: 13px; font-weight: 700; }
+.player-toolbar .btn { min-height: 40px; border-color: transparent; background: transparent; padding-inline: 9px; font-size: 12.5px; }
+.room-viewer .vp { border: 0; border-radius: 0; box-shadow: none; }
+.room-viewer .vp-stage { min-height: 200px; aspect-ratio: 16 / 9; background: #100D19; }
+.room-viewer .vp-stage video { width: 100%; height: 100%; max-height: 58vh; object-fit: contain; }
+.room-viewer .vp-bar { padding: 8px 14px 10px; }
+.room-viewer .vp-row { gap: 4px; }
+.room-viewer .vp-row > .vp-btn:first-child { background: transparent; color: #FFFFFF; }
+.room-viewer .vp-track::before { height: 3px; top: 14px; }
+.room-viewer .vp-played { height: 3px; top: 14px; }
+.reference-room .status-card { padding: 18px; gap: 10px; border-radius: 18px; }
+.reference-room .status-card .status-head { font-family: var(--display); font-size: 23px; font-weight: 700; }
+.reference-room .status-card .decide .btn { min-height: 46px; font-size: 13.5px; border-radius: 12px; }
+.room-revision-details { border-top: 1px solid rgb(51 36 80 / .12); padding-top: 8px; font-size: 13px; }
+.room-revision-details summary { display: flex; align-items: center; gap: 8px; min-height: 36px; cursor: pointer; font-weight: 700; }
+.room-revision-details summary::after { content: "+"; font-size: 18px; margin-left: 4px; }
+.room-revision-details[open] summary::after { content: "−"; }
+.room-revision-details summary > span { margin-left: auto; color: var(--muted); }
+.room-revision-details .revisions { margin-top: 6px; }
+.room-old-version { display: grid; gap: 8px; grid-column: 1 / -1; padding: 12px; background: rgb(255 255 255 / .7); border-radius: 12px; }
+.room-old-version .btn { justify-self: start; }
+.reference-room .room-side { background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 18px; box-shadow: var(--shadow-1); }
+.room-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.room-side-head .eyebrow { font-size: 12px; letter-spacing: .06em; }
+.room-side-head h2 { font-size: 21px; margin-top: 4px; }
+.feedback-count { display: inline-flex; gap: 6px; align-items: center; min-height: 34px; padding: 0 10px; background: var(--lilac); border-radius: 11px; color: var(--accent-strong); font-size: 13px; font-weight: 700; }
+.reference-room .room-tabs { border-radius: 12px; background: var(--surface-2); gap: 3px; padding: 4px; }
+.reference-room .room-tabs .tab { flex: 1 1 auto; padding: 7px 9px; font-size: 12.5px; min-height: 38px; }
+.reference-room .room-panel { gap: 14px; }
+.reference-room .room-panel > .btn { min-height: 44px; font-size: 13px; }
+.reference-room .room-panel .tabs { gap: 3px; }
+.reference-room .room-panel .tabs .tab { font-size: 12.5px; padding: 5px 8px; }
+.reference-room .room-panel .check { font-size: 12.5px; }
+.reference-room .note { background: var(--ink); border: 1px solid var(--line); border-radius: 15px; padding: 14px; }
+.reference-room .note.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--lilac); }
+.reference-room .note > p { font-size: 14px; line-height: 1.6; }
+.reference-room .note .avatar { background: var(--sky); color: var(--sky-ink); }
+.reference-room .note .ts { border: 0; background: var(--lilac); color: var(--accent-strong); font-size: 12px; border-radius: 7px; }
+.reference-room .note .chip { font-size: 12px; }
+.reference-room .note .btn { min-height: 38px; padding: 6px 10px; font-size: 12.5px; }
+.reference-room .note input { min-width: 0; min-height: 40px; font-size: 13px; background: var(--surface); }
+.reference-room .composer-card { border: 1px solid var(--line-strong); background: var(--lilac); border-radius: 18px; }
+.edit-toolbelt { min-width: 0; padding: 18px; background: linear-gradient(115deg, #F2ECFF, #EDF7FF); border: 1px solid #E5DDF5; border-radius: 18px; display: grid; gap: 14px; }
+.edit-toolbelt-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.edit-toolbelt-head .eyebrow { font-size: 12px; letter-spacing: .04em; }
+.edit-toolbelt-head h2 { font-size: 21px; margin-top: 3px; }
+.edit-toolbelt-head > span { max-width: 150px; text-align: right; font-size: 12px; }
+.edit-tool-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.edit-tool { display: grid; justify-items: center; align-content: center; gap: 8px; min-height: 76px; padding: 10px 4px; background: var(--surface); color: var(--text); border: 1px solid rgb(207 199 230 / .7); border-radius: 13px; font-size: 12.5px; font-weight: 700; cursor: pointer; transition: transform .15s var(--ease), border-color .15s var(--ease); }
+.edit-tool:hover { transform: translateY(-2px); border-color: var(--accent); }
+.edit-tool .icon { color: var(--accent-strong); }
+.edit-tool.cue-tool { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+.edit-tool.cue-tool .icon { color: var(--on-accent); }
+.cut-library { display: grid; gap: 12px; min-width: 0; padding: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; }
+.cut-library-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; }
+.cut-library-head h2 { font-size: 17px; }
+.cut-library-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.cut-card { padding: 3px; min-width: 0; text-align: left; background: var(--surface); border: 1.5px solid var(--line); border-radius: 13px; cursor: pointer; color: var(--text); }
+.cut-card:hover { border-color: var(--accent); }
+.cut-card.selected { border-color: var(--accent); background: var(--lilac); box-shadow: 0 0 0 2px var(--lilac); }
+.cut-cover { display: block; position: relative; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 9px; background: var(--stage); }
+.cut-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cut-label { position: absolute; left: 6px; top: 6px; padding: 2px 6px; border-radius: 5px; background: #FFFFFF; color: #332450; font-size: 12px; font-weight: 800; }
+.cut-play { display: grid; place-items: center; position: absolute; right: 6px; top: 6px; width: 24px; height: 24px; border-radius: 50%; background: #FFFFFF; color: var(--accent-strong); }
+.cut-duration { position: absolute; right: 6px; bottom: 5px; font-size: 12px; color: #FFFFFF; background: rgb(16 13 25 / .8); padding: 2px 4px; border-radius: 4px; }
+.cut-meta { display: grid; gap: 2px; padding: 7px 5px; }
+.cut-meta b { font-size: 12px; font-weight: 700; }
+.cut-meta > span { font-size: 12px; color: var(--faint); }
+.reference-room.room-focused { grid-template-columns: minmax(0, 1fr); }
+.reference-room.room-focused > .room-side { display: none; }
+@media (max-width: 480px) {
+  .reference-room-head > .row.nowrap { flex-wrap: wrap; gap: 10px; }
+  .reference-room-head .room-head-actions { margin-left: auto; }
+  .reference-room-head .room-focus { gap: 0; min-width: 44px; width: 44px; min-height: 44px; padding: 0; }
+  .reference-room-head .room-focus-label { display: none; }
+  .reference-room .room-side { padding: 14px; }
+  .player-toolbar-label { display: none; }
+  .player-toolbar { padding: 8px; }
+  .player-toolbar select { flex-basis: 100%; max-width: none; }
+  .player-toolbar .btn { flex: 1; }
+  .room-viewer .vp-stage { min-height: 0; }
+  .room-viewer .vp-bar { padding-inline: 8px; }
+  .room-viewer .vp-vol { width: 64px; }
+  .edit-toolbelt, .cut-library { padding: 14px; }
+  .edit-toolbelt-head { align-items: flex-start; }
+  .edit-toolbelt-head > span { max-width: 96px; }
+  .edit-tool-grid { gap: 5px; }
+  .edit-tool { min-height: 78px; font-size: 12px; border-radius: 11px; }
+  .edit-toolbelt-head h2 { font-size: 19px; }
+  .cut-library-grid { gap: 6px; }
+  .cut-label { left: 4px; top: 4px; font-size: 12px; }
+  .cut-play { right: 4px; top: 4px; width: 22px; height: 22px; }
+  .cut-meta { padding-inline: 2px; }
+}
+@media (max-width: 1023px) {
+  .reference-room .btn, .reference-room .tab, .reference-room select, .reference-room .note .btn { min-height: 44px; }
+}
+@media (min-width: 1024px) {
+  body:has(.reference-room) { --rail-w: 82px; }
+  body:has(.reference-room) .rail { padding-inline: 12px; gap: 8px; }
+  body:has(.reference-room) .rail .brand { justify-content: center; padding: 0 0 18px; }
+  body:has(.reference-room) .rail .brand > span:last-child, body:has(.reference-room) .rail .group { display: none; }
+  body:has(.reference-room) .rail > a:not(.brand) { font-size: 0; justify-content: center; padding: 0; gap: 0; position: relative; }
+  body:has(.reference-room) .rail .count { position: absolute; right: 0; top: 0; font-size: 10px; padding: 0 4px; }
+  body:has(.reference-room) .rail > a[href="#library"], body:has(.reference-room) .rail > a[href="#settings"] { margin-top: 20px; }
+  main:has(> .reference-room) { max-width: 1760px; padding: 20px 24px 40px; gap: 20px; }
+  .reference-room { grid-template-columns: minmax(0, 1fr) minmax(320px, 364px); gap: 22px; }
+  .reference-room > .room-side { top: 118px; max-height: calc(100dvh - 138px); gap: 16px; scrollbar-width: thin; }
+  .reference-room .status-card:has(> .decide) { grid-template-columns: minmax(0, 1fr) minmax(270px, .85fr); gap: 6px 18px; }
+  .reference-room .status-card > .eyebrow, .reference-room .status-card > h2, .reference-room .status-card > .small.muted { grid-column: 1; }
+  .reference-room .status-card > .decide { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+  .reference-room .status-card > .room-revision-details, .reference-room .status-card > .progress { grid-column: 1 / -1; }
+  .reference-room .status-card > .stack { grid-column: 1 / -1; }
+}
+@media (min-width: 1500px) {
+  .reference-room { grid-template-columns: minmax(0, 1fr) minmax(340px, 390px); }
+}
+
+/* A batch is a tray of actual selected files, with individual remove controls. */
+.batch-upload-sheet [hidden] { display: none !important; }
+.batch-upload-sheet .sheet-body { gap: 18px; }
+.batch-upload-sheet .upload-dropzone { display: flex; gap: 12px; min-height: 82px; border: 1.5px dashed #A3BFE2; background: linear-gradient(120deg, #F2ECFF, #EAF5FF); border-radius: 16px; color: var(--accent-strong); box-shadow: none; }
+.batch-upload-sheet .upload-dropzone .icon { width: 28px; height: 28px; }
+.upload-grid { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0; margin: 0; }
+.upload-grid:empty { display: none; }
+.upload-cut-card { display: grid; gap: 4px; min-width: 0; position: relative; padding: 5px 5px 9px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.upload-cut-poster { display: grid; place-items: center; position: relative; aspect-ratio: 4 / 5; background: linear-gradient(145deg, var(--lilac), var(--sky)); border-radius: 10px; overflow: hidden; color: var(--accent-strong); }
+.upload-cut-poster img, .upload-cut-poster video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.upload-cut-number { position: absolute; bottom: 7px; left: 7px; border-radius: 6px; background: #FFFFFF; color: var(--accent-strong); padding: 2px 7px; font-size: 12px; font-weight: 800; }
+.upload-cut-remove { position: absolute; top: 2px; right: 2px; display: grid; place-items: center; width: 44px; height: 44px; border: 0; background: transparent; color: var(--text); cursor: pointer; }
+.upload-cut-remove .icon { box-sizing: content-box; width: 16px; height: 16px; padding: 5px; background: #FFFFFF; border-radius: 50%; box-shadow: var(--shadow-1); }
+.upload-cut-card > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 4px 0; font-size: 12.5px; }
+.upload-cut-card > .tiny { padding: 0 4px; font-size: 12px; }
+.upload-add-slot { min-width: 0; display: flex; padding-bottom: 43px; }
+.upload-add-slot > button { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; width: 100%; min-height: 140px; border: 1.5px dashed #B9ADD7; background: var(--ink); border-radius: 14px; color: var(--accent-strong); font-size: 12.5px; cursor: pointer; padding: 10px; }
+.batch-upload-sheet #up-go { width: 100%; min-height: 52px; border-radius: 13px; background: linear-gradient(110deg, #6D3FE0, #5156C9); }
+@media (max-width: 480px) { .upload-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }

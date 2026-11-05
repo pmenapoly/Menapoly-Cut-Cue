@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Local server for the Studio preview, used by the Playwright tests and for trying it on a laptop.
 
-Serves studio-preview/ and wraps index.html in the same minimal skeleton the artifact host adds (doctype, charset,
-viewport with viewport-fit=cover, small reset), so local runs match the published preview.
+Serves studio-preview/. Older fragment-style index files are wrapped in a minimal
+skeleton; a complete HTML document is served unchanged, matching ordinary static hosting.
 
     python3 studio-preview/tools/serve.py --port 8799
 """
@@ -26,7 +26,8 @@ body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display
 class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):  # noqa: N802
         if self.path.split("?")[0] in ("/", "/index.html"):
-            body = SKELETON.replace("{body}", (ROOT / "index.html").read_text()).encode()
+            source = (ROOT / "index.html").read_text()
+            body = (source if source.lstrip().lower().startswith("<!doctype html") else SKELETON.replace("{body}", source)).encode()
             self.send_response(200)
             self.send_header("content-type", "text/html; charset=utf-8")
             self.send_header("content-length", str(len(body)))

@@ -104,7 +104,7 @@ export function createPlayer({ media, label, markers = () => [], onMarker = () =
   drawTrack();
   return {
     el, video,
-    setMedia(m, label2) { duration = m.duration || 0; video.pause(); setSources(video, m); video.setAttribute("aria-label", label2 || label); drawTrack(); },
+    setMedia(m, label2) { duration = m.duration || 0; video.pause(); setSources(video, m); video.setAttribute("aria-label", label2 || label); el.setAttribute("aria-label", `Player: ${label2 || label}`); drawTrack(); },
     seek(t) { video.pause(); video.currentTime = t; drawTrack(); paint(); },
     pause() { video.pause(); },
     time: () => video.currentTime || 0,

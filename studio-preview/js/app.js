@@ -101,10 +101,10 @@ function buildShell() {
   const tok = section(current());
   root.replaceChildren(
     h("nav", { class: "rail", "aria-label": "Main" },
-      h("a", { class: "brand", href: "#home" }, h("span", { class: "mark" }, markSvg()), h("span", {}, h("b", {}, "Menapoly Cue"), h("small", {}, "Studio preview"))),
+      h("a", { class: "brand", href: "#home", "aria-label": "Menapoly Cue home" }, h("span", { class: "mark" }, markSvg()), h("span", {}, h("b", {}, "Menapoly Cue"), h("small", {}, "Studio preview"))),
       ...["Workspace", "Resources", "Menapoly"].flatMap((g) => {
         const items = NAV.filter((n) => n.group === g && allowed(n));
-        return items.length ? [h("div", { class: "group" }, g), ...items.map((n) => h("a", { href: `#${n.token}`, class: tok === n.token ? "on" : "", "aria-current": tok === n.token ? "page" : null },
+        return items.length ? [h("div", { class: "group" }, g), ...items.map((n) => h("a", { href: `#${n.token}`, title: n.label, class: tok === n.token ? "on" : "", "aria-current": tok === n.token ? "page" : null },
           icon(n.icon, 20), n.label, n.token === "inbox" && unread ? h("span", { class: "count" }, unread) : null))] : [];
       })),
     h("div", { class: "app" },
