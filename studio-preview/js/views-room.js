@@ -83,6 +83,8 @@ function requestCard(r, p, me, editors, ctx) {
 }
 
 /* ============================== Editing Room ============================== */
+const wide = typeof matchMedia === "function" ? matchMedia("(min-width: 1024px)") : { matches: false, addEventListener() {}, removeEventListener() {} };
+
 export async function roomView(out, [vid], ctx) {
   const v = await svc.video(vid), me = svc.me();
   const m = memo.get(vid) || {};
@@ -113,6 +115,7 @@ export async function roomView(out, [vid], ctx) {
           e.currentTarget.setAttribute("aria-pressed", String(on));
           e.currentTarget.replaceChildren(icon(on ? "grid" : "expand", 16), h("span", { class: "room-focus-label" }, on ? "Show feedback" : "Focus view"));
           e.currentTarget.setAttribute("aria-label", on ? "Show feedback panel" : "Focus on the video");
+          placeStatus();
         } }, icon("expand", 16), h("span", { class: "room-focus-label" }, "Focus view")),
         h("button", { class: "iconbtn", "aria-label": "More actions", onclick: () => actionsSheet(v, ctx) }, icon("more", 24)))),
     h("div", { class: "row" }, h("span", { class: "status", "data-tone": statusInfo(v.status).tone, "data-status": v.status }, icon(statusInfo(v.status).icon, 13), v.status),
@@ -391,12 +394,22 @@ export async function roomView(out, [vid], ctx) {
       h("button", { class: "edit-tool", onclick: () => anotherSheet(v, ctx, { title, placeholder }) }, icon(ic, 22), h("span", {}, label))),
       h("button", { class: "edit-tool cue-tool", onclick: () => openMaven(ctx, "Suggest a new version") }, icon("spark", 22), h("span", {}, "Ask Cue")))) : null;
   drawStatus(); drawTab(); drawVersionDock();
-  out.append(header, h("div", { class: "room reference-room" },
+  const sideHead = h("div", { class: "room-side-head" }, h("div", {}, h("span", { class: "eyebrow" }, "Video review"), h("h2", {}, "Feedback & details")),
+    h("span", { class: "feedback-count", "aria-label": `${v.comments.filter((c) => !c.resolved).length} open comments` }, icon("message", 16), String(v.comments.filter((c) => !c.resolved).length)));
+  const roomEl = h("div", { class: "room reference-room" },
     h("div", { class: "room-main stack" }, h("section", { class: "room-viewer", "aria-label": "Video workspace" }, tools, player.el), composerBox, statusCard, toolbelt, versionDock),
-    h("aside", { class: "room-side stack", "aria-label": "Feedback and project details" },
-      h("div", { class: "room-side-head" }, h("div", {}, h("span", { class: "eyebrow" }, "Video review"), h("h2", {}, "Feedback & details")),
-        h("span", { class: "feedback-count", "aria-label": `${v.comments.filter((c) => !c.resolved).length} open comments` }, icon("message", 16), String(v.comments.filter((c) => !c.resolved).length))),
-      tabBar, panel)));
+    h("aside", { class: "room-side stack", "aria-label": "Feedback and project details" }, sideHead, tabBar, panel));
+  out.append(header, roomEl);
+  // Desktop: the decision card (approve, request changes, revision rounds) heads Feedback & details, beside the player.
+  // Phones and Focus view: it stays right under the player. The same element moves, so its guards are unchanged.
+  wide.addEventListener("change", placeStatus);
+  placeStatus();
+  function placeStatus() {
+    // Left this room (no longer on the page and no longer being built): stop following the screen width.
+    if (!roomEl.isConnected && !out.contains(roomEl)) { wide.removeEventListener("change", placeStatus); return; }
+    if (wide.matches && !roomEl.classList.contains("room-focused")) sideHead.after(statusCard);
+    else composerBox.after(statusCard);
+  }
   const onChanged = () => { if (location.hash === `#video-${vid}`) ctx.refresh(); };
   document.addEventListener("cue:changed", onChanged, { once: true });
 }

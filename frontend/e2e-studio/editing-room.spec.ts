@@ -349,3 +349,43 @@ test("isolation: Editing Room interactions make no outside requests", async ({ p
   const outside = requests.filter((u) => { const h = new URL(u).hostname; return !["127.0.0.1", "fonts.googleapis.com", "fonts.gstatic.com"].includes(h) && !/^(data|blob):/.test(u); });
   expect(outside).toEqual([]);
 });
+
+test("desktop review: decisions head Feedback & details and the whole player fits on screen; phones keep the card under the player", async ({ page }) => {
+  const sizes = phone() ? [[proj() === "android-360" ? 360 : 430, proj() === "android-360" ? 780 : 932]] : [[1024, 768], [1280, 800], [1440, 900]];
+  for (const [w, hgt] of sizes) {
+    await page.setViewportSize({ width: w, height: hgt });
+    await open(page, "video-v_launch");
+    const approve = page.getByRole("button", { name: "Approve video" }), changes = page.getByRole("button", { name: "Request changes" });
+    const geo = await page.evaluate(() => {
+      const r = (s: string) => document.querySelector(s)!.getBoundingClientRect();
+      const card = document.querySelector(".status-card")!;
+      return { inSide: Boolean(card.closest(".room-side")), afterHead: card.previousElementSibling?.classList.contains("room-side-head") ?? false,
+        barBottom: r(".room-viewer .vp-bar").bottom, play: r(".room-viewer .vp-btn").bottom, h: innerHeight };
+    });
+    if (phone()) {
+      expect(geo.inSide, `${w}px: card stays under the player on phones`).toBe(false);
+      await expect(page.locator(".room-main > .room-viewer + * + .status-card, .room-main > .room-viewer + .status-card")).toHaveCount(1);
+    } else {
+      expect(geo.inSide && geo.afterHead, `${w}×${hgt}: decision card heads Feedback & details`).toBe(true);
+      expect(geo.barBottom, `${w}×${hgt}: Play and the timeline are visible without scrolling`).toBeLessThanOrEqual(geo.h);
+      await expect(approve).toBeInViewport(); await expect(changes).toBeInViewport();
+      // Earlier cut: the latest-version guard still disables both decisions in their new place
+      await page.getByRole("button", { name: "Watch Version 1" }).click();
+      await expect(page.locator(".room-side .room-old-version")).toBeVisible();
+      await expect(approve).toBeDisabled(); await expect(changes).toBeDisabled();
+      await page.getByRole("button", { name: "Watch latest version" }).click();
+      await expect(approve).toBeEnabled();
+      // Focus view hides the side panel, so the card returns under the player and stays usable
+      await page.getByRole("button", { name: "Focus on the video" }).click();
+      await expect(page.locator(".room-main > .status-card")).toBeVisible();
+      await expect(approve).toBeVisible();
+      await page.getByRole("button", { name: "Show feedback panel" }).click();
+      await expect(page.locator(".room-side > .status-card")).toBeVisible();
+    }
+    await noSideScroll(page);
+  }
+  // Roles unchanged: editors never see the decision buttons, wherever the card sits
+  await asRole(page, "u_sam");
+  await open(page, "video-v_launch");
+  await expect(page.getByRole("button", { name: "Approve video" })).toHaveCount(0);
+});

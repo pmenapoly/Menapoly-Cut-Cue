@@ -818,11 +818,12 @@ a.pipe-step:hover { box-shadow: var(--shadow-1); }
   main:has(> .reference-room) { max-width: 1760px; padding: 20px 24px 40px; gap: 20px; }
   .reference-room { grid-template-columns: minmax(0, 1fr) minmax(320px, 364px); gap: 22px; }
   .reference-room > .room-side { top: 118px; max-height: calc(100dvh - 138px); gap: 16px; scrollbar-width: thin; }
-  .reference-room .status-card:has(> .decide) { grid-template-columns: minmax(0, 1fr) minmax(270px, .85fr); gap: 6px 18px; }
-  .reference-room .status-card > .eyebrow, .reference-room .status-card > h2, .reference-room .status-card > .small.muted { grid-column: 1; }
-  .reference-room .status-card > .decide { grid-column: 2; grid-row: 1 / 4; align-self: center; }
-  .reference-room .status-card > .room-revision-details, .reference-room .status-card > .progress { grid-column: 1 / -1; }
-  .reference-room .status-card > .stack { grid-column: 1 / -1; }
+  /* Two columns only while the card sits in the wide main column (Focus view); in the side panel it stacks. */
+  .reference-room .room-main > .status-card:has(> .decide) { grid-template-columns: minmax(0, 1fr) minmax(270px, .85fr); gap: 6px 18px; }
+  .reference-room .room-main > .status-card > .eyebrow, .reference-room .room-main > .status-card > h2, .reference-room .room-main > .status-card > .small.muted { grid-column: 1; }
+  .reference-room .room-main > .status-card > .decide { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+  .reference-room .room-main > .status-card > .room-revision-details, .reference-room .room-main > .status-card > .progress { grid-column: 1 / -1; }
+  .reference-room .room-main > .status-card > .stack { grid-column: 1 / -1; }
 }
 @media (min-width: 1500px) {
   .reference-room { grid-template-columns: minmax(0, 1fr) minmax(340px, 390px); }
@@ -847,3 +848,13 @@ a.pipe-step:hover { box-shadow: var(--shadow-1); }
 .upload-add-slot > button { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; width: 100%; min-height: 140px; border: 1.5px dashed #B9ADD7; background: var(--ink); border-radius: 14px; color: var(--accent-strong); font-size: 12.5px; cursor: pointer; padding: 10px; }
 .batch-upload-sheet #up-go { width: 100%; min-height: 52px; border-radius: 13px; background: linear-gradient(110deg, #6D3FE0, #5156C9); }
 @media (max-width: 480px) { .upload-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }
+
+/* Desktop Editing Room: Play and the timeline stay on screen without scrolling (1024 × 768 and up). The stage keeps
+   16:9 until the window is too short, then letterboxes. Phones keep the full-width 16:9 stage. */
+@media (min-width: 1024px) {
+  .reference-room .room-viewer .vp-stage { width: 100%; max-height: max(200px, calc(100dvh - 520px)); }
+  .reference-room .room-side > .status-card { box-shadow: none; }
+}
+@media (min-width: 1280px) {
+  .reference-room .room-viewer .vp-stage { max-height: max(200px, calc(100dvh - 480px)); }
+}
