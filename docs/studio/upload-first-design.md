@@ -1,8 +1,8 @@
 # Upload-first Editing Room: audit, data model and plan
 
 Branch `menapoly-cue-studio-preview`. The design (commit `d42e1f1`) was approved with three refinements, listed below.
-**Phase 1 (data model and migration) and Phase 2 (upload → draft room) are implemented**: see the sections at the end.
-Phases 3–8 wait for approval. The
+**Phases 1 (data model and migration), 2 (upload → draft room) and 3 (client briefing) are implemented**: see the
+sections at the end. Phases 4–8 wait for approval. The
 designs are on the private canvas **Cue Upload-first Room**. Home stays exactly as it is.
 
 ## Approved refinements (they override anything below that disagrees)
@@ -377,3 +377,63 @@ Nothing is uploaded anywhere. Production R2, D1 and media processing are not use
 - **Document previews:** documents show their name and size only.
 - **Browser-only checks:** every rule is enforced in the browser against a mock, so it isn't security. Production
   needs the server checks in §7.
+
+---
+
+## Phase 3: implemented (client briefing in the draft room)
+
+### The journey
+
+1. **The draft room has the brief.** Uploading opens the draft room with a readiness card and **Your creative brief**:
+   - the title;
+   - what the video should achieve;
+   - the editing instructions;
+   - where it will run (platform chips) and its shape (aspect chips);
+   - when you'd like it, labelled as a request and not a promise;
+   - **More details (optional):** length, brand notes, references (links or descriptions), look and pacing, music, and
+     captions.
+2. **It saves as you type** and shows "Saved · revision N".
+3. **The readiness card** ticks off title, desired outcome, editing instructions, and platforms or shape, plus the
+   optional date. **Mark ready to submit** stays disabled until those four are done. The stage chip moves from
+   Uploaded → Preparing instructions → Ready to submit.
+4. **Submit editing request** sends the request and freezes the brief as the original instructions. The same
+   `#video-<id>` link then opens the normal Editing Room. Until Menapoly sets an estimate, its header shows "Requested
+   by …".
+5. **From then on, production proceeds as before:** admins are notified, the request waits in *Needs an editor*,
+   editors see it once assigned, and no revision round is used.
+
+### Rules
+
+- **Autosave:** each change is saved through `svc.saveBrief` with the revision it was based on, one save at a time.
+  - If another tab saved first, the save is refused (409). The room says so and shows the latest version; the other
+    tab's change is never overwritten.
+  - Unsaved typing waits in `sessionStorage`. After a reload or a closed tab it's restored and saved, if the brief
+    hasn't moved on since; otherwise the room says it couldn't be restored.
+- **Losing readiness:** removing an essential from a *ready* brief returns it to draft (Phase 1 rule).
+- **Submitting:** this flushes pending changes first and is idempotent, so a double tap still makes one request.
+  After submission the brief can't be edited (409).
+- **Who can prepare a brief:** clients of the workspace and Menapoly administrators. Editors and other workspaces
+  can't.
+
+### Changed for this phase
+
+| File | Change |
+|---|---|
+| `studio-preview/js/views-brief.js` | New: the brief form, autosave, readiness, Mark ready and Submit |
+| `studio-preview/js/views-draft.js` | The draft room uses the brief panel; the stage chip follows it |
+| `studio-preview/js/views-room.js` | A "Requested by …" chip until an estimate exists |
+| `studio-preview/js/service.js` | `video().request.requestedDate` |
+| `studio-preview/styles.css` | Readiness list, choice chips and brief form |
+| `frontend/e2e-studio/briefing.spec.ts` | New: 5 tests (autosave and reload, a two-tab race, ready/submit, roles, axe and layout) |
+| `frontend/e2e-studio/upload-first.spec.ts` | The readiness card replaces "What happens next" |
+| `frontend/playwright.studio.config.ts` | Optional `PW_CHROMIUM_PATH` for an already-installed Chromium |
+
+### Limitations
+
+- **Text only:** drawing on frames and voice notes are Phase 4. Timestamped text notes are also not on screen yet;
+  the service supports them.
+- **After submission:** later changes go in comments as before. The "added after submission" notes view is Phase 5.
+- **Editor view:** the Editing Room's Instructions tab shows the submitted brief's text, but there is no side-by-side
+  "original vs later" view for editors yet (Phase 5).
+- **Browser-only checks:** every rule runs in the browser against a mock and isn't security; production needs the
+  server checks in §7.

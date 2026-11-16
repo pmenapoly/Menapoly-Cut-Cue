@@ -7,12 +7,12 @@ import { svc } from "./service.js";
 import { createPlayer } from "./player.js";
 import { deviceStore } from "./local-media.js";
 import { acceptedFile } from "./rooms.js";
+import { briefPanel } from "./views-brief.js";
 
 const KEEP_LIMIT = 500 * 1024 ** 2; // the preview keeps files up to 500 MB on the device; larger ones stay for the session
 const device = deviceStore();
 const playable = (f) => /^(video|audio|image)\//.test(f.type);
 const newOpId = () => `op_${(globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`).replace(/[^A-Za-z0-9]/g, "")}`.slice(0, 60);
-const STAGE_HELP = { Uploaded: "Your footage is here. Next, explain what you'd like made from it.", "Preparing instructions": "You've started your instructions. Finish them whenever you're ready." };
 
 /** Keeps the picked file on this device when possible and records where it lives. Returns a warning, or null. */
 async function keepLocally(asset, file) {
@@ -177,7 +177,10 @@ export async function draftRoomView(out, [rid], ctx) {
       icon(kindIcon(a.kind), 16), h("span", {}, a.name), a.id === rm.mainAssetId ? h("span", { class: "tiny" }, "Main") : null))) : null;
   drawStage();
 
-  const missing = rm.brief?.missing || [];
+  const stageChip = h("span", { class: "status", "data-tone": "draft", "data-status": rm.stage }, icon(rm.stage === "Uploaded" ? "upload" : "pen", 13), rm.stage);
+  // Clients and administrators prepare the brief; it updates the stage chip as it fills in.
+  const brief = canEdit && rm.brief ? briefPanel(rm, ctx, { onStage: (st) => { if (stageChip.dataset.status !== st) {
+    stageChip.dataset.status = st; stageChip.replaceChildren(icon(st === "Uploaded" ? "upload" : st === "Ready to submit" ? "check" : "pen", 13), st); } } }) : null;
   out.append(h("div", { class: "room draft-room", "data-room": rm.id },
     h("div", { class: "room-main" },
       h("header", { class: "room-head" },
@@ -185,22 +188,14 @@ export async function draftRoomView(out, [rid], ctx) {
         h("h1", { class: "room-title" }, rm.title),
         h("p", { class: "small faint" }, `${rm.workspace} · ${rm.projectName}`),
         h("div", { class: "row" },
-          h("span", { class: "status", "data-tone": "draft", "data-status": rm.stage }, icon(rm.stage === "Uploaded" ? "upload" : "pen", 13), rm.stage),
+          stageChip,
           h("span", { class: "chip", "data-draft": "" }, "Draft — not submitted"),
           h("span", { class: "chip" }, icon("clock", 13), `Started ${ago(rm.createdAt)} by ${rm.byName}`))),
       saved.ok ? null : h("p", { class: "notice warn", role: "alert" }, icon("alert", 16), saved.message),
       stageBox, strip),
     h("aside", { class: "room-side" },
-      h("section", { class: "card status-card", "data-tone": "waiting", "aria-label": "What happens next" },
-        h("span", { class: "eyebrow" }, icon("pen", 14), "Draft · not submitted"),
-        h("h2", { class: "status-head editorial" }, STAGE_HELP[rm.stage] ? "Your Editing Room is ready" : rm.stage),
-        h("p", { class: "small" }, STAGE_HELP[rm.stage] || ""),
-        h("p", { class: "small muted" }, "Nothing has gone to Menapoly yet: no editing request, no editor and no revision rounds used. You can leave and come back to this draft any time."),
-        h("ol", { class: "next-steps small" },
-          h("li", {}, h("b", {}, "Prepare your instructions. "), "Writing, drawing on frames and voice notes come in the next update of this preview."),
-          h("li", {}, h("b", {}, "Submit the editing request "), "when it's ready. That's when production starts."),
-          h("li", {}, h("b", {}, "Menapoly assigns an editor "), "and you review the versions here, in the same room.")),
-        missing.length ? h("p", { class: "tiny faint" }, `Still needed before you can submit: ${missing.join(", ").toLowerCase()}.`) : null),
+      brief?.readiness,
+      brief?.form,
       h("section", { class: "card", "aria-label": "Source files" },
         h("div", { class: "section-head" }, h("h2", {}, `Source files (${assets.length})`),
           canEdit ? h("button", { class: "btn sm", onclick: () => uploadSheet(ctx, { roomId: rm.id, projectId: rm.projectId }) }, icon("plus", 16), "Add a file") : null),

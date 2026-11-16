@@ -14,7 +14,8 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${PORT}`,
     trace: "retain-on-failure",
     actionTimeout: 15_000,
-    launchOptions: { args: process.getuid?.() === 0 ? ["--no-sandbox"] : [] },
+    // PW_CHROMIUM_PATH: use an already-installed Chromium when this Playwright version's own build isn't present.
+    launchOptions: { args: process.getuid?.() === 0 ? ["--no-sandbox"] : [], executablePath: process.env.PW_CHROMIUM_PATH || undefined },
   },
   projects: [
     { name: "android-360", use: { ...devices["Pixel 7"], viewport: { width: 360, height: 780 } } },

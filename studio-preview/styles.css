@@ -858,3 +858,26 @@ a.pipe-step:hover { box-shadow: var(--shadow-1); }
 @media (min-width: 1280px) {
   .reference-room .room-viewer .vp-stage { max-height: max(200px, calc(100dvh - 480px)); }
 }
+
+/* ---------- Upload-first briefing (js/views-brief.js) ---------- */
+.readiness { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; }
+.readiness li { display: flex; align-items: center; gap: 8px; }
+.readiness .tick { width: 20px; height: 20px; flex: none; display: grid; place-items: center; border-radius: 50%; border: 2px solid var(--line-strong); color: #FFFFFF; }
+.readiness li[data-ok="true"] .tick { background: var(--ok); border-color: var(--ok); }
+.readiness li.optional { color: var(--muted); }
+.brief-readiness [data-save="error"] { color: var(--danger); font-weight: 700; }
+.brief-form { gap: 14px; }
+.brief-form label, .picks legend { font-weight: 700; font-size: 14px; }
+.picks { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 8px; }
+.picks legend { padding: 0; margin-bottom: 8px; }
+.pick-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.pick { position: relative; display: inline-flex; }
+.pick input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; min-height: 0; cursor: pointer; }
+.pick span { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-strong);
+  background: var(--surface); font-size: 14px; font-weight: 650; }
+.pick input:checked + span { background: var(--lilac); border-color: var(--accent); color: var(--accent-strong); }
+.pick input:checked + span::before { content: "✓"; margin-right: 6px; }
+.pick input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+.brief-more { border-top: 1px solid var(--line); padding-top: 4px; display: grid; gap: 14px; }
+.brief-more summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; font-weight: 700; font-size: 14px; color: var(--accent-strong); }
+.brief-more[open] { gap: 14px; }

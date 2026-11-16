@@ -67,4 +67,7 @@ Original briefs: docs/brief/CLAUDE_FAST_TRACK.md (priorities) and docs/brief/CLA
   Tests: studio-preview/tests/rooms.test.mjs, e2e-studio/rooms-model.spec.ts.
   Phase 2: js/views-draft.js (Upload & brief sheet, draft room at #video-<id> until a request exists, IndexedDB retention,
   Add file again); drafts listed in Studio/project/Library for clients+admins only. e2e-studio/upload-first.spec.ts.
-  Phases 3+ need the owner's approval.
+  Phase 3: js/views-brief.js (brief form autosaving via saveBrief with expectedRev, unsaved typing stashed in sessionStorage,
+  readiness checklist, Mark ready, Submit editing request → same #video-<id> opens the Editing Room; requested-date chip).
+  e2e-studio/briefing.spec.ts. Playwright: set PW_CHROMIUM_PATH if this version's own Chromium isn't installed.
+  Phases 4+ (drawing/voice notes, editor workspace, review, Maven) need the owner's approval.

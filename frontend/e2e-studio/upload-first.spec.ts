@@ -47,7 +47,7 @@ test("upload opens a draft room automatically: no request, editor, rounds or pro
   await expect(page.getByText("Northwind Roasters · Spring Launch Campaign")).toBeVisible();
   await expect(page.locator(".draft-player .vp")).toBeVisible(); // the footage plays in the dark stage
   await expect(page.locator("[data-storage=device]")).toHaveText(/Saved on this device only: not uploaded/);
-  await expect(page.getByLabel("What happens next")).toContainText("no editing request, no editor and no revision rounds used");
+  await expect(page.getByLabel("Ready to submit?")).toContainText("no editing request, no editor, no revision rounds used");
   expect(await counts(page)).toEqual(before);
   const assets = (await svcCall(page, "assets", { ws: "ws_nw", q: "nw-launch-v1.webm" })).value as any[];
   expect(assets.length).toBe(1);

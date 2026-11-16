@@ -921,7 +921,7 @@ Object.assign(svc, {
     const decisions = r.audit.filter((a) => /approved|requested changes/i.test(a.action)).map((a) => ({ ...a, byName: userName(a.by) }));
     return { ...v, status: roomStatus(v, r), reviewStatus: r.status, projectName: p.name, workspace: state.workspaces.find((w) => w.id === v.ws)?.name,
       editorName: v.editorId ? userName(v.editorId) : null, versions, files, decisions,
-      request: (() => { const q = state.requests.find((x) => x.id === v.requestId); return q ? { id: q.id, status: q.status, assigneeId: q.assigneeId, due: q.due, dueRev: q.dueRev || 0, byName: userName(q.by), type: q.type,
+      request: (() => { const q = state.requests.find((x) => x.id === v.requestId); return q ? { id: q.id, status: q.status, assigneeId: q.assigneeId, due: q.due, dueRev: q.dueRev || 0, requestedDate: q.requestedDate || null, byName: userName(q.by), type: q.type,
         dueHistory: (q.dueHistory || []).map((x) => ({ ...x, byName: userName(x.by) })) } : null; })(),
       editors: user().role === "admin" ? state.users.filter((u) => u.role === "editor").map((u) => ({ id: u.id, name: u.name })) : [],
       comments: r.comments.map((c) => ({ ...c, byName: userName(c.by), assigneeName: c.assigneeId ? userName(c.assigneeId) : null,

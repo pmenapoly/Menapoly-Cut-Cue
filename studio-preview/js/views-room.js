@@ -121,6 +121,8 @@ export async function roomView(out, [vid], ctx) {
     h("div", { class: "row" }, h("span", { class: "status", "data-tone": statusInfo(v.status).tone, "data-status": v.status }, icon(statusInfo(v.status).icon, 13), v.status),
       v.editorName ? h("span", { class: "chip" }, avatar(v.editorName, true), `Editor: ${v.editorName}`) : h("span", { class: "chip" }, "No editor yet"),
       v.request?.due ? h("span", { class: "chip", title: "Target dates are estimates, not guaranteed delivery dates" }, icon("clock", 13), `Target ${fmtDate(v.request.due)} (estimate)`) : null,
+      // The client's requested date, shown until Menapoly sets its own estimate (it's a request, not a promise).
+      v.request?.requestedDate && !v.request.due ? h("span", { class: "chip", "data-requested": "" }, icon("calendar", 13), `Requested by ${fmtDate(v.request.requestedDate)}`) : null,
       me.role === "admin" && v.request && v.status !== "Approved" ? h("button", { class: "btn sm ghost", onclick: () => dueSheet({ ...v.request, title: v.title }, ctx) }, icon("calendar", 16), v.request.due ? "Change target date" : "Set target date") : null));
 
   // ---- under the player ----
